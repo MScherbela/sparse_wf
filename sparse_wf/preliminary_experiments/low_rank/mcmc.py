@@ -1,6 +1,6 @@
-import jax
 import chex
-import functools
+import jax
+
 
 @chex.dataclass
 class MCMCState:
@@ -13,6 +13,7 @@ class MCMCState:
     @property
     def n_el(self):
         return self.r.shape[-2]
+
 
 @jax.vmap
 def single_electron_proposal(rng, r):

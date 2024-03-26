@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sparse_wf"
+version = "0.0.1"
+readme = "README.md"
+dependencies = [
+    "jax>=0.4.20",
+    "jaxlib",
+    "flax",
+    "optax",
+    "chex",
+    "tqdm",
+    "einops",
+    "numpy",
+    "matplotlib"
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pre-commit"
+]
+
+[tool.ruff]
+line-length = 120
