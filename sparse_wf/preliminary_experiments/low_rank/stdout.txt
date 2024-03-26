@@ -1,0 +1,101 @@
+2024-03-26 11:01:25.764953: W external/xla/xla/service/gpu/nvptx_compiler.cc:744] The NVIDIA driver's CUDA version is 11.6 which is older than the ptxas CUDA version (11.8.89). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+Compiling model for n_el=512, n_neighbors=25
+Nr of params: 1,072,352
+Compiling model for n_el=512, n_neighbors=25
+Compiling model for n_el=24, n_neighbors=24
+Compiling model for n_el=512, n_neighbors=24
+Compiling model for n_el=25, n_neighbors=24
+Compiling model for n_el=26, n_neighbors=24
+Compiling model for n_el=24, n_neighbors=25
+Compiling model for n_el=25, n_neighbors=25
+Compiling model for n_el=23, n_neighbors=25
+Step 50/4000
+Step 100/4000
+Compiling model for n_el=26, n_neighbors=25
+Step 150/4000
+Step 200/4000
+Step 250/4000
+Step 300/4000
+Step 350/4000
+Step 400/4000
+Step 450/4000
+Compiling model for n_el=27, n_neighbors=25
+Step 500/4000
+Step 550/4000
+Step 600/4000
+Step 650/4000
+Step 700/4000
+Step 750/4000
+Step 800/4000
+Compiling model for n_el=26, n_neighbors=26
+Compiling model for n_el=512, n_neighbors=26
+Step 850/4000
+Compiling model for n_el=24, n_neighbors=26
+Compiling model for n_el=25, n_neighbors=26
+Step 900/4000
+Step 950/4000
+Compiling model for n_el=27, n_neighbors=26
+Step 1000/4000
+Step 1050/4000
+Step 1100/4000
+Step 1150/4000
+Step 1200/4000
+Step 1250/4000
+Step 1300/4000
+Step 1350/4000
+Step 1400/4000
+Step 1450/4000
+Step 1500/4000
+Step 1550/4000
+Step 1600/4000
+Step 1650/4000
+Step 1700/4000
+Step 1750/4000
+Step 1800/4000
+Step 1850/4000
+Step 1900/4000
+Compiling model for n_el=23, n_neighbors=26
+Step 1950/4000
+Step 2000/4000
+Step 2050/4000
+Step 2100/4000
+Step 2150/4000
+Step 2200/4000
+Step 2250/4000
+Step 2300/4000
+Step 2350/4000
+Step 2400/4000
+Step 2450/4000
+Step 2500/4000
+Step 2550/4000
+Step 2600/4000
+Step 2650/4000
+Step 2700/4000
+Step 2750/4000
+Step 2800/4000
+Step 2850/4000
+Step 2900/4000
+Step 2950/4000
+Step 3000/4000
+Step 3050/4000
+Step 3100/4000
+Step 3150/4000
+Step 3200/4000
+Step 3250/4000
+Step 3300/4000
+Step 3350/4000
+Step 3400/4000
+Compiling model for n_el=28, n_neighbors=26
+Step 3450/4000
+Step 3500/4000
+Step 3550/4000
+Step 3600/4000
+Step 3650/4000
+Step 3700/4000
+Step 3750/4000
+Step 3800/4000
+Step 3850/4000
+Step 3900/4000
+Step 3950/4000
+t update: 0.063281 sec
+t full:   0.249522 sec
