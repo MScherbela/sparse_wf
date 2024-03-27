@@ -15,7 +15,8 @@ dependencies = [
     "tqdm",
     "einops",
     "numpy",
-    "matplotlib"
+    "matplotlib",
+    "folx"
 ]
 
 [project.optional-dependencies]
