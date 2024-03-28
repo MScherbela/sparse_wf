@@ -1,10 +1,12 @@
 #%%
-from sparse_wf.preliminary_experiments.sparse_mpnn.model import SparseWavefunction
+from sparse_wf.preliminary_experiments.sparse_mpnn.model import SparseWavefunction, SparseWavefunctionWithFwdLap
+from sparse_wf.preliminary_experiments.sparse_mpnn.get_neighbours import get_connectivity
 import jax
 import jax.numpy as jnp
 import functools
 import numpy as np
 import matplotlib.pyplot as plt
+import folx.api
 
 def pad_n_neighbours(n, n_min=10, factor=1.2):
     power_padded = jnp.log(n) / jnp.log(factor)
@@ -15,8 +17,9 @@ def pad_n_neighbours(n, n_min=10, factor=1.2):
 def get_indices_in_receptive_field(r, cutoff, n_steps):
     @jax.jit
     def get_mask(r):
+        n_el = r.shape[-2]
         dist = jnp.linalg.norm(r[..., :, None, :] - r[..., None, :, :], axis=-1)
-        included = dist < (n_steps * cutoff)
+        included = dist + np.inf * jnp.eye(n_el) < (n_steps * cutoff)
         n_neighbours_max = jnp.max(jnp.sum(included, axis=-1))
         return included, n_neighbours_max
     
@@ -33,24 +36,26 @@ def get_indices_in_receptive_field(r, cutoff, n_steps):
 
 
 rng_r, rng_model = jax.random.split(jax.random.PRNGKey(0))
-n_el = 100
+n_el = 20
 cutoff = 5.0
 n_steps = 2
 R = jnp.arange(-n_el // 2, n_el // 2)[:, None] * jnp.array([1, 0, 0])
 r = jax.random.normal(rng_r, (n_el, 3)) + R
-ind_neighbour, weight_neighbour = get_indices_in_receptive_field(r, cutoff, 1)
 
-model = SparseWavefunction(R, cutoff)
-params = model.init(rng_model, r)
+ind_neighbour, map_level = get_connectivity(r, cutoff, n_steps)
+
+model = SparseWavefunctionWithFwdLap(R, cutoff)
+params = model.init(rng_model, r, ind_neighbour, map_level[1])
+phi = model.apply(params, r, ind_neighbour, map_level[1])
 
 #%%
-phi_dense = jax.block_until_ready(model.apply(params, r))
-phi_sparse = jax.block_until_ready(model.apply(params, r, ind_neighbour, weight_neighbour))
+# phi_dense = jax.block_until_ready(model.apply(params, r))
+# phi_sparse = jax.block_until_ready(model.apply(params, r, ind_neighbour, weight_neighbour))
 
-rel_deviation = jnp.linalg.norm(phi_dense - phi_sparse) / jnp.linalg.norm(phi_dense)
-print(f"{np.allclose(phi_dense, phi_sparse)=}; {rel_deviation=:.1e}")
+# rel_deviation = jnp.linalg.norm(phi_dense - phi_sparse) / jnp.linalg.norm(phi_dense)
+# print(f"{np.allclose(phi_dense, phi_sparse)=}; {rel_deviation=:.1e}")
 
-plt.close("all")
-plt.imshow(phi_dense, clim=np.quantile(np.abs(phi_dense), 0.95) * np.array([-1, 1]), cmap="bwr")
+# plt.close("all")
+# plt.imshow(phi_dense, clim=np.quantile(np.abs(phi_dense), 0.95) * np.array([-1, 1]), cmap="bwr")
 
 
