@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import functools
 
+
 class MLP(nn.Module):
     width: int
     depth: int
@@ -18,6 +19,7 @@ class MLP(nn.Module):
                 x = jax.nn.silu(x)
         return x
 
+
 class MessagePassingLayer(nn.Module):
     width: int
 
@@ -27,7 +29,7 @@ class MessagePassingLayer(nn.Module):
         h_neighbors = nn.Dense(self.width)(h_neighbors)
         msg = filter_kernel * h_neighbors
         msg = jnp.sum(msg, axis=-2)
-        
+
         h_out = nn.Dense(self.width)(h_center) + msg
         h_out = jax.nn.silu(h_out)
         return h_out

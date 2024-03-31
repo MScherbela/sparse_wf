@@ -16,7 +16,9 @@ def cutoff_function(d, p=4):
     b = p * (p + 2)
     c = -p * (p + 1) * 0.5
     cutoff = 1 + a * d**p + b * d ** (p + 1) + c * d ** (p + 2)
-    return jnp.where(d < 1, cutoff, 0.0)
+    # Only required to enforce cutoff in fully connected implementation
+    cutoff *= jax.numpy.heaviside(1 - d, 0.0)
+    return cutoff
 
 
 class MLP(nn.Module):
@@ -96,43 +98,13 @@ class OrbitalLayer(nn.Module):
         return phi
 
 
-def get_neighbours(x, ind_neighbour=None):
+def get_neighbours(x, ind_neighbour=None, fill_value=0.0):
     assert x.ndim == 2
     assert (ind_neighbour is None) or (ind_neighbour.ndim == 2)
     if ind_neighbour is None:
         return x[None, :, :]
     else:
-        return x[ind_neighbour]
-
-
-class SparseWavefunction(nn.Module):
-    R_orb: np.ndarray
-    cutoff: float
-    width: int = 64
-    depth: int = 3
-    beta_width_hidden: int = 16
-    beta_width_out: int = 8
-    beta_n_envelpoes: int = 16
-
-    @nn.compact
-    def __call__(self, r, ind_neighbour=None, weight_neighbour=None):
-        r_neighbour = get_neighbours(r, ind_neighbour)
-        diff = r[:, None, :] - r_neighbour
-        beta = PairwiseFeatures(self.beta_width_hidden, self.beta_width_out, self.beta_n_envelpoes, self.cutoff)(diff)
-        if weight_neighbour is not None:
-            beta *= weight_neighbour[:, :, None]
-
-        h0 = InitialEmbeddings(self.width)(diff, beta)
-        h = MLP(self.width, self.depth, activate_final=False)(h0)
-        h_neighbour = get_neighbours(h, ind_neighbour)
-        h_out = MessagePassingLayer(self.width)(h0, h_neighbour, beta)
-        phi = OrbitalLayer(self.R_orb)(r, h_out)
-        return phi
-        # return jnp.slogdet(phi)[1]
-
-
-def get_diff(r1, r2):
-    return r1 - r2
+        return x.at[ind_neighbour].get(mode="fill", fill_value=fill_value)
 
 
 def multi_vmap(f, n):
@@ -147,7 +119,7 @@ def pairwise_vmap(f):
 
 
 # vmap over center electron
-# @functools.partial(jax.vmap, in_axes=(None, 0, None, None))
+@functools.partial(jax.vmap, in_axes=(None, 0, None, None))
 def get_neighbour_with_fwd_lap(h: FwdLaplArray, ind_neighbour, ind_dep, n_dep_out):
     # Get and assert shapes
     n_neighbour = ind_neighbour.shape[-1]
@@ -208,63 +180,52 @@ def SparseWavefunctionWithFwdLap(
     message_passing_model = MessagePassingLayer(width)
     orbital_layer_model = OrbitalLayer(R_orb)
 
-    def init(rng, r, ind_neighbour, max_n_dependencies):
+    def init(rng, r, ind_neighbour, max_n_dependencies=None):
         params = {}
         rngs = jax.random.split(rng, 5)
 
-        r_neighbour = get_neighbours(r, ind_neighbour)
-        diff = pairwise_vmap(get_diff)(r, r_neighbour)
+        r_neighbour = get_neighbours(r, ind_neighbour, 1e6)
+        diff = pairwise_vmap(lambda r1, r2: r1 - r2)(r, r_neighbour)
         beta, params["pair_features"] = pair_features_model.init_with_output(rngs[0], diff)
         h0, params["initial_embeddings"] = initial_embeddings_model.init_with_output(rngs[1], diff, beta)
         h, params["mlp"] = mlp_model.init_with_output(rngs[2], h0)
-        h_neighbour = get_neighbours(h, ind_neighbour)
+        h_neighbour = get_neighbours(h, ind_neighbour, 0.0)
         h_out, params["message_passing"] = message_passing_model.init_with_output(rngs[3], h0, h_neighbour, beta)
         phi, params["orbital_layer"] = orbital_layer_model.init_with_output(rngs[4], r, h_out)
         return params
 
-    def apply(params, r, ind_neighbour, max_n_dependencies):
+    def apply(params, r, ind_neighbour):
         pair_features = functools.partial(pair_features_model.apply, params["pair_features"])
         initial_embeddings = functools.partial(initial_embeddings_model.apply, params["initial_embeddings"])
         mlp = functools.partial(mlp_model.apply, params["mlp"])
-        message_passing = functools.partial(message_passing_model.apply, params["message_passing"])
-        orbital_layer = functools.partial(orbital_layer_model.apply, params["orbital_layer"])
+
+        r_neighbour = get_neighbours(r, ind_neighbour, 1e6)
+        diff = r[:, None, :] - r_neighbour
+        beta = pair_features(diff)
+        h0 = initial_embeddings(diff, beta)
+        h = mlp(h0)
+        h_neighbour = get_neighbours(h, ind_neighbour, 0.0)
+        h_out = jnp.sum(h_neighbour, axis=-2)
+        return h_out
+
+    def apply_with_fwd_lap(params, r, ind_neighbour, max_n_dependencies):
+        pair_features = functools.partial(pair_features_model.apply, params["pair_features"])
+        initial_embeddings = functools.partial(initial_embeddings_model.apply, params["initial_embeddings"])
+        mlp = functools.partial(mlp_model.apply, params["mlp"])
+        # message_passing = functools.partial(message_passing_model.apply, params["message_passing"])
+        # orbital_layer = functools.partial(orbital_layer_model.apply, params["orbital_layer"])
 
         n_el = r.shape[-2]
-        n_neighbours_1 = ind_neighbour.shape[-1]
-        n_neighbours_2 = ind_neighbour[1].shape[-1]
-
-        # @functools.partial(jax.vmap, in_axes=(None, 0, 0))  # vmap over center electron i
-        # @functools.partial(jax.vmap, in_axes=(None, 0, 0), out_axes=1)  # vmap over output neighbours
-        # def build_jacobian_h_neighbour(J_h, ind_neighbour, map_r):
-        #     """Shapes inside vmap:
-        #     n: total nr of electrons
-        #     m1: nr of neighbours within 1 step
-        #     D: embedding dim
-
-        #     J_h: [n, (n_neighbours_1+1), 3, D]
-        #     ind_neighbour: []
-        #     map_r: [(n_neighbours_1+1)]
-        #     """
-        #     # Split jacobian input dim into electrons x xyz
-        #     J_h = einops.rearrange(h.jacobian.data, "nel (m1 dim) D -> nel m1 dim D", dim=3)
-
-        #     # Get jacobian including dependencies on neighbours' neighbours
-        #     jac = jnp.zeros([n_neighbours_2, 3, J_h.shape[-1]])
-        #     jac = jac.at[map_r].set(J_h.at[ind_neighbour].get(mode="fill", fill_value=0.0))
-
-        #     # Merge electron and xyz dim back together to jacobian input dim
-        #     jac = einops.rearrange(jac, "m2 dim D -> (m2 dim) D", dim=3)
-        #     return jac
 
         def get_diff_beta_h0_h(r, r_neighbour):
-            diff = get_diff(r, r_neighbour)
+            diff = r - r_neighbour
             beta = pair_features(diff)
             h0 = initial_embeddings(diff, beta)
             h = mlp(h0)
             return diff, beta, h0, h
 
         # Step 0: Get neighbours
-        r_neighbour = get_neighbours(r, ind_neighbour)
+        r_neighbour = get_neighbours(r, ind_neighbour, 1e6)
 
         # Step 1:
         # These steps contain no dynamic indexing => can use compile-time sparsity of folx
@@ -274,36 +235,11 @@ def SparseWavefunctionWithFwdLap(
         ind_dep = jnp.concatenate([np.arange(n_el)[:, None], ind_neighbour], axis=-1)
 
         # Step 2: These steps contain dynamic indexing => cannot use compile-time sparsity of folx, but can use local sparsity
-        h_neighbour, ind_dep_out = get_neighbour_with_fwd_lap(h, ind_neighbour[0], ind_dep, max_n_dependencies[1])
-        
+        h_neighbour, ind_dep_out = get_neighbour_with_fwd_lap(h, ind_neighbour, ind_dep, max_n_dependencies[1])
+        h_out = jax.vmap(folx.forward_laplacian(lambda hn: jnp.sum(hn, axis=-2)))(h_neighbour)
 
-        return h_neighbour
+        return h_out
 
-    return namedtuple("SparseWavefunctionWithFwdLap", ["init", "apply"])(init, apply)
-
-
-# class SparseWavefunctionWithFwdLap(SparseWavefunction):
-#     def setup(self):
-#         self.pair_features = PairwiseFeatures(self.beta_width_hidden, self.beta_width_out, self.beta_n_envelpoes, self.cutoff)
-#         self.initial_embeddings = InitialEmbeddings(self.width)
-#         self.mlp = MLP(self.width, self.depth, activate_final=False)
-#         self.message_passing = MessagePassingLayer(self.width)
-#         self.orbital_layer = OrbitalLayer(self.R_orb)
-
-#     def __call__(self, r, ind_neighbour=None, weight_neighbour=None):
-#         r_neighbour = get_neighbours(r, ind_neighbour)
-
-#         diff = pairwise_vmap(folx.forward_laplacian(get_diff))(r, r_neighbour)
-#         beta = multi_vmap(folx.forward_laplacian(self.pair_features), 2)(diff)
-
-#         # TODO: re-add this part
-#         # if weight_neighbour is not None:
-#         #     beta *= weight_neighbour[:, :, None]
-
-#         h0 = InitialEmbeddings(self.width)(diff, beta)
-#         h = MLP(self.width, self.depth, activate_final=False)(h0)
-#         h_neighbour = get_neighbours(h, ind_neighbour)
-#         h_out = MessagePassingLayer(self.width)(h0, h_neighbour, beta)
-#         phi = OrbitalLayer(self.R_orb)(r, h_out)
-#         return phi
-#         # return jnp.slogdet(phi)[1]
+    return namedtuple("SparseWavefunctionWithFwdLap", ["init", "apply", "apply_with_fwd_lap"])(
+        init, apply, apply_with_fwd_lap
+    )
