@@ -4,11 +4,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import folx
-from folx.api import FwdLaplArray
+from folx.api import FwdLaplArray, FwdJacobian
 from collections import namedtuple
 import functools
 import einops
-
+from get_neighbours import merge_dependencies, get_with_fill
 
 
 def cutoff_function(d, p=4):
@@ -146,6 +146,53 @@ def pairwise_vmap(f):
     return jax.vmap(jax.vmap(f, in_axes=(None, 0)))
 
 
+# vmap over center electron
+# @functools.partial(jax.vmap, in_axes=(None, 0, None, None))
+def get_neighbour_with_fwd_lap(h: FwdLaplArray, ind_neighbour, ind_dep, n_dep_out):
+    # Get and assert shapes
+    n_neighbour = ind_neighbour.shape[-1]
+    feature_dims = h.x.shape[1:]
+    n_dep_in = ind_dep.shape[-1]
+    assert h.jacobian.data.shape[1] == 3 * n_dep_in
+
+    # Get neighbour data by indexing into the input data and padding with 0 any out of bounds indices
+    h_neighbour = get_with_fill(h.x, ind_neighbour, 0.0)
+    jac_neighbour = get_with_fill(h.jacobian.data, ind_neighbour, 0.0)
+    lap_h_neighbour = get_with_fill(h.laplacian, ind_neighbour, 0.0)
+
+    # Remaining issue: The jacobians for each embedding can depend on different input coordinates
+    # 1) Get a joint set of dependencies for each neighbour embedding
+    ind_dep_out, dep_map, _ = merge_dependencies(get_with_fill(ind_dep, ind_neighbour), n_dep_out)
+
+    # 2) Split jacobian input dim into electrons x xyz
+    jac_neighbour = einops.rearrange(
+        jac_neighbour,
+        "n_neighbour (n_dep_in dim) D -> n_neighbour n_dep_in dim D",
+        n_neighbour=n_neighbour,
+        n_dep_in=n_dep_in,
+        dim=3,
+    )
+
+    # 3) Combine the jacobians into a larger jacobian, that depends on the joint dependencies
+    @functools.partial(jax.vmap, in_axes=(0, 0), out_axes=2)
+    def _jac_for_neighbour(J, dep_map_):
+        jac_out = jnp.zeros([n_dep_out, 3, *feature_dims])
+        jac_out = jac_out.at[dep_map_].set(J, mode="drop")
+        return jac_out
+
+    jac_neighbour = _jac_for_neighbour(jac_neighbour, dep_map)
+
+    # 4) Merge electron and xyz dim back together to jacobian input dim
+    jac_neighbour = einops.rearrange(
+        jac_neighbour,
+        "n_dep_out dim n_neighbour D -> (n_dep_out dim) n_neighbour D",
+        n_dep_out=n_dep_out,
+        dim=3,
+        n_neighbour=n_neighbour,
+    )
+    return FwdLaplArray(h_neighbour, FwdJacobian(data=jac_neighbour), lap_h_neighbour), ind_dep_out
+
+
 def SparseWavefunctionWithFwdLap(
     R_orb: np.ndarray,
     cutoff: float,
@@ -161,38 +208,54 @@ def SparseWavefunctionWithFwdLap(
     message_passing_model = MessagePassingLayer(width)
     orbital_layer_model = OrbitalLayer(R_orb)
 
-    def init(rng, r, ind_neighbour, map_reverse):
+    def init(rng, r, ind_neighbour, max_n_dependencies):
         params = {}
         rngs = jax.random.split(rng, 5)
 
-        r_neighbour = get_neighbours(r, ind_neighbour[0])
+        r_neighbour = get_neighbours(r, ind_neighbour)
         diff = pairwise_vmap(get_diff)(r, r_neighbour)
         beta, params["pair_features"] = pair_features_model.init_with_output(rngs[0], diff)
         h0, params["initial_embeddings"] = initial_embeddings_model.init_with_output(rngs[1], diff, beta)
         h, params["mlp"] = mlp_model.init_with_output(rngs[2], h0)
-        h_neighbour = get_neighbours(h, ind_neighbour[0])
+        h_neighbour = get_neighbours(h, ind_neighbour)
         h_out, params["message_passing"] = message_passing_model.init_with_output(rngs[3], h0, h_neighbour, beta)
         phi, params["orbital_layer"] = orbital_layer_model.init_with_output(rngs[4], r, h_out)
         return params
-    
-    def apply(params, r, ind_neighbour, map_reverse):
+
+    def apply(params, r, ind_neighbour, max_n_dependencies):
         pair_features = functools.partial(pair_features_model.apply, params["pair_features"])
         initial_embeddings = functools.partial(initial_embeddings_model.apply, params["initial_embeddings"])
         mlp = functools.partial(mlp_model.apply, params["mlp"])
         message_passing = functools.partial(message_passing_model.apply, params["message_passing"])
         orbital_layer = functools.partial(orbital_layer_model.apply, params["orbital_layer"])
 
-        n_neighbours_1 = ind_neighbour[0].shape[-1]
+        n_el = r.shape[-2]
+        n_neighbours_1 = ind_neighbour.shape[-1]
         n_neighbours_2 = ind_neighbour[1].shape[-1]
 
-        
-        @jax.vmap      # vmap over center electron i           
-        @jax.vmap      # vmap over output neighbours 
-        def build_jacobian_h_neighbour(J_h, map_r):
-            jac = jnp.zeros([n_neighbours_2, 3, h.shape[-1]])
-            jac = jac.at[map_r].set(J_h)
-            return jac
-        
+        # @functools.partial(jax.vmap, in_axes=(None, 0, 0))  # vmap over center electron i
+        # @functools.partial(jax.vmap, in_axes=(None, 0, 0), out_axes=1)  # vmap over output neighbours
+        # def build_jacobian_h_neighbour(J_h, ind_neighbour, map_r):
+        #     """Shapes inside vmap:
+        #     n: total nr of electrons
+        #     m1: nr of neighbours within 1 step
+        #     D: embedding dim
+
+        #     J_h: [n, (n_neighbours_1+1), 3, D]
+        #     ind_neighbour: []
+        #     map_r: [(n_neighbours_1+1)]
+        #     """
+        #     # Split jacobian input dim into electrons x xyz
+        #     J_h = einops.rearrange(h.jacobian.data, "nel (m1 dim) D -> nel m1 dim D", dim=3)
+
+        #     # Get jacobian including dependencies on neighbours' neighbours
+        #     jac = jnp.zeros([n_neighbours_2, 3, J_h.shape[-1]])
+        #     jac = jac.at[map_r].set(J_h.at[ind_neighbour].get(mode="fill", fill_value=0.0))
+
+        #     # Merge electron and xyz dim back together to jacobian input dim
+        #     jac = einops.rearrange(jac, "m2 dim D -> (m2 dim) D", dim=3)
+        #     return jac
+
         def get_diff_beta_h0_h(r, r_neighbour):
             diff = get_diff(r, r_neighbour)
             beta = pair_features(diff)
@@ -200,22 +263,21 @@ def SparseWavefunctionWithFwdLap(
             h = mlp(h0)
             return diff, beta, h0, h
 
-
         # Step 0: Get neighbours
-        r_neighbour = get_neighbours(r, ind_neighbour[0])
+        r_neighbour = get_neighbours(r, ind_neighbour)
 
         # Step 1:
         # These steps contain no dynamic indexing => can use compile-time sparsity of folx
         diff, beta, h0, h = jax.vmap(folx.forward_laplacian(get_diff_beta_h0_h, sparsity_threshold=0.6))(r, r_neighbour)
 
+        # Every diff/beta/h0/h depends on the center electron and its neighbours
+        ind_dep = jnp.concatenate([np.arange(n_el)[:, None], ind_neighbour], axis=-1)
+
         # Step 2: These steps contain dynamic indexing => cannot use compile-time sparsity of folx, but can use local sparsity
-        Jh = einops.rearrange(h.jacobian.data, "nel (m1 dim) D -> nel m1 dim D", dim=3)
-        Jh_neighbour = build_jacobian_h_neighbour(Jh, map_reverse)
-        Jh_neighbour = einops.rearrange(Jh_neighbour, "nel m1o m2 3 D -> nel (m2 3) m1o D")
-        h_neighbour = get_neighbours(h.x, ind_neighbour[0])
-        lap_h_neighbour = get_neighbours(h.laplacian, ind_neighbour[0])
-        h_neighbour = FwdLaplArray(h_neighbour, Jh_neighbour, lap_h_neighbour)
-        return beta
+        h_neighbour, ind_dep_out = get_neighbour_with_fwd_lap(h, ind_neighbour[0], ind_dep, max_n_dependencies[1])
+        
+
+        return h_neighbour
 
     return namedtuple("SparseWavefunctionWithFwdLap", ["init", "apply"])(init, apply)
 
