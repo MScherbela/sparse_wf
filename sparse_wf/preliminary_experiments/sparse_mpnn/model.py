@@ -117,10 +117,20 @@ def pairwise_vmap(f):
     """Double vmap for a function of type f([n x ...], [n x m x ...]) -> [n, x m x ....]"""
     return jax.vmap(jax.vmap(f, in_axes=(None, 0)))
 
+# def to_sparse_LapArray(x: FwdLaplArray):
+#     assert x.jacobian.x0_idx is None, "FwdLapArray is already sparse"
+#     jac_shape = x.jacobian.data.shape
+#     n_inputs = jac_shape[0]
+#     out_shape = jac_shape[1:]
+#     x0_idx = np.arange(n_inputs)
+#     x0_idx = np.expand_dims(x0_idx, axis=tuple(range(1, len(out_shape) + 1)))
+#     x0_idx = np.tile(x0_idx, out_shape)
+#     return FwdLaplArray(x.x, FwdJacobian(data=x.jacobian.data, x0_idx=x0_idx), x.laplacian)
+
 
 # vmap over center electron
-@functools.partial(jax.vmap, in_axes=(None, 0, None, None))
-def get_neighbour_with_fwd_lap(h: FwdLaplArray, ind_neighbour, ind_dep, n_dep_out):
+@functools.partial(jax.vmap, in_axes=(None, 0, 0, None, None))
+def get_neighbour_with_fwd_lap(h: FwdLaplArray, ind_neighbour, fixed_deps, ind_dep, n_dep_out):
     # Get and assert shapes
     n_neighbour = ind_neighbour.shape[-1]
     feature_dims = h.x.shape[1:]
@@ -134,7 +144,10 @@ def get_neighbour_with_fwd_lap(h: FwdLaplArray, ind_neighbour, ind_dep, n_dep_ou
 
     # Remaining issue: The jacobians for each embedding can depend on different input coordinates
     # 1) Get a joint set of dependencies for each neighbour embedding
-    ind_dep_out, dep_map, _ = merge_dependencies(get_with_fill(ind_dep, ind_neighbour), n_dep_out)
+    dependencies_neighbours = get_with_fill(ind_dep, ind_neighbour)
+    ind_dep_out, dep_map = merge_dependencies(dependencies_neighbours,
+                                              fixed_deps,
+                                              n_dep_out)
 
     # 2) Split jacobian input dim into electrons x xyz
     jac_neighbour = einops.rearrange(
@@ -212,7 +225,7 @@ def SparseWavefunctionWithFwdLap(
         pair_features = functools.partial(pair_features_model.apply, params["pair_features"])
         initial_embeddings = functools.partial(initial_embeddings_model.apply, params["initial_embeddings"])
         mlp = functools.partial(mlp_model.apply, params["mlp"])
-        # message_passing = functools.partial(message_passing_model.apply, params["message_passing"])
+        message_passing = functools.partial(message_passing_model.apply, params["message_passing"])
         # orbital_layer = functools.partial(orbital_layer_model.apply, params["orbital_layer"])
 
         n_el = r.shape[-2]
@@ -235,8 +248,11 @@ def SparseWavefunctionWithFwdLap(
         ind_dep = jnp.concatenate([np.arange(n_el)[:, None], ind_neighbour], axis=-1)
 
         # Step 2: These steps contain dynamic indexing => cannot use compile-time sparsity of folx, but can use local sparsity
-        h_neighbour, ind_dep_out = get_neighbour_with_fwd_lap(h, ind_neighbour, ind_dep, max_n_dependencies[1])
-        h_out = jax.vmap(folx.forward_laplacian(lambda hn: jnp.sum(hn, axis=-2)))(h_neighbour)
+        h_neighbour, ind_dep_out = get_neighbour_with_fwd_lap(h, ind_neighbour, ind_dep, ind_dep, max_n_dependencies[1])
+        # h_out = jax.vmap(folx.forward_laplacian(lambda hn: jnp.sum(hn, axis=-2)))(h_neighbour)
+
+        # beta = to_sparse_LapArray(beta)
+        h_out = jax.vmap(folx.forward_laplacian(message_passing, sparsity_threshold=0.6))(h0, h_neighbour, beta)
 
         return h_out
 

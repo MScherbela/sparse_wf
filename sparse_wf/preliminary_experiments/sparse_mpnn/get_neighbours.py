@@ -50,33 +50,44 @@ def multi_vmap(f, n):
     return f
 
 
-@functools.partial(jax.jit, static_argnums=(1,))
-def merge_dependencies(ind_dep_in, n_dep_out_max=None):
-    """
-    Get the set of common dependencies and a translation map between the input indices and the common dependencies.
+# @functools.partial(jax.jit, static_argnums=(1,))
+# def merge_dependencies(ind_dep_in, n_dep_out_max=None):
+#     """
+#     Get the set of common dependencies and a translation map between the input indices and the common dependencies.
 
-    Args:
-    -----
-    ind_dep_in: jax.Array of shape [..., n_elements, n_dep_in] containing the indices of the electrons, that each element depends on.
-    n_dep_out_max: int, optional. The maximum number of dependencies after the merge. If None, it is assumed there are no overlapping input dependcies
-        and therefore n_dep_out_max = n_elements * n_dep_in.
-    """
-    n_elements, n_dep_in = ind_dep_in.shape[-2:]
-    n_batch_dims = ind_dep_in.ndim - 2
+#     Args:
+#     -----
+#     ind_dep_in: jax.Array of shape [..., n_elements, n_dep_in] containing the indices of the electrons, that each element depends on.
+#     n_dep_out_max: int, optional. The maximum number of dependencies after the merge. If None, it is assumed there are no overlapping input dependcies
+#         and therefore n_dep_out_max = n_elements * n_dep_in.
+#     """
+#     n_elements, n_dep_in = ind_dep_in.shape[-2:]
+#     n_batch_dims = ind_dep_in.ndim - 2
 
-    n_dep_in_total = n_elements * n_dep_in
-    ind_dep_in = ind_dep_in.reshape(ind_dep_in.shape[:-2] + (n_dep_in_total,))
-    n_dep_in_total = ind_dep_in.shape[-1]
-    n_dep_out_max = n_dep_out_max if n_dep_out_max is not None else n_dep_in_total
+#     n_dep_in_total = n_elements * n_dep_in
+#     ind_dep_in = ind_dep_in.reshape(ind_dep_in.shape[:-2] + (n_dep_in_total,))
+#     n_dep_in_total = ind_dep_in.shape[-1]
+#     n_dep_out_max = n_dep_out_max if n_dep_out_max is not None else n_dep_in_total
 
-    def get_ind_dep_out(i):
-        return jnp.unique(i, return_inverse=True, size=n_dep_out_max, fill_value=NO_NEIGHBOUR)
+#     def get_ind_dep_out(i):
+#         return jnp.unique(i, return_inverse=True, size=n_dep_out_max, fill_value=NO_NEIGHBOUR)
 
-    ind_dep_out, dep_map = multi_vmap(get_ind_dep_out, n_batch_dims)(ind_dep_in)
+#     ind_dep_out, dep_map = multi_vmap(get_ind_dep_out, n_batch_dims)(ind_dep_in)
 
-    n_dep_out = jnp.max(jnp.sum(ind_dep_out != NO_NEIGHBOUR, axis=-1))
-    dep_map = dep_map.reshape(ind_dep_in.shape[:-1] + (n_elements, n_dep_in))
-    return ind_dep_out, dep_map, n_dep_out
+#     n_dep_out = jnp.max(jnp.sum(ind_dep_out != NO_NEIGHBOUR, axis=-1))
+#     dep_map = dep_map.reshape(ind_dep_in.shape[:-1] + (n_elements, n_dep_in))
+#     return ind_dep_out, dep_map, n_dep_out
+
+@functools.partial(jax.jit, static_argnums=(2,))
+def merge_dependencies(deps, fixed_deps, n_deps_max):
+    new_deps = jnp.where(jnp.isin(deps, fixed_deps), NO_NEIGHBOUR, deps)
+
+    n_new_deps_max = n_deps_max - len(fixed_deps)
+    new_unique_deps = jnp.unique(new_deps, size=n_new_deps_max, fill_value=NO_NEIGHBOUR)
+    deps_out = jnp.concatenate([fixed_deps, new_unique_deps], axis=-1)
+
+    dep_map = multi_vmap(lambda d: jnp.argwhere(d == deps_out, size=1, fill_value=NO_NEIGHBOUR)[0][0], 2)(deps)
+    return deps_out, dep_map
 
 
 if __name__ == "__main__":
@@ -91,5 +102,24 @@ if __name__ == "__main__":
     ind_neighbours = get_ind_neighbours(r, cutoff=4.0, include_self=False)
     ind_dep = jnp.concatenate([jnp.arange(n_el)[:, None], ind_neighbours], axis=-1)
 
+
     i = 1
-    ind_dep_merged = merge_dependencies(get_with_fill(ind_dep, ind_neighbours[i]), n_dep_out_max=n_dependencies[1])
+    # ind_dep_merged = merge_dependencies(get_with_fill(ind_dep, ind_neighbours[i]), n_dep_out_max=n_dependencies[1])
+
+    fixed_deps = ind_dep[i]
+    deps = get_with_fill(ind_dep, ind_neighbours[i])
+    deps_out, dep_map = merge_dependencies_v2(fixed_deps, deps, n_dependencies[1])
+
+    print("Fixed deps: ")
+    print(fixed_deps)
+    print("")
+    print("Dependecies: ")
+    print(deps)
+    print("")
+    print("Merged deps: ")
+    print(deps_out)
+    print("")
+    print("Dep map: ")
+    print(dep_map)
+
+
