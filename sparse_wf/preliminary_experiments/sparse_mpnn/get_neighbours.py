@@ -6,7 +6,6 @@ import functools
 
 NO_NEIGHBOUR = 1_000_000
 
-
 @functools.partial(jax.jit, static_argnums=(2,))
 def _get_cutoff_matrix(r, cutoff, include_self=False):
     dist = jnp.linalg.norm(r[..., :, None, :] - r[..., None, :, :], axis=-1)
@@ -50,34 +49,6 @@ def multi_vmap(f, n):
     return f
 
 
-# @functools.partial(jax.jit, static_argnums=(1,))
-# def merge_dependencies(ind_dep_in, n_dep_out_max=None):
-#     """
-#     Get the set of common dependencies and a translation map between the input indices and the common dependencies.
-
-#     Args:
-#     -----
-#     ind_dep_in: jax.Array of shape [..., n_elements, n_dep_in] containing the indices of the electrons, that each element depends on.
-#     n_dep_out_max: int, optional. The maximum number of dependencies after the merge. If None, it is assumed there are no overlapping input dependcies
-#         and therefore n_dep_out_max = n_elements * n_dep_in.
-#     """
-#     n_elements, n_dep_in = ind_dep_in.shape[-2:]
-#     n_batch_dims = ind_dep_in.ndim - 2
-
-#     n_dep_in_total = n_elements * n_dep_in
-#     ind_dep_in = ind_dep_in.reshape(ind_dep_in.shape[:-2] + (n_dep_in_total,))
-#     n_dep_in_total = ind_dep_in.shape[-1]
-#     n_dep_out_max = n_dep_out_max if n_dep_out_max is not None else n_dep_in_total
-
-#     def get_ind_dep_out(i):
-#         return jnp.unique(i, return_inverse=True, size=n_dep_out_max, fill_value=NO_NEIGHBOUR)
-
-#     ind_dep_out, dep_map = multi_vmap(get_ind_dep_out, n_batch_dims)(ind_dep_in)
-
-#     n_dep_out = jnp.max(jnp.sum(ind_dep_out != NO_NEIGHBOUR, axis=-1))
-#     dep_map = dep_map.reshape(ind_dep_in.shape[:-1] + (n_elements, n_dep_in))
-#     return ind_dep_out, dep_map, n_dep_out
-
 @functools.partial(jax.jit, static_argnums=(2,))
 def merge_dependencies(deps, fixed_deps, n_deps_max):
     new_deps = jnp.where(jnp.isin(deps, fixed_deps), NO_NEIGHBOUR, deps)
@@ -104,11 +75,9 @@ if __name__ == "__main__":
 
 
     i = 1
-    # ind_dep_merged = merge_dependencies(get_with_fill(ind_dep, ind_neighbours[i]), n_dep_out_max=n_dependencies[1])
-
     fixed_deps = ind_dep[i]
     deps = get_with_fill(ind_dep, ind_neighbours[i])
-    deps_out, dep_map = merge_dependencies_v2(fixed_deps, deps, n_dependencies[1])
+    deps_out, dep_map = merge_dependencies(deps, fixed_deps, n_dependencies[1])
 
     print("Fixed deps: ")
     print(fixed_deps)
