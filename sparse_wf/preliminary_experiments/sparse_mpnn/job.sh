@@ -11,9 +11,9 @@
 #SBATCH --mem=100000
 
 source /opt/anaconda3/etc/profile.d/conda.sh
-conda activate sparse_wf
+conda activate dsm
 export OMP_NUM_THREADS=10
 export MKL_NUM_THREADS=10
 export NVIDIA_TF32_OVERRIDE=0
 export WANDB_DIR="${HOME}/tmp"
-srun python main.py
+srun python benchmark.py

@@ -1,0 +1,88 @@
+gpu
+2024-04-02 13:53:55.997326: W external/xla/xla/service/gpu/nvptx_compiler.cc:744] The NVIDIA driver's CUDA version is 11.6 which is older than the ptxas CUDA version (11.8.89). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+Naive jacobian.data.shape:  (8, 150, 50, 256)
+Sparse jacobian.data.shape:  (8, 50, 78, 256)
+delta_h: 0.0e+00 (rel: 0.0e+00)
+delta_lap: 2.3e-05 (rel: 2.2e-07)
+n_el=50, iteration=0, sparse time=21.158, naive time=2.517
+n_el=50, iteration=1, sparse time=0.008, naive time=0.022
+n_el=50, iteration=2, sparse time=0.007, naive time=0.022
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=50, sparse time=0.008, naive time=0.022, speedup=2.8
+================================================================================
+Naive jacobian.data.shape:  (8, 300, 100, 256)
+Sparse jacobian.data.shape:  (8, 100, 78, 256)
+delta_h: 2.6e-02 (rel: 9.0e-04)
+delta_lap: 1.2e-01 (rel: 8.8e-04)
+n_el=100, iteration=0, sparse time=19.778, naive time=4.927
+n_el=100, iteration=1, sparse time=0.017, naive time=0.093
+n_el=100, iteration=2, sparse time=0.015, naive time=0.093
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=100, sparse time=0.016, naive time=0.093, speedup=5.8
+================================================================================
+Naive jacobian.data.shape:  (8, 450, 150, 256)
+Sparse jacobian.data.shape:  (8, 150, 78, 256)
+delta_h: 0.0e+00 (rel: 0.0e+00)
+delta_lap: 4.0e-05 (rel: 2.3e-07)
+n_el=150, iteration=0, sparse time=5.632, naive time=6.433
+n_el=150, iteration=1, sparse time=0.025, naive time=0.222
+n_el=150, iteration=2, sparse time=0.023, naive time=0.222
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=150, sparse time=0.024, naive time=0.222, speedup=9.2
+2024-04-02 13:55:31.626963: W external/tsl/tsl/framework/bfc_allocator.cc:296] Allocator (GPU_0_bfc) ran out of memory trying to allocate 10.10GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=200; Naive model out of memory
+n_el=200, iteration=0, sparse time=8.250, naive time=5.644
+n_el=200, iteration=1, sparse time=0.030, naive time=0.000
+n_el=200, iteration=2, sparse time=0.029, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=200, sparse time=0.030, naive time=0.000, speedup=0.0
+2024-04-02 13:56:00.555708: W external/tsl/tsl/framework/bfc_allocator.cc:296] Allocator (GPU_0_bfc) ran out of memory trying to allocate 18.64GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=250; Naive model out of memory
+n_el=250, iteration=0, sparse time=20.102, naive time=4.296
+n_el=250, iteration=1, sparse time=0.044, naive time=0.000
+n_el=250, iteration=2, sparse time=0.044, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=250, sparse time=0.044, naive time=0.000, speedup=0.0
+2024-04-02 13:56:19.642852: W external/tsl/tsl/framework/bfc_allocator.cc:296] Allocator (GPU_0_bfc) ran out of memory trying to allocate 24.76GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=300; Naive model out of memory
+n_el=300, iteration=0, sparse time=9.322, naive time=5.356
+n_el=300, iteration=1, sparse time=0.048, naive time=0.000
+n_el=300, iteration=2, sparse time=0.048, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=300, sparse time=0.048, naive time=0.000, speedup=0.0
+2024-04-02 13:56:32.542437: W external/tsl/tsl/framework/bfc_allocator.cc:296] Allocator (GPU_0_bfc) ran out of memory trying to allocate 33.69GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=350; Naive model out of memory
+n_el=350, iteration=0, sparse time=5.940, naive time=2.260
+n_el=350, iteration=1, sparse time=0.056, naive time=0.000
+n_el=350, iteration=2, sparse time=0.055, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=350, sparse time=0.056, naive time=0.000, speedup=0.0
+2024-04-02 13:56:52.480905: W external/tsl/tsl/framework/bfc_allocator.cc:296] Allocator (GPU_0_bfc) ran out of memory trying to allocate 40.33GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=400; Naive model out of memory
+n_el=400, iteration=0, sparse time=10.602, naive time=4.930
+n_el=400, iteration=1, sparse time=0.070, naive time=0.000
+n_el=400, iteration=2, sparse time=0.069, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=400, sparse time=0.069, naive time=0.000, speedup=0.0
+2024-04-02 13:57:05.652124: W external/tsl/tsl/framework/bfc_allocator.cc:296] Allocator (GPU_0_bfc) ran out of memory trying to allocate 55.67GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=450; Naive model out of memory
+n_el=450, iteration=0, sparse time=5.630, naive time=2.776
+n_el=450, iteration=1, sparse time=0.070, naive time=0.000
+n_el=450, iteration=2, sparse time=0.070, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=450, sparse time=0.070, naive time=0.000, speedup=0.0
+2024-04-02 13:57:19.480393: W external/tsl/tsl/framework/bfc_allocator.cc:296] Allocator (GPU_0_bfc) ran out of memory trying to allocate 68.73GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=500; Naive model out of memory
+n_el=500, iteration=0, sparse time=6.132, naive time=2.830
+n_el=500, iteration=1, sparse time=0.079, naive time=0.000
+n_el=500, iteration=2, sparse time=0.078, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=500, sparse time=0.078, naive time=0.000, speedup=0.0
+================================================================================
