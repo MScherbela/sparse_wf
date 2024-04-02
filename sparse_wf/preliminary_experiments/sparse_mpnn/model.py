@@ -124,9 +124,7 @@ def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, fixed_deps, i
     # Remaining issue: The jacobians for each embedding can depend on different input coordinates
     # 1) Get a joint set of dependencies for each neighbour embedding
     dependencies_neighbours = get_with_fill(ind_dep, ind_neighbour)
-    ind_dep_out, dep_map = merge_dependencies(dependencies_neighbours,
-                                              fixed_deps,
-                                              n_dep_out)
+    ind_dep_out, dep_map = merge_dependencies(dependencies_neighbours, fixed_deps, n_dep_out)
 
     # 2) Split jacobian input dim into electrons x xyz
     jac_neighbour = einops.rearrange(
@@ -164,6 +162,7 @@ def forward_lap_with_frozen_x0_idx(f, idx0_values, sparsity_threshold=0):
     def transformed(*args):
         args = [replace_mask(arg, idx) for arg, idx in zip(args, idx0_values)]
         return folx.forward_laplacian(f, sparsity_threshold=sparsity_threshold, disable_jit=True)(*args)
+
     return transformed
 
 
@@ -175,6 +174,7 @@ class SparseWavefunctionParams:
     message_passing: jax.Array = None
     orbital_layer: jax.Array = None
 
+
 class SparseWavefunctionWithFwdLap:
     def __init__(self, R_orb, cutoff, width=64, depth=3, beta_width_hidden=16, beta_width_out=8, beta_n_envelopes=16):
         self.R_orb = R_orb
@@ -185,18 +185,20 @@ class SparseWavefunctionWithFwdLap:
         self.beta_width_out = beta_width_out
         self.beta_n_envelopes = beta_n_envelopes
 
-        self.pair_features = PairwiseFeatures(self.beta_width_hidden, self.beta_width_out, self.beta_n_envelopes, self.cutoff)
+        self.pair_features = PairwiseFeatures(
+            self.beta_width_hidden, self.beta_width_out, self.beta_n_envelopes, self.cutoff
+        )
         self.initial_embeddings = InitialEmbeddings(self.width)
         self.mlp = MLP(self.width, self.depth, activate_final=False)
         self.message_passing = MessagePassingLayer(self.width)
         self.orbital_layer = OrbitalLayer(self.R_orb)
 
     def get_beta_h0_h(self, params: SparseWavefunctionParams, r, r_neighbour):
-            diff = r - r_neighbour
-            beta = self.pair_features.apply(params.pair_features, diff)
-            h0 = self.initial_embeddings.apply(params.initial_embeddings, diff, beta)
-            h = self.mlp.apply(params.mlp, h0)
-            return beta, h0, h
+        diff = r - r_neighbour
+        beta = self.pair_features.apply(params.pair_features, diff)
+        h0 = self.initial_embeddings.apply(params.initial_embeddings, diff, beta)
+        h = self.mlp.apply(params.mlp, h0)
+        return beta, h0, h
 
     def init(self, rng, r, ind_neighbour, max_n_dependencies=None):
         params = SparseWavefunctionParams()
@@ -216,7 +218,9 @@ class SparseWavefunctionWithFwdLap:
         r_neighbour = get_neighbours(r, ind_neighbour, 1e6)
         beta, h0, h = jax.vmap(self.get_beta_h0_h, in_axes=(None, 0, 0))(params, r, r_neighbour)
         h_neighbour = get_neighbours(h, ind_neighbour, 0.0)
-        h_out = jax.vmap(self.message_passing.apply, in_axes=(None, 0, 0, 0))(params.message_passing, h0, h_neighbour, beta)
+        h_out = jax.vmap(self.message_passing.apply, in_axes=(None, 0, 0, 0))(
+            params.message_passing, h0, h_neighbour, beta
+        )
         return h_out
 
     def apply_with_fwd_lap(self, params, r, ind_neighbour, max_n_dependencies):
@@ -227,26 +231,33 @@ class SparseWavefunctionWithFwdLap:
 
         # Step 1:
         # These steps contain no dynamic indexing => can use compile-time sparsity of folx
-        beta, h0, h = jax.vmap(folx.forward_laplacian(lambda *args: self.get_beta_h0_h(params, *args), sparsity_threshold=0.6, disable_jit=True))(r, r_neighbour)
-
+        beta, h0, h = jax.vmap(
+            folx.forward_laplacian(
+                lambda *args: self.get_beta_h0_h(params, *args), sparsity_threshold=0.6, disable_jit=True
+            )
+        )(r, r_neighbour)
 
         # Step 2: These steps contain dynamic indexing => cannot use compile-time sparsity of folx, but can use local sparsity
         # Every diff/beta/h0/h depends on the center electron and its neighbours
         ind_dep = jnp.concatenate([np.arange(n_el)[:, None], ind_neighbour], axis=-1)
-        h_neighbour, ind_dep_out = get_neighbour_with_FwdLapArray(h, ind_neighbour, ind_dep, ind_dep, max_n_dependencies[1])
+        h_neighbour, ind_dep_out = get_neighbour_with_FwdLapArray(
+            h, ind_neighbour, ind_dep, ind_dep, max_n_dependencies[1]
+        )
 
         # folx doesn't nicely work together with transformations such as vmap, because vmapping over a FwdLaplArray
         # also vmaps over the x0_idx array. This turns x0_idx into a jnp.array which breaks the compile-time constant requirement
         # Hacky solution: Build the x0_idx array manually and replace it in the FwdLaplArray
         # TODO: could extract these x0_idx from a compile-time pass through forward_laplacian instead of rebuilding manually
-        x0_idx_h0 = np.tile(np.arange(3*(n_neighbours+1))[:, None], self.width)
+        x0_idx_h0 = np.tile(np.arange(3 * (n_neighbours + 1))[:, None], self.width)
         x0_idx_beta = np.zeros([6, n_neighbours, self.beta_width_out], dtype=int)
         for j in np.arange(n_neighbours):
             x0_idx_beta[:3, j, :] = np.arange(3)[:, None]
-            x0_idx_beta[3:, j, :] = np.arange(3*(j+1), 3*(j+2))[:, None]
+            x0_idx_beta[3:, j, :] = np.arange(3 * (j + 1), 3 * (j + 2))[:, None]
 
         message_passing = functools.partial(self.message_passing.apply, params.message_passing)
-        message_passing = forward_lap_with_frozen_x0_idx(message_passing, [x0_idx_h0, None, x0_idx_beta], sparsity_threshold=0.6)
+        message_passing = forward_lap_with_frozen_x0_idx(
+            message_passing, [x0_idx_h0, None, x0_idx_beta], sparsity_threshold=0.6
+        )
         message_passing = jax.vmap(message_passing)
         h_out = message_passing(h0, h_neighbour, beta)
         return h_out

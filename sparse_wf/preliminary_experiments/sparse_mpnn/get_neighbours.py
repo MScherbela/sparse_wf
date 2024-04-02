@@ -6,6 +6,7 @@ import functools
 
 NO_NEIGHBOUR = 1_000_000
 
+
 @functools.partial(jax.jit, static_argnums=(2,))
 def _get_cutoff_matrix(r, cutoff, include_self=False):
     dist = jnp.linalg.norm(r[..., :, None, :] - r[..., None, :, :], axis=-1)
@@ -73,7 +74,6 @@ if __name__ == "__main__":
     ind_neighbours = get_ind_neighbours(r, cutoff=4.0, include_self=False)
     ind_dep = jnp.concatenate([jnp.arange(n_el)[:, None], ind_neighbours], axis=-1)
 
-
     i = 1
     fixed_deps = ind_dep[i]
     deps = get_with_fill(ind_dep, ind_neighbours[i])
@@ -90,5 +90,3 @@ if __name__ == "__main__":
     print("")
     print("Dep map: ")
     print(dep_map)
-
-
