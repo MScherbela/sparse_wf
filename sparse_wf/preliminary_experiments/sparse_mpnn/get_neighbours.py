@@ -6,6 +6,11 @@ import functools
 
 NO_NEIGHBOUR = 1_000_000
 
+def multi_vmap(f, n):
+    for _ in range(n):
+        f = jax.vmap(f)
+    return f
+
 
 @functools.partial(jax.jit, static_argnums=(2,))
 def _get_cutoff_matrix(r, cutoff, include_self=False):
@@ -16,8 +21,7 @@ def _get_cutoff_matrix(r, cutoff, include_self=False):
     max_n_neighbours_1 = jnp.max(jnp.sum(in_cutoff, axis=-1))
     return in_cutoff, max_n_neighbours_1
 
-
-@functools.partial(jax.jit, static_argnums=(1,))
+#vmap over total number of electrons
 @functools.partial(jax.vmap, in_axes=(0, None))
 def _get_ind_neighbours(in_cutoff, n_max):
     indices = jnp.nonzero(in_cutoff, size=n_max, fill_value=NO_NEIGHBOUR)[0]
@@ -26,9 +30,10 @@ def _get_ind_neighbours(in_cutoff, n_max):
 
 
 def get_ind_neighbours(r, cutoff, include_self=False):
+    n_batch_dims = r.ndim - 2
     in_cutoff, n_neighbours = _get_cutoff_matrix(r, cutoff, include_self)
     n_neighbours = int(n_neighbours)
-    ind_neighbours = _get_ind_neighbours(in_cutoff, n_neighbours)
+    ind_neighbours = jax.jit(multi_vmap(lambda co: _get_ind_neighbours(co, n_neighbours), n_batch_dims))(in_cutoff)
     return ind_neighbours
 
 
@@ -44,10 +49,10 @@ def get_with_fill(arr, ind, fill=NO_NEIGHBOUR):
     return arr.at[ind].get(mode="fill", fill_value=fill)
 
 
-def multi_vmap(f, n):
-    for _ in range(n):
-        f = jax.vmap(f)
-    return f
+def pad_n_neighbours(n, n_min=10, factor=1.2):
+    power_padded = jnp.log(n) / jnp.log(factor)
+    n_padded = jnp.maximum(n_min, factor ** jnp.ceil(power_padded))
+    return n_padded.astype(jnp.int32)
 
 
 @functools.partial(jax.jit, static_argnums=(2,))
