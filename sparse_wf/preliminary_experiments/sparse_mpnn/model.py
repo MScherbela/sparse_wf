@@ -58,7 +58,7 @@ class InitialEmbeddings(nn.Module):
         g = MLP(self.out_dim, self.depth, activate_final=True)(g)
 
         filter_kernel = nn.Dense(self.out_dim, use_bias=False, name="Gamma")(diff_features)
-        return jnp.sum(g * filter_kernel, axis=-2)
+        return jnp.einsum("...ij,...ij->...j", g, filter_kernel)
 
 
 class PairwiseFeatures(nn.Module):
@@ -124,6 +124,8 @@ def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, fixed_deps, i
     # Remaining issue: The jacobians for each embedding can depend on different input coordinates
     # 1) Get a joint set of dependencies for each neighbour embedding
     dependencies_neighbours = get_with_fill(ind_dep, ind_neighbour)
+    # inp_dep_out is of shape (total_neighbors_t = level0 neighbors + level1 neighbors + level...)
+    # dep_map mis a of shape (total_neighbors_t-1, levelt neighbors) maps to total_neighbors_t
     ind_dep_out, dep_map = merge_dependencies(dependencies_neighbours, fixed_deps, n_dep_out)
 
     # 2) Split jacobian input dim into electrons x xyz
@@ -142,6 +144,7 @@ def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, fixed_deps, i
         jac_out = jac_out.at[dep_map_].set(J, mode="drop")
         return jac_out
 
+    # total_neighbors_t
     jac_neighbour = _jac_for_neighbour(jac_neighbour, dep_map)
 
     # 4) Merge electron and xyz dim back together to jacobian input dim
