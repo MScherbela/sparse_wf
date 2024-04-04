@@ -16,14 +16,17 @@ dependencies = [
     "einops",
     "numpy",
     "matplotlib",
-    "folx"
+    "folx",
+    "pyscf",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "ruff",
-    "pre-commit"
-]
+dev = ["ruff", "pre-commit"]
 
 [tool.ruff]
 line-length = 120
+
+[tool.mypy]
+strict = false
+exclude = ["sparse_wf/preliminary_experiments"]
+disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
