@@ -1,0 +1,185 @@
+Platform:  gpu
+n_el=50, iteration=0, sparse time=11.320, naive time=4.235
+n_el=50, iteration=1, sparse time=0.013, naive time=0.021
+n_el=50, iteration=2, sparse time=0.010, naive time=0.020
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=50, sparse time=0.011, naive time=0.021, speedup=1.8
+================================================================================
+n_el=100, iteration=0, sparse time=10.905, naive time=4.964
+n_el=100, iteration=1, sparse time=0.019, naive time=0.081
+n_el=100, iteration=2, sparse time=0.017, naive time=0.081
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=100, sparse time=0.018, naive time=0.081, speedup=4.4
+================================================================================
+n_el=150, iteration=0, sparse time=5.259, naive time=7.718
+n_el=150, iteration=1, sparse time=0.033, naive time=0.191
+n_el=150, iteration=2, sparse time=0.027, naive time=0.189
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=150, sparse time=0.030, naive time=0.190, speedup=6.3
+2024-04-04 15:47:55.349186: W external/xla/xla/service/hlo_rematerialization.cc:2946] Can't reduce memory use below 27.18GiB (29189992303 bytes) by rematerialization; only reduced to 38.50GiB (41342329568 bytes), down from 38.50GiB (41342516864 bytes) originally
+2024-04-04 15:48:06.867202: W external/tsl/tsl/framework/bfc_allocator.cc:482] Allocator (GPU_0_bfc) ran out of memory trying to allocate 37.58GiB (rounded to 40354462976)requested by op 
+2024-04-04 15:48:06.867521: W external/tsl/tsl/framework/bfc_allocator.cc:494] *_*****_____________________________________________________________________________________________
+E0404 15:48:06.868105   93627 pjrt_stream_executor_client.cc:2809] Execution of replica 0 failed: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 40354462792 bytes.
+BufferAssignment OOM Debugging.
+BufferAssignment stats:
+             parameter allocation:    1.27MiB
+              constant allocation:         8B
+        maybe_live_out allocation:  940.62MiB
+     preallocated temp allocation:   37.58GiB
+  preallocated temp fragmentation:         0B (0.00%)
+                 total allocation:   38.50GiB
+              total fragmentation:  939.07MiB (2.38%)
+Peak buffers:
+	Buffer 1:
+		Size: 11.92GiB
+		Operator: op_name="jit(apply_with_external_fwd_lap)/jit(main)/vmap(jit(wrapped))/vmap(jvp(...i,...i->...))/dot_general[dimension_numbers=(((4,), (1,)), ((), ())) precision=(Precision.HIGHEST, Precision.HIGHEST) preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/sparse_wf/preliminary_experiments/sparse_mpnn/benchmark.py" source_line=58
+		XLA Label: custom-call
+		Shape: f32[12500800,256]
+		==========================
+
+	Buffer 2:
+		Size: 11.90GiB
+		Operator: op_name="jit(apply_with_external_fwd_lap)/jit(main)/vmap(jit(wrapped))/slice[start_indices=(0, 0, 0, 0, 0) limit_indices=(8, 600, 200, 13, 256) strides=None]" source_file="/home/scherbelam20/develop/sparse_wf/sparse_wf/preliminary_experiments/sparse_mpnn/benchmark.py" source_line=58
+		XLA Label: fusion
+		Shape: f32[8,200,256,600,13]
+		==========================
+
+	Buffer 3:
+		Size: 11.90GiB
+		Operator: op_name="jit(apply_with_external_fwd_lap)/jit(main)/vmap(jit(wrapped))/gather[dimension_numbers=GatherDimensionNumbers(offset_dims=(1, 4), collapsed_slice_dims=(0, 2), start_index_map=(0, 2)) slice_sizes=(1, 600, 1, 256) unique_indices=False indices_are_sorted=False mode=GatherScatterMode.PROMISE_IN_BOUNDS fill_value=None]" source_file="/home/scherbelam20/develop/sparse_wf/sparse_wf/preliminary_experiments/sparse_mpnn/benchmark.py" source_line=58
+		XLA Label: fusion
+		Shape: f32[8,200,256,600,13]
+		==========================
+
+	Buffer 4:
+		Size: 940.62MiB
+		Operator: op_name="jit(apply_with_external_fwd_lap)/jit(main)/vmap(jit(wrapped))/vmap(jvp(...i,...i->...))/dot_general[dimension_numbers=(((2,), (1,)), ((), ())) precision=(Precision.HIGHEST, Precision.HIGHEST) preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/sparse_wf/preliminary_experiments/sparse_mpnn/benchmark.py" source_line=58
+		XLA Label: custom-call
+		Shape: f32[963200,256]
+		==========================
+
+	Buffer 5:
+		Size: 939.06MiB
+		Operator: op_name="jit(apply_with_external_fwd_lap)/jit(main)/vmap(jit(wrapped))/vmap(jvp(...i,...i->...))/dot_general[dimension_numbers=(((3,), (4,)), ((0, 1, 2), (0, 2, 3))) precision=(Precision.HIGHEST, Precision.HIGHEST) preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/sparse_wf/preliminary_experiments/sparse_mpnn/benchmark.py" source_line=58
+		XLA Label: fusion
+		Shape: f32[601,8,200,256]
+		==========================
+
+	Buffer 6:
+		Size: 937.50MiB
+		XLA Label: fusion
+		Shape: f32[8,600,200,256]
+		==========================
+
+	Buffer 7:
+		Size: 20.31MiB
+		Operator: op_name="jit(apply_with_external_fwd_lap)/jit(main)/vmap(jit(wrapped))/select_n" source_file="/home/scherbelam20/develop/sparse_wf/sparse_wf/preliminary_experiments/sparse_mpnn/benchmark.py" source_line=58
+		XLA Label: fusion
+		Shape: f32[8,200,256,13]
+		==========================
+
+	Buffer 8:
+		Size: 1.56MiB
+		Operator: op_name="jit(apply_with_external_fwd_lap)/jit(main)/vmap(jit(wrapped))/vmap(vmap(...ij,...ij->...))/dot_general[dimension_numbers=(((1, 4), (1, 4)), ((0, 2, 3), (0, 2, 3))) precision=(Precision.HIGHEST, Precision.HIGHEST) preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/sparse_wf/preliminary_experiments/sparse_mpnn/benchmark.py" source_line=58
+		XLA Label: fusion
+		Shape: f32[8,200,256]
+		==========================
+
+	Buffer 9:
+		Size: 1.56MiB
+		Operator: op_name="jit(apply_with_external_fwd_lap)/jit(main)/vmap(jit(wrapped))/add" source_file="/home/scherbelam20/develop/sparse_wf/sparse_wf/preliminary_experiments/sparse_mpnn/benchmark.py" source_line=58
+		XLA Label: fusion
+		Shape: f32[8,200,256]
+		==========================
+
+	Buffer 10:
+		Size: 1.56MiB
+		Operator: op_name="jit(apply_with_external_fwd_lap)/jit(main)/vmap(jit(wrapped))/add" source_file="/home/scherbelam20/develop/sparse_wf/sparse_wf/preliminary_experiments/sparse_mpnn/benchmark.py" source_line=58
+		XLA Label: fusion
+		Shape: f32[8,200,256]
+		==========================
+
+	Buffer 11:
+		Size: 650.0KiB
+		Operator: op_name="jit(apply_with_external_fwd_lap)/jit(main)/vmap(jit(wrapped))/mul" source_file="/home/scherbelam20/develop/sparse_wf/sparse_wf/preliminary_experiments/sparse_mpnn/benchmark.py" source_line=58
+		XLA Label: fusion
+		Shape: f32[8,200,13,8]
+		==========================
+
+	Buffer 12:
+		Size: 256.0KiB
+		Entry Parameter Subshape: f32[256,256]
+		==========================
+
+	Buffer 13:
+		Size: 256.0KiB
+		Entry Parameter Subshape: f32[256,256]
+		==========================
+
+	Buffer 14:
+		Size: 256.0KiB
+		Entry Parameter Subshape: f32[256,256]
+		==========================
+
+	Buffer 15:
+		Size: 256.0KiB
+		Entry Parameter Subshape: f32[256,256]
+		==========================
+
+
+================================================================================
+n_el=200; Naive model out of memory
+n_el=200, iteration=0, sparse time=6.936, naive time=19.581
+n_el=200, iteration=1, sparse time=0.041, naive time=0.000
+n_el=200, iteration=2, sparse time=0.040, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=200, sparse time=0.041, naive time=0.000, speedup=0.0
+2024-04-04 15:48:28.557391: W external/tsl/tsl/framework/bfc_allocator.cc:291] Allocator (GPU_0_bfc) ran out of memory trying to allocate 18.64GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=250; Naive model out of memory
+n_el=250, iteration=0, sparse time=11.456, naive time=5.241
+n_el=250, iteration=1, sparse time=0.046, naive time=0.000
+n_el=250, iteration=2, sparse time=0.045, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=250, sparse time=0.045, naive time=0.000, speedup=0.0
+2024-04-04 15:48:47.891599: W external/tsl/tsl/framework/bfc_allocator.cc:291] Allocator (GPU_0_bfc) ran out of memory trying to allocate 24.76GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=300; Naive model out of memory
+n_el=300, iteration=0, sparse time=7.653, naive time=6.309
+n_el=300, iteration=1, sparse time=0.053, naive time=0.000
+n_el=300, iteration=2, sparse time=0.052, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=300, sparse time=0.052, naive time=0.000, speedup=0.0
+2024-04-04 15:49:03.275643: W external/tsl/tsl/framework/bfc_allocator.cc:291] Allocator (GPU_0_bfc) ran out of memory trying to allocate 33.69GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=350; Naive model out of memory
+n_el=350, iteration=0, sparse time=5.964, naive time=3.175
+n_el=350, iteration=1, sparse time=0.067, naive time=0.000
+n_el=350, iteration=2, sparse time=0.064, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=350, sparse time=0.065, naive time=0.000, speedup=0.0
+2024-04-04 15:49:18.817398: W external/tsl/tsl/framework/bfc_allocator.cc:291] Allocator (GPU_0_bfc) ran out of memory trying to allocate 40.33GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=400; Naive model out of memory
+n_el=400, iteration=0, sparse time=7.376, naive time=3.657
+n_el=400, iteration=1, sparse time=0.068, naive time=0.000
+n_el=400, iteration=2, sparse time=0.068, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=400, sparse time=0.068, naive time=0.000, speedup=0.0
+2024-04-04 15:49:35.118634: W external/tsl/tsl/framework/bfc_allocator.cc:291] Allocator (GPU_0_bfc) ran out of memory trying to allocate 55.67GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=450; Naive model out of memory
+n_el=450, iteration=0, sparse time=6.022, naive time=3.610
+n_el=450, iteration=1, sparse time=0.078, naive time=0.000
+n_el=450, iteration=2, sparse time=0.078, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=450, sparse time=0.078, naive time=0.000, speedup=0.0
+2024-04-04 15:49:51.907347: W external/tsl/tsl/framework/bfc_allocator.cc:291] Allocator (GPU_0_bfc) ran out of memory trying to allocate 68.73GiB with freed_by_count=0. The caller indicates that this is not a failure, but this may mean that there could be performance gains if more memory were available.
+================================================================================
+n_el=500; Naive model out of memory
+n_el=500, iteration=0, sparse time=6.054, naive time=4.095
+n_el=500, iteration=1, sparse time=0.090, naive time=0.000
+n_el=500, iteration=2, sparse time=0.087, naive time=0.000
+--------------------------------------------------------------------------------
+Summary: batch_size=8, n_el=500, sparse time=0.088, naive time=0.000, speedup=0.0
+================================================================================

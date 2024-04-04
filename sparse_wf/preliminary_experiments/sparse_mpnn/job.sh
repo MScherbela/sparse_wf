@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task 8
 #SBATCH --partition hgx
 #SBATCH --qos normal
-#SBATCH --output stdout.txt
+#SBATCH --output moon_timings.txt
 #SBATCH --time 1440
 #SBATCH --gres=gpu:1
 #SBATCH --mem=100000

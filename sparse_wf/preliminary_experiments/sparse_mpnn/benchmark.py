@@ -38,7 +38,7 @@ for n_el in np.arange(50, 550, 50):
     r, spin, R = build_atom_chain(rng_r, n_nuc, n_el_per_nuc, batch_size)
 
     model = SparseMoonWavefunction(
-        n_orbitals=n_el, cutoff=cutoff, feature_dim=64, pair_mlp_widths=(16, 8), pair_n_envelopes=16
+        n_orbitals=n_el, cutoff=cutoff, feature_dim=256, pair_mlp_widths=(16, 8), pair_n_envelopes=16
     )
     params = model.init(rng_model)
 
