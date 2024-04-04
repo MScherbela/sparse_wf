@@ -90,7 +90,7 @@ for n_el in np.arange(50, 550, 50):
     t_naive = np.mean(times_naive[1:])
     t_sparse = np.mean(times_sparse[1:])
     print(
-        f"Summary: batch_size={batch_size}, n_el={n_el}, sparse time={t_sparse:.3f}, naive time={t_naive:.3f}, speedup={t_naive/t_sparse:.1f}",
+        f"Summary: batch_size={batch_size}, n_el={n_el}, n_deps={n_deps_max}, sparse time={t_sparse:.3f}, naive time={t_naive:.3f}, speedup={t_naive/t_sparse:.1f}",
         flush=True,
     )
     print("=" * 80)
