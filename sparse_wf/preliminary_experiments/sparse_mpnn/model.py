@@ -183,7 +183,7 @@ class SparseMoonWavefunction:
         @jax.vmap
         @maybe_fwd_lap
         def contract(h_nb, Gamma_nb, h_center=None):
-            msg = jnp.sum(h_nb * Gamma_nb, axis=-2)
+            msg = jnp.einsum("...ij,...ij->...j", h_nb, Gamma_nb)
             if h_center is not None:
                 msg += h_center
             return jax.nn.silu(msg)
@@ -290,6 +290,7 @@ def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, n_deps_out, d
         jac_out = jac_out.at[dep_map_].set(J, mode="drop")
         return jac_out
 
+    # total_neighbors_t
     jac_neighbour = _jac_for_neighbour(jac_neighbour, dep_map)
 
     # 3) Merge electron and xyz dim back together to jacobian input dim
