@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from .api import (
+from sparse_wf.api import (
     Int,
     ClosedLogLikelihood,
     LogAmplitude,
@@ -50,7 +50,6 @@ def make_mcmc(
 ) -> MCStep:
     batch_network = jax.vmap(network, in_axes=(None, 0))
 
-    @jit
     def mcmc_step(
         key: PRNGKeyArray, params: Parameters, electrons: Electrons, static: StaticInput, width: Width
     ) -> tuple[Electrons, PMove]:
@@ -68,7 +67,7 @@ def make_mcmc(
         pmove = num_accepts / (steps * electrons.shape[0])
         return electrons, pmove
 
-    return mcmc_step
+    return jit(mcmc_step, static_argnames="static")
 
 
 def make_width_scheduler(

@@ -4,7 +4,7 @@ from typing import Callable, TypeVar, cast, ParamSpec
 import jax
 import jax.tree_util as jtu
 
-from .api import PRNGKeyArray, PyTree
+from sparse_wf.api import PRNGKeyArray, PyTree
 
 T = TypeVar("T")
 
@@ -48,6 +48,8 @@ pmean = functools.partial(jax.lax.pmean, axis_name=PMAP_AXIS_NAME)
 psum = functools.partial(jax.lax.psum, axis_name=PMAP_AXIS_NAME)
 pmax = functools.partial(jax.lax.pmax, axis_name=PMAP_AXIS_NAME)
 pgather = functools.partial(jax.lax.all_gather, axis_name=PMAP_AXIS_NAME)
+pall_to_all = functools.partial(jax.lax.all_to_all, axis_name=PMAP_AXIS_NAME)
+pidx = functools.partial(jax.lax.axis_index, axis_name=PMAP_AXIS_NAME)
 
 
 @functools.wraps(jax.jit)

@@ -12,6 +12,7 @@ Int = Integer[Array, ""]
 
 Electrons = Float[Array, "*batch_dims n_electrons spatial=3"]
 
+Position = Float[Array, "spatial=3"] | Float[np.ndarray, "spatial=3"] | tuple[float, float, float] | list[float]
 Nuclei = Float[Array, "n_nuclei spatial=3"]
 Charges = Integer[Array, "n_nuclei"]
 MeanField: TypeAlias = SCF
@@ -175,7 +176,7 @@ class NaturalGradientPreconditioner(Protocol):
     def __call__(
         self,
         params: Parameters,
-        input: DynamicInput,
+        electrons: Electrons,
         static: StaticInput,
         dE_dlogpsi: EnergyCotangent,
         natgrad_state: NaturalGradientState,
@@ -208,6 +209,7 @@ class UpdateFn(Protocol):
         self,
         key: PRNGKeyArray,
         state: TrainingState,
+        static: StaticInput,
     ) -> tuple[TrainingState, LocalEnergy, AuxData]: ...
 
 
@@ -253,10 +255,8 @@ class InitPretrainState(Protocol):
 
 class UpdatePretrainFn(Protocol):
     def __call__(
-        self,
-        key: PRNGKeyArray,
-        state: PretrainState,
-    ) -> tuple[PretrainState, Loss, AuxData]: ...
+        self, key: PRNGKeyArray, state: PretrainState, static: StaticInput
+    ) -> tuple[PretrainState, AuxData]: ...
 
 
 class Pretrainer(NamedTuple):
