@@ -3,22 +3,25 @@ import numpy as np
 import jax.numpy as jnp
 import jax
 import functools
-from collections import namedtuple
+from typing import NamedTuple
 from utils import multi_vmap, vmap_batch_dims
 from folx.api import FwdLaplArray, FwdJacobian
+from sparse_wf.api import NeighbourIndices, NrOfDependencies, Electrons, Nuclei
+from jaxtyping import Shaped, Integer, Array
 import einops
 
 NO_NEIGHBOUR = 1_000_000
 
-NeighbourIndicies = namedtuple("NeighbourIndices", ["ee", "en", "ne"])
+class NrOfDependenciesMoon(NamedTuple):
+    h0: int
+    H: int
+    hout: int
 
-
-class NrOfDependencies(namedtuple("NrOfDependencies", ["h0", "Hnuc", "hout"])):
     def pad(self, factor=1.2, n_min=8):
         return NrOfDependencies(*[int(round_to_next_step(n, factor, n_min)) for n in self])
 
 
-def round_to_next_step(n, factor, n_min):
+def round_to_next_step(n: int, factor: float, n_min: int):
     power_padded = jnp.log(n) / jnp.log(factor)
     n_padded = jnp.maximum(n_min, factor ** jnp.ceil(power_padded))
     return n_padded.astype(jnp.int32)
@@ -38,6 +41,7 @@ def _get_cutoff_matrix(r1, r2, cutoff, include_self=False):
 
 
 # vmap over total number of electrons
+@functools.partial(jax.jit, static_argnums=(1,))
 @functools.partial(vmap_batch_dims, nr_non_batch_dims=(1, None), in_axes=(0, None))
 def _get_ind_neighbours(in_cutoff, n_max):
     indices = jnp.nonzero(in_cutoff, size=n_max, fill_value=NO_NEIGHBOUR)[0]
@@ -46,22 +50,25 @@ def _get_ind_neighbours(in_cutoff, n_max):
 
 
 def get_ind_neighbours(r1, r2, cutoff, include_self=False):
-    in_cutoff, n_neighbours = _get_cutoff_matrix(r1, r2, cutoff, include_self)
-    ind_neighbours = jax.jit(lambda co: _get_ind_neighbours(co, int(n_neighbours)))(in_cutoff)
+    in_cutoff, n_neighbours = _get_cutoff_matrix(r1, r2, cutoff, include_self) # jitted
+    n_neighbours = int(n_neighbours) # non-jitted
+    ind_neighbours = _get_ind_neighbours(in_cutoff, n_neighbours) # jitted
     return ind_neighbours
 
 
-def get_all_neighbour_indices(r, R, cutoff):
-    return NeighbourIndicies(
-        ee=get_ind_neighbours(r, None, cutoff), en=get_ind_neighbours(r, R, cutoff), ne=get_ind_neighbours(R, r, cutoff)
+def get_all_neighbour_indices(r: Electrons, R:Nuclei, cutoff: float):
+    return NeighbourIndices(
+        ee=get_ind_neighbours(r, None, cutoff), 
+        en=get_ind_neighbours(r, R, cutoff), 
+        ne=get_ind_neighbours(R, r, cutoff)
     )
 
 
-def get_all_dependencies(idx_nb: NeighbourIndicies, n_deps_max: NrOfDependencies):
+def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies):
     """Get the indices of electrons on which each embedding will depend on.
 
     Args:
-        idx_nb: NeighbourIndicies, named tuple containing the indices of the neighbours of each electron and nucleus.
+        idx_nb: NeighbourIndices, named tuple containing the indices of the neighbours of each electron and nucleus.
         n_deps_max: maximum_nr_of electrons that each embedding can depend on.
             - n_deps_max[0]: maximum number of dependencies for the electron embeddings at the first step.
             - n_deps_max[1]: maximum number of dependencies for the nuclear embeddings.
@@ -99,11 +106,11 @@ def get_all_dependencies(idx_nb: NeighbourIndicies, n_deps_max: NrOfDependencies
     return (deps_h0, deps_H, deps_hout), (dep_map_h0_to_H, dep_map_H_to_hout)
 
 
-def get_with_fill(arr, ind, fill=NO_NEIGHBOUR):
+def get_with_fill(arr: Shaped[Array, "... _"], ind: Integer[Array, "..."], fill=NO_NEIGHBOUR):
     return arr.at[ind].get(mode="fill", fill_value=fill)
 
 
-def get_max_nr_of_dependencies(r, R, cutoff):
+def get_max_nr_of_dependencies(r: Electrons, R: Nuclei, cutoff: float):
     dist_ee = jnp.linalg.norm(r[..., :, None, :] - r[..., None, :, :], axis=-1)
     dist_ne = jnp.linalg.norm(R[..., :, None, :] - r[..., None, :, :], axis=-1)
 
@@ -174,32 +181,3 @@ def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, n_deps_out, d
     )
     return FwdLaplArray(h_neighbour, FwdJacobian(data=jac_neighbour), lap_h_neighbour)
 
-
-if __name__ == "__main__":
-    n_el = 50
-
-    rng_r = jax.random.PRNGKey(0)
-    R = jnp.arange(-n_el // 2, n_el // 2)[:, None] * jnp.array([1, 0, 0])
-    r = jax.random.normal(rng_r, (n_el, 3)) + R
-
-    n_dependencies = get_max_nr_of_dependencies(r, cutoff=3.0, n_steps_max=2)
-    n_dependencies = [int(n) for n in n_dependencies]
-    ind_neighbours = get_ind_neighbours(r, cutoff=4.0, include_self=False)
-    ind_dep = jnp.concatenate([jnp.arange(n_el)[:, None], ind_neighbours], axis=-1)
-
-    i = 1
-    fixed_deps = ind_dep[i]
-    deps = get_with_fill(ind_dep, ind_neighbours[i])
-    deps_out, dep_map = merge_dependencies(deps, fixed_deps, n_dependencies[1])
-
-    print("Fixed deps: ")
-    print(fixed_deps)
-    print("")
-    print("Dependecies: ")
-    print(deps)
-    print("")
-    print("Merged deps: ")
-    print(deps_out)
-    print("")
-    print("Dep map: ")
-    print(dep_map)

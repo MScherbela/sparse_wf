@@ -35,6 +35,10 @@ model = SparseMoonWavefunction(
 )
 params = model.init(rng_model)
 
+# Refactor as:
+# input_constructor = InputConstructor(R, cutoff)
+# dyn_input = input_constructor(r, spin) -> r, idx_nb
+
 
 idx_nb = get_all_neighbour_indices(r, R, cutoff=cutoff)
 n_deps_max = get_max_nr_of_dependencies(r, R, cutoff)

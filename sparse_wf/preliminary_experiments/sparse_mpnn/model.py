@@ -16,6 +16,9 @@ import chex
 from typing import Callable
 from dataclasses import dataclass, field
 from utils import fwd_lap
+from sparse_wf.api import Electrons, ElectronNucleiEdges
+from typing import Optional, Sequence
+from jaxtyping import Float, Array
 
 
 def cutoff_function(d, p=4):
@@ -40,17 +43,14 @@ def get_diff_features(r1, r2, s1=None, s2=None):
 
 
 class MLP(nn.Module):
-    width: int = None
-    depth: int = None
-    widths: tuple[int] = None
+    widths: Sequence[int]
     activate_final: bool = False
     activation: Callable = jax.nn.silu
 
     @nn.compact
-    def __call__(self, x):
-        output_widths = self.widths or [self.width] * self.depth
-        depth = len(output_widths)
-        for ind_layer, out_width in enumerate(output_widths):
+    def __call__(self, x: Float[Array, "*batch_dims _"]) -> Float[Array, "*batch_dims _"]:
+        depth = len(self.widths)
+        for ind_layer, out_width in enumerate(self.widths):
             x = nn.Dense(out_width)(x)
             if (ind_layer < depth - 1) or self.activate_final:
                 x = self.activation(x)
@@ -59,7 +59,7 @@ class MLP(nn.Module):
 
 class PairwiseFilter(nn.Module):
     cutoff: float
-    directional_mlp_widths: tuple[int]
+    directional_mlp_widths: Sequence[int]
     n_envelopes: int
     out_dim: int
 

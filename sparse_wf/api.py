@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import NamedTuple, Protocol, TypeAlias
+from typing import NamedTuple, Protocol, TypeAlias, Optional
 
 import numpy as np
 import optax
@@ -12,8 +12,8 @@ Int = Integer[Array, ""]
 
 Electrons = Float[Array, "*batch_dims n_electrons spatial=3"]
 
-Nuclei = Float[Array, "n_atoms spatial=3"]
-Charges = Integer[Array, "n_atoms"]
+Nuclei = Float[Array, "n_nuclei spatial=3"]
+Charges = Integer[Array, "n_nuclei"]
 MeanField: TypeAlias = SCF
 
 SlaterMatrix = Float[Array, "*batch_dims n_determinants n_electrons n_electrons"]
@@ -44,18 +44,24 @@ Step = Integer[ArrayLike, ""]
 ############################################################################
 # Wave function
 ############################################################################
-ElectronElectronEdges = Integer[Array, "n_electrons n_electrons"]
-ElectronNucleiEdges = Integer[Array, "n_electrons n_atoms"]
+ElectronElectronEdges = Integer[Array, "n_electrons n_nb_ee"]
+ElectronNucleiEdges = Integer[Array, "n_electrons n_nb_en"]
+NucleiElectronEdges = Integer[Array, "n_nuclei n_nb_ne"]
 
 
 class NeighbourIndices(NamedTuple):
-    electron_electron: ElectronElectronEdges
-    electron_nuclei: ElectronNucleiEdges
+    ee: ElectronElectronEdges
+    en: ElectronNucleiEdges
+    ne: NucleiElectronEdges
 
+DependencyMap = Integer[Array, "*batch_dims n_center n_neighbour n_deps"]
+
+NrOfDependencies = NamedTuple
 
 class DynamicInput(NamedTuple):
     electrons: Electrons
     neighbours: NeighbourIndices
+    dependencies: Optional[tuple[DependencyMap]] = None
 
 
 StaticInput = tuple
@@ -81,13 +87,13 @@ class HFOrbitalFn(Protocol):
     def __call__(self, electrons: Electrons) -> HFOrbitals: ...
 
 
-class HFOrbitalsToNNOrbials(Protocol):
+class HFOrbitalsToNNOrbitals(Protocol):
     def __call__(self, hf_orbitals: HFOrbitals) -> SlaterMatrices: ...
 
 
 class OrbitalModel(Protocol):
     __call__: OrbitalFn
-    transform_hf_orbitals: HFOrbitalsToNNOrbials
+    transform_hf_orbitals: HFOrbitalsToNNOrbitals
 
 
 class SLogPsi(Protocol):
@@ -98,24 +104,24 @@ class LogPsi(Protocol):
     def __call__(self, electrons: Electrons, static: StaticInput) -> LogAmplitude: ...
 
 
-class ParametrizedOrbitalFunction(Protocol):
+class ParameterizedOrbitalFunction(Protocol):
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices: ...
 
 
-class ParametrizedSLogPsi(Protocol):
+class ParameterizedSLogPsi(Protocol):
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude: ...
 
 
-class ParametrizedLogPsi(Protocol):
+class ParameterizedLogPsi(Protocol):
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude: ...
 
 
-class ParametrizedWaveFunction(Protocol):
+class ParameterizedWaveFunction(Protocol):
     construct_input: InputConstructor
-    orbitals: ParametrizedOrbitalFunction
-    hf_transformation: HFOrbitalsToNNOrbials
-    signed: ParametrizedSLogPsi
-    __call__: ParametrizedLogPsi
+    orbitals: ParameterizedOrbitalFunction
+    hf_transformation: HFOrbitalsToNNOrbitals
+    signed: ParameterizedSLogPsi
+    __call__: ParameterizedLogPsi
 
 
 class EnergyFn(Protocol):
@@ -219,7 +225,7 @@ class InitTrainState(Protocol):
 class Trainer:
     init: InitTrainState
     update: UpdateFn
-    wave_function: ParametrizedWaveFunction
+    wave_function: ParameterizedWaveFunction
     mcmc: MCStep
     width_scheduler: WidthScheduler
     energy_fn: EnergyFn
