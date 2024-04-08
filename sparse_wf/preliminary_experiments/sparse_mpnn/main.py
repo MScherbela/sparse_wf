@@ -37,7 +37,14 @@ params = model.init(rng_model)
 
 # Refactor as:
 # input_constructor = InputConstructor(R, cutoff)
-# dyn_input = input_constructor(r, spin) -> r, idx_nb
+# dyn_input_incl_deps = input_constructor.get_input_for_fwd_lap(r, spin) -> r, idx_nb, deps, dep_maps
+
+# model = SparseMoonWavefunction(R, n_orbitals, cutoff)
+# psi, lap_psi = model.apply_with_fwd_lap(dyn_input_incl_deps, static_input)
+
+
+
+
 
 
 idx_nb = get_all_neighbour_indices(r, R, cutoff=cutoff)

@@ -6,19 +6,19 @@ import functools
 from typing import NamedTuple
 from utils import multi_vmap, vmap_batch_dims
 from folx.api import FwdLaplArray, FwdJacobian
-from sparse_wf.api import NeighbourIndices, NrOfDependencies, Electrons, Nuclei
-from jaxtyping import Shaped, Integer, Array
+from sparse_wf.api import NeighbourIndices, NrOfDependencies, Electrons, Nuclei, Dependencies, DependencyMap
+from jaxtyping import Shaped, Integer, Array, Scalar
 import einops
 
 NO_NEIGHBOUR = 1_000_000
 
-class NrOfDependenciesMoon(NamedTuple):
+class NrOfDependenciesMoon(NrOfDependencies):
     h0: int
-    H: int
+    Hnuc: int
     hout: int
 
     def pad(self, factor=1.2, n_min=8):
-        return NrOfDependencies(*[int(round_to_next_step(n, factor, n_min)) for n in self])
+        return NrOfDependenciesMoon(*[int(round_to_next_step(n, factor, n_min)) for n in self])
 
 
 def round_to_next_step(n: int, factor: float, n_min: int):
@@ -38,7 +38,6 @@ def _get_cutoff_matrix(r1, r2, cutoff, include_self=False):
     in_cutoff = dist < cutoff
     max_n_neighbours = jnp.max(jnp.sum(in_cutoff, axis=-1))
     return in_cutoff, max_n_neighbours
-
 
 # vmap over total number of electrons
 @functools.partial(jax.jit, static_argnums=(1,))
@@ -64,7 +63,7 @@ def get_all_neighbour_indices(r: Electrons, R:Nuclei, cutoff: float):
     )
 
 
-def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies):
+def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependenciesMoon) -> tuple[tuple[Dependencies, ...], tuple[DependencyMap, ...]]:
     """Get the indices of electrons on which each embedding will depend on.
 
     Args:
@@ -93,7 +92,7 @@ def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies)
         return get_with_fill(deps, idx_nb)
 
     # Step 1: Initial electron embeddings depend on themselves and their neighbours
-    deps_h0 = jnp.concatenate([self_dependency, idx_nb.ee], axis=-1)
+    deps_h0: Dependencies = jnp.concatenate([self_dependency, idx_nb.ee], axis=-1)
 
     # Step 2: Nuclear embeddings depend on all dependencies of their neighbouring electrons
     deps_neighbours = get_deps_nb(deps_h0, idx_nb.ne)
@@ -106,7 +105,9 @@ def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies)
     return (deps_h0, deps_H, deps_hout), (dep_map_h0_to_H, dep_map_H_to_hout)
 
 
-def get_with_fill(arr: Shaped[Array, "... _"], ind: Integer[Array, "..."], fill=NO_NEIGHBOUR):
+def get_with_fill(arr: Shaped[Array, "n_elements *feature_dims"], 
+                  ind: Integer[Array, "*batch_dims n_neighbours"], 
+                  fill: float|int=NO_NEIGHBOUR) -> Shaped[Array, "*batch_dims n_neighbours *feature_dims"]:
     return arr.at[ind].get(mode="fill", fill_value=fill)
 
 
@@ -122,16 +123,16 @@ def get_max_nr_of_dependencies(r: Electrons, R: Nuclei, cutoff: float):
 
     # The output electron embeddings are computed with 3 message passing step and can therefore depend at most on electrons within 3 * cutoff
     n_deps_max_h_out = jnp.max(jnp.sum(dist_ee < cutoff * 3, axis=-1))
-    return NrOfDependencies(n_deps_max_h0, n_deps_max_H, n_deps_max_h_out)
+    return NrOfDependenciesMoon(int(n_deps_max_h0), int(n_deps_max_H), int(n_deps_max_h_out))
 
 
 @functools.partial(jax.jit, static_argnums=(2,))
 @functools.partial(vmap_batch_dims, nr_non_batch_dims=(2, 1, None), in_axes=(0, 0, None))
-def merge_dependencies(deps, fixed_deps, n_deps_max):
+def merge_dependencies(deps: Dependencies, fixed_deps: Dependencies, n_deps_max: int) -> tuple[Dependencies, DependencyMap]:
     # Get maximum number of new dependencies after the merge
     n_new_deps_max = n_deps_max - len(fixed_deps)
 
-    new_deps = jnp.where(jnp.isin(deps, fixed_deps), NO_NEIGHBOUR, deps)
+    new_deps = jnp.where(jnp.isin(deps, fixed_deps), NO_NEIGHBOUR, deps) # TODO (ng): How to avoid this type error
     new_unique_deps = jnp.unique(new_deps, size=n_new_deps_max, fill_value=NO_NEIGHBOUR)
     deps_out = jnp.concatenate([fixed_deps, new_unique_deps], axis=-1)
 

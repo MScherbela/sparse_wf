@@ -55,6 +55,9 @@ class NeighbourIndices(NamedTuple):
     en: ElectronNucleiEdges
     ne: NucleiElectronEdges
 
+Dependency = Integer[Array, "n_deps"]
+Dependencies = Integer[Dependency, "*batch_dims"]
+
 DependencyMap = Integer[Array, "*batch_dims n_center n_neighbour n_deps"]
 
 NrOfDependencies = NamedTuple

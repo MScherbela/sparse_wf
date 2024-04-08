@@ -1,6 +1,7 @@
 import jax
 import functools
 import folx
+from typing import Sequence
 
 
 def multi_vmap(f, n, in_axes=0):
@@ -10,7 +11,7 @@ def multi_vmap(f, n, in_axes=0):
     return f
 
 
-def vmap_batch_dims(func, nr_non_batch_dims, in_axes=0):
+def vmap_batch_dims(func, nr_non_batch_dims, in_axes: int | Sequence[int | None] = 0):
     """Iteratively apply vmap over all batch dimensions.
 
     The number of batch-dims is inferred by specfiying the number of non-batch dims for each argument.
@@ -39,7 +40,7 @@ def vmap_batch_dims(func, nr_non_batch_dims, in_axes=0):
 
     return wrapped
 
-
+@functools.wraps(folx.forward_laplacian)
 def fwd_lap(f, argnums=None, sparsity_threshold=0.6):
     """Applies forward laplacian transform using the folx package, but addes the option to specifiy which args are being differentiated."""
 
