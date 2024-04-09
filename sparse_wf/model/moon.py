@@ -3,14 +3,14 @@ from sparse_wf.api import (
     DependencyMap,
     Parameters,
     Electrons,
+    Charges,
+    Nuclei,
     StaticInput,
     DynamicInputWithDependencies,
     NrOfDependencies,
     NeighbourIndices,
     DistanceMatrix,
     ParameterizedWaveFunction,
-    Spins,
-    ElectronPositions,
     SignedLogAmplitude,
     Int,
 )
@@ -64,8 +64,8 @@ class SparseMoonParams:
 
 class InputConstructorMoon(GenericInputConstructor):
     # This function cannot be jitted, because it returns a static tuple of integers
-    def get_static_input(self, electrons: Electrons) -> StaticInput:
-        dist_ee, dist_ne = self.get_full_distance_matrices(electrons.r)
+    def get_static_input(self, r: Electrons) -> StaticInput:
+        dist_ee, dist_ne = self.get_full_distance_matrices(r)
         n_neighbours = self.get_nr_of_neighbours(dist_ee, dist_ne)
         n_deps_h0, n_deps_H, n_deps_hout = self._get_max_nr_of_dependencies(dist_ee, dist_ne)
         n_deps = NrOfDependenciesMoon(
@@ -80,7 +80,7 @@ class InputConstructorMoon(GenericInputConstructor):
         self, electrons: Electrons, static: StaticInput
     ) -> DynamicInputWithDependencies:
         # Indices of neighbours
-        dist_ee, dist_ne = self.get_full_distance_matrices(electrons.r)
+        dist_ee, dist_ne = self.get_full_distance_matrices(electrons)
         idx_nb = self.get_neighbour_indices(dist_ee, dist_ne, static.n_neighbours)
 
         # Dependencies of embedddings
@@ -205,10 +205,29 @@ class OrbitalLayer(nn.Module):
 
 
 class SparseMoonWavefunction(ParameterizedWaveFunction):
-    def __init__(self, n_orbitals, R, Z, cutoff, feature_dim, nuc_mlp_depth, pair_mlp_widths, pair_n_envelopes):
-        self.n_orbitals = n_orbitals
+    def __init__(
+        self,
+        R: Nuclei,
+        Z: Charges,
+        charge: int,
+        spin: int,
+        cutoff: float,
+        feature_dim: int,
+        nuc_mlp_depth: int,
+        pair_mlp_widths: Sequence[int],
+        pair_n_envelopes: int,
+    ):
         self.R = R
         self.Z = Z
+
+        self.charge = charge
+        self.n_electrons = sum(Z) - charge
+        self.spin = spin
+        assert (self.n_electrons + self.spin) % 2 == 0
+        self.n_up = (self.n_electrons + self.spin) // 2
+        self.n_dn = self.n_electrons - self.n_up
+        self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_dn)])
+
         self.cutoff = cutoff
         self.feature_dim = feature_dim
         self.nuc_mlp_depth = nuc_mlp_depth
@@ -226,7 +245,7 @@ class SparseMoonWavefunction(ParameterizedWaveFunction):
         )
         self.mlp_nuc = MLP(widths=[self.feature_dim] * self.nuc_mlp_depth, name="mlp_nuc")
         self.lin_h0 = nn.Dense(self.feature_dim, use_bias=True, name="lin_h0")
-        self.lin_orbitals = nn.Dense(self.n_orbitals, use_bias=False, name="lin_orbitals")
+        self.lin_orbitals = nn.Dense(self.n_electrons, use_bias=False, name="lin_orbitals")
 
         self.input_constructor = InputConstructorMoon(R, Z, cutoff)
 
@@ -256,8 +275,8 @@ class SparseMoonWavefunction(ParameterizedWaveFunction):
         )
         return params
 
-    def get_neighbour_coordinates(self, r: ElectronPositions, spin: Spins, idx_nb: NeighbourIndices):
-        spin_nb_ee = get_with_fill(spin, idx_nb.ee, 0.0)
+    def get_neighbour_coordinates(self, r: Electrons, idx_nb: NeighbourIndices):
+        spin_nb_ee = get_with_fill(self.spins, idx_nb.ee, 0.0)
         r_nb_ee = get_with_fill(r, idx_nb.ee, NO_NEIGHBOUR)  # [n_el  x n_neighbouring_electrons x 3]
         r_nb_ne = get_with_fill(r, idx_nb.ne, NO_NEIGHBOUR)  # [n_nuc x n_neighbouring_electrons x 3]
         R_nb_en = get_with_fill(self.R, idx_nb.en, NO_NEIGHBOUR)  # [n_el  x n_neighbouring_nuclei    x 3]
@@ -296,16 +315,15 @@ class SparseMoonWavefunction(ParameterizedWaveFunction):
         _get_Gamma = jax.vmap(_get_Gamma, in_axes=(None, 0, 0))  # vmap over center
         return _get_Gamma(params, r, R_nb_en_)
 
-    def orbitals(self, params: Parameters, el: Electrons, static_input: StaticInput):
-        r, spin = el
+    def orbitals(self, params: Parameters, r: Electrons, static_input: StaticInput):
         params = cast(SparseMoonParams, params)
-        idx_nb = self.input_constructor.get_dynamic_input(el, static_input).neighbours
+        idx_nb = self.input_constructor.get_dynamic_input(r, static_input).neighbours
 
         # Step 0: Get neighbours
-        spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(r, spin, idx_nb)
+        spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(r, idx_nb)
 
         # Step 1: Get h0
-        h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0, 0, 0))(params, r, r_nb_ee, spin, spin_nb_ee)
+        h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0, 0, 0))(params, r, r_nb_ee, self.spins, spin_nb_ee)
 
         # Step 2: Contract to nuclei + MLP
         Gamma_ne = self._get_Gamma_ne_vmapped(params, self.R, r_nb_ne)
@@ -320,18 +338,18 @@ class SparseMoonWavefunction(ParameterizedWaveFunction):
         return h_out
 
     def orbitals_with_fwd_lap(self, params: SparseMoonParams, el: Electrons, static_input: StaticInput):
-        (r, spin), idx_nb, deps, dep_maps = self.input_constructor.get_dynamic_input_with_dependencies(el, static_input)
+        r, idx_nb, deps, dep_maps = self.input_constructor.get_dynamic_input_with_dependencies(el, static_input)
         n_deps = cast(NrOfDependenciesMoon, static_input.n_deps)
         dep_maps = cast(DependencyMapsMoon, dep_maps)
 
         # Step 0: Get neighbours
-        spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(r, spin, idx_nb)
+        spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(r, idx_nb)
 
         # Step 1: Contract ee to get electron embeedings h0
         get_h0 = fwd_lap(self._get_h0, argnums=(1, 2))
         get_h0 = jax.vmap(get_h0, in_axes=(None, 0, 0, 0, 0))
         # Shapes: h0: [nel x feature_dim]; h0.jac: [n_el x 3*n_deps1 x feature_dim] (dense)
-        h0 = get_h0(params, r, r_nb_ee, spin, spin_nb_ee)
+        h0 = get_h0(params, r, r_nb_ee, self.spins, spin_nb_ee)
 
         # Step 2: Contract to nuclei + MLP on nuclei => nuclear embedding H
         # 2a: Get the spatial filter between nuclei and neighbouring electrons

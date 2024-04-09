@@ -78,6 +78,7 @@ def jit(
 
     return inner_jit(fun)
 
+
 @functools.wraps(folx.forward_laplacian)
 def fwd_lap(f, argnums=None, sparsity_threshold=0.6):
     """Applies forward laplacian transform using the folx package, but adds the option to specifiy which args are being differentiated,
@@ -116,4 +117,3 @@ def fwd_lap(f, argnums=None, sparsity_threshold=0.6):
         return lap_array
 
     return transformed
-

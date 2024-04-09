@@ -13,19 +13,8 @@ Int = Integer[Array, ""]
 
 
 Position = Float[Array, "spatial=3"] | Float[np.ndarray, "spatial=3"] | tuple[float, float, float] | list[float]
-ElectronPositions = Float[Array, "*batch_dims n_electrons spatial=3"]
+Electrons = Float[Array, "*batch_dims n_electrons spatial=3"]
 Spins = Integer[Array, "*batch_dims n_electrons"]
-
-
-class Electrons(NamedTuple):
-    r: ElectronPositions
-    spins: Spins
-
-    @property
-    def n_el(self) -> int:
-        return self.r.shape[-2]
-
-
 Nuclei = Float[Array, "n_nuclei spatial=3"]
 Charges = Integer[Array, "n_nuclei"]
 MeanField: TypeAlias = SCF

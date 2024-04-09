@@ -12,7 +12,6 @@ from sparse_wf.api import (
     DistanceMatrix,
     Int,
     NrOfNeighbours,
-    ElectronPositions,
 )
 import functools
 import jax.numpy as jnp
@@ -33,11 +32,9 @@ class GenericInputConstructor(InputConstructor):
         self.n_neighbours_min = n_neighbours_min
 
     @jit(static_argnames=("self", "static"))
-    def get_dynamic_input(self, electrons: Electrons, static: StaticInput) -> DynamicInput:
-        dist_ee, dist_ne = self.get_full_distance_matrices(electrons.r)
-        return DynamicInput(
-            electrons=electrons, neighbours=self.get_neighbour_indices(dist_ee, dist_ne, static.n_neighbours)
-        )
+    def get_dynamic_input(self, r: Electrons, static: StaticInput) -> DynamicInput:
+        dist_ee, dist_ne = self.get_full_distance_matrices(r)
+        return DynamicInput(electrons=r, neighbours=self.get_neighbour_indices(dist_ee, dist_ne, static.n_neighbours))
 
     @jit(static_argnames=("self", "n_neighbours"))
     def get_neighbour_indices(
@@ -70,7 +67,7 @@ class GenericInputConstructor(InputConstructor):
         )
 
     @jit(static_argnames="self")
-    def get_full_distance_matrices(self, r: ElectronPositions) -> tuple[DistanceMatrix, DistanceMatrix]:
+    def get_full_distance_matrices(self, r: Electrons) -> tuple[DistanceMatrix, DistanceMatrix]:
         dist_ee = jnp.linalg.norm(r[..., :, None, :] - r[..., None, :, :], axis=-1)
         dist_ne = jnp.linalg.norm(self.R[..., :, None, :] - r[..., None, :, :], axis=-1)
         return dist_ee, dist_ne

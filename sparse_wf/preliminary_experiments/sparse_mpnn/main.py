@@ -16,21 +16,19 @@ def build_atom_chain(rng, n_nuc, n_el_per_nuc, batch_size):
     R = jnp.arange(n_nuc)[:, None] * jnp.array([1, 0, 0])
     r = R[:, None, :] + jax.random.normal(rng, [batch_size, n_nuc, n_el_per_nuc, 3])
     r = jax.lax.collapse(r, 1, 3)
-    n_el = r.shape[-2]
-    spin = jnp.tile(jnp.arange(n_el) % 2, (batch_size, 1))
     Z = jnp.ones(n_nuc, dtype=int) * n_el_per_nuc
-    return Electrons(r, spin), R, Z
+    return r, R, Z
 
 
-cutoff = 4.0
 rng_r, rng_model = jax.random.split(jax.random.PRNGKey(0))
 electrons, R, Z = build_atom_chain(rng_r, n_nuc=25, n_el_per_nuc=2, batch_size=1)
 
 model = SparseMoonWavefunction(
-    n_orbitals=electrons.n_el,
     R=R,
     Z=Z,
-    cutoff=cutoff,
+    charge=0,
+    spin=0,
+    cutoff=4.0,
     feature_dim=64,
     nuc_mlp_depth=3,
     pair_mlp_widths=(16, 8),
@@ -43,9 +41,7 @@ static_args = model.input_constructor.get_static_input(electrons)
 @functools.partial(jax.jit, static_argnums=(2,))
 @functools.partial(jax.vmap, in_axes=(None, 0, None))
 def apply_with_external_fwd_lap(params, electrons: Electrons, static_args: StaticInput):
-    return folx.forward_laplacian(lambda r: model.orbitals(params, Electrons(r, electrons.spins), static_args))(
-        electrons.r
-    )
+    return folx.forward_laplacian(lambda r: model.orbitals(params, r, static_args))(electrons)
 
 
 @functools.partial(jax.jit, static_argnums=(2,))
