@@ -1,5 +1,5 @@
 import functools
-from typing import Callable, TypeVar, cast, ParamSpec
+from typing import Callable, TypeVar, cast, ParamSpec, overload
 import folx
 
 import jax
@@ -53,16 +53,30 @@ pall_to_all = functools.partial(jax.lax.all_to_all, axis_name=PMAP_AXIS_NAME)
 pidx = functools.partial(jax.lax.axis_index, axis_name=PMAP_AXIS_NAME)
 
 
-@functools.wraps(jax.jit)
-def jit(fun: Callable[P, R], *jit_args, **jit_kwargs) -> Callable[P, R]:
-    jitted = jax.jit(fun, *jit_args, **jit_kwargs)
+@overload
+def jit(fun: None = None, *jit_args, **jit_kwargs) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
-    @functools.wraps(fun)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        return cast(R, jitted(*args, **kwargs))
 
-    return wrapper
+@overload
+def jit(fun: Callable[P, R], *jit_args, **jit_kwargs) -> Callable[P, R]: ...
 
+
+def jit(
+    fun: Callable[P, R] | None = None, *jit_args, **jit_kwargs
+) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
+    def inner_jit(fun: Callable[P, R]) -> Callable[P, R]:
+        jitted = jax.jit(fun, *jit_args, **jit_kwargs)
+
+        @functools.wraps(fun)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            return cast(R, jitted(*args, **kwargs))
+
+        return wrapper
+
+    if fun is None:
+        return inner_jit
+
+    return inner_jit(fun)
 
 @functools.wraps(folx.forward_laplacian)
 def fwd_lap(f, argnums=None, sparsity_threshold=0.6):
@@ -102,3 +116,4 @@ def fwd_lap(f, argnums=None, sparsity_threshold=0.6):
         return lap_array
 
     return transformed
+
