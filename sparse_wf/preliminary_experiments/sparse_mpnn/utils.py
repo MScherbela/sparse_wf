@@ -11,35 +11,6 @@ def multi_vmap(f, n, in_axes=0):
     return f
 
 
-def vmap_batch_dims(func, nr_non_batch_dims, in_axes: int | Sequence[int | None] = 0):
-    """Iteratively apply vmap over all batch dimensions.
-
-    The number of batch-dims is inferred by specfiying the number of non-batch dims for each argument.
-    At compile time, this function determines the nr of batch dims, checks consistency across arguments and applies the vmap
-
-    """
-
-    @functools.wraps(func)
-    def wrapped(*args, **kwargs):
-        # Get number of batch dimensions and check that it is consistent across arguments
-        batch_dims = []
-        for arg, non_batch in zip(args, nr_non_batch_dims):
-            if non_batch is None:
-                continue
-            batch_dims.append(arg.ndim - non_batch)
-        n_batch_dims = batch_dims[0]
-        assert all(
-            [bd == n_batch_dims for bd in batch_dims]
-        ), "All arguments must have the same number of batch dimensions"
-
-        # Vmap over all batch_dims
-        vmapped_func = func
-        for _ in range(n_batch_dims):
-            vmapped_func = jax.vmap(vmapped_func, in_axes=in_axes)
-        return vmapped_func(*args, **kwargs)
-
-    return wrapped
-
 @functools.wraps(folx.forward_laplacian)
 def fwd_lap(f, argnums=None, sparsity_threshold=0.6):
     """Applies forward laplacian transform using the folx package, but addes the option to specifiy which args are being differentiated."""

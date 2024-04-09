@@ -6,6 +6,7 @@ import optax
 from flax import struct
 from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree
 from pyscf.scf.hf import SCF
+from folx.api import FwdLaplArray
 
 AnyArray = Array | list | np.ndarray
 Int = Integer[Array, ""]
@@ -49,30 +50,45 @@ ElectronElectronEdges = Integer[Array, "n_electrons n_nb_ee"]
 ElectronNucleiEdges = Integer[Array, "n_electrons n_nb_en"]
 NucleiElectronEdges = Integer[Array, "n_nuclei n_nb_ne"]
 
+class NrOfNeighbours(NamedTuple):
+    ee: int
+    en: int
+    ne: int
 
 class NeighbourIndices(NamedTuple):
     ee: ElectronElectronEdges
     en: ElectronNucleiEdges
     ne: NucleiElectronEdges
 
-Dependency = Integer[Array, "n_deps"]
-Dependencies = Integer[Dependency, "*batch_dims"]
-
-DependencyMap = Integer[Array, "*batch_dims n_center n_neighbour n_deps"]
 
 NrOfDependencies = NamedTuple
+
+class StaticInput(NamedTuple):
+    n_neighbours: NrOfNeighbours
+    n_deps: NrOfDependencies
+
+
+Dependency = Integer[Array, "n_deps"]
+Dependencies = Integer[Dependency, "*batch_dims"]
+DependencyMap = Integer[Array, "*batch_dims n_center n_neighbour n_deps"]
 
 class DynamicInput(NamedTuple):
     electrons: Electrons
     neighbours: NeighbourIndices
-    dependencies: Optional[tuple[DependencyMap]] = None
 
-
-StaticInput = tuple
+class DynamicInputWithDependencies(NamedTuple):
+    electrons: Electrons
+    neighbours: NeighbourIndices
+    dependencies: tuple[Dependencies, ...]
+    dep_maps: tuple[DependencyMap, ...]
 
 
 class InputConstructor(Protocol):
-    def __call__(self, electrons: Electrons, static: StaticInput) -> DynamicInput: ...
+    def get_static_input(self, electrons: Electrons) -> StaticInput: ...
+
+    def get_dynamic_input(self, electrons: Electrons, static: StaticInput) -> DynamicInput: ...
+
+    def get_dynamic_input_with_dependencies(self, electrons: Electrons, static: StaticInput) -> DynamicInputWithDependencies: ...
 
 
 class ClosedInputConstructor(Protocol):
@@ -119,6 +135,8 @@ class ParameterizedSLogPsi(Protocol):
 class ParameterizedLogPsi(Protocol):
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude: ...
 
+class ParameterizedLogPsiWithFwdLap(Protocol):
+    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> Fwd
 
 class ParameterizedWaveFunction(Protocol):
     construct_input: InputConstructor
@@ -126,6 +144,7 @@ class ParameterizedWaveFunction(Protocol):
     hf_transformation: HFOrbitalsToNNOrbitals
     signed: ParameterizedSLogPsi
     __call__: ParameterizedLogPsi
+    fwd_lap: ParameterizedLogPsiWithFwdLap
 
 
 class EnergyFn(Protocol):

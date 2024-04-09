@@ -97,6 +97,9 @@ def make_trainer(
         energy = energy_function(state.params, electrons, static)
         energy_diff = local_energy_diff(energy, 5.0, "median")
 
+        #TODO (ms,ng): Does this function actually parallelize across gpus when using pmap? S
+        # Seems like it only avarages across the local devices...
+
         def loss_fn(params):
             return jnp.vdot(batch_log_amplitude(params, electrons, static), energy_diff) / energy_diff.size
 

@@ -10,10 +10,10 @@ import jax.numpy as jnp
 import folx
 import functools
 
-from jax import config
+from jax import config as jax_config
 
-config.update("jax_enable_x64", False)
-config.update("jax_default_matmul_precision", "highest")
+jax_config.update("jax_enable_x64", False)
+jax_config.update("jax_default_matmul_precision", "highest")
 
 
 def build_atom_chain(rng, n_nuc, n_el_per_nuc, batch_size):

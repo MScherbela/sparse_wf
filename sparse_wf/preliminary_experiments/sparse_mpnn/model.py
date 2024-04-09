@@ -24,7 +24,9 @@ FilterKernel = Float[Array, "neighbour features"]
 Embedding = Float[Array, "features"]
 
 
-def cutoff_function(d: Float[Array, "..."], p=4) -> Float[Array, "..."]:
+
+
+def cutoff_function(d: Float[Array, "*dims"], p=4) -> Float[Array, "*dims"]: # noqa: F821
     a = -(p + 1) * (p + 2) * 0.5
     b = p * (p + 2)
     c = -p * (p + 1) * 0.5
@@ -276,7 +278,6 @@ class SparseMoonWavefunction:
 
         # 2b: Get the neighbouring electron embeddings
         h0_nb_ne = get_neighbour_with_FwdLapArray(h0, idx_nb.ne, n_deps.Hnuc, dep_maps[0])
-
 
         # 2c: Contract and apply the MLP
         H0 = fwd_lap(contract)(h0_nb_ne, Gamma_ne)
