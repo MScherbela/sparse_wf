@@ -32,14 +32,14 @@ class GenericInputConstructor(InputConstructor):
         self.padding_factor = padding_factor
         self.n_neighbours_min = n_neighbours_min
 
-    @functools.partial(jit, static_argnames=("self", "static"))
+    @jit(static_argnames=("self", "static"))
     def get_dynamic_input(self, electrons: Electrons, static: StaticInput) -> DynamicInput:
         dist_ee, dist_ne = self.get_full_distance_matrices(electrons.r)
         return DynamicInput(
             electrons=electrons, neighbours=self.get_neighbour_indices(dist_ee, dist_ne, static.n_neighbours)
         )
 
-    @functools.partial(jit, static_argnames=("self", "n_neighbours"))
+    @jit(static_argnames=("self", "n_neighbours"))
     def get_neighbour_indices(
         self, dist_ee: DistanceMatrix, dist_ne: DistanceMatrix, n_neighbours: NrOfNeighbours
     ) -> NeighbourIndices:
@@ -69,13 +69,13 @@ class GenericInputConstructor(InputConstructor):
             ee=self._round_to_next_step(n_ee), en=self._round_to_next_step(n_en), ne=self._round_to_next_step(n_ne)
         )
 
-    @functools.partial(jit, static_argnames=("self"))
+    @jit(static_argnames="self")
     def get_full_distance_matrices(self, r: ElectronPositions) -> tuple[DistanceMatrix, DistanceMatrix]:
         dist_ee = jnp.linalg.norm(r[..., :, None, :] - r[..., None, :, :], axis=-1)
         dist_ne = jnp.linalg.norm(self.R[..., :, None, :] - r[..., None, :, :], axis=-1)
         return dist_ee, dist_ne
 
-    @functools.partial(jit, static_argnames=("self"))
+    @jit(static_argnames="self")
     def _get_max_n_neighbours(self, dist_ee: DistanceMatrix, dist_ne: DistanceMatrix):
         n_el = dist_ee.shape[-1]
         dist_ee += jnp.inf * jnp.eye(n_el)
@@ -101,7 +101,7 @@ def get_with_fill(
     return arr.at[ind].get(mode="fill", fill_value=fill)
 
 
-# @functools.partial(jit, static_argnums=(2,))
+# @jit(static_argnums=(2,))
 @functools.partial(
     jnp.vectorize, excluded=(2,), signature="(element,deps_new),(deps_old)->(deps_out),(element,deps_new)"
 )

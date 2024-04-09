@@ -75,7 +75,7 @@ class InputConstructorMoon(GenericInputConstructor):
         )
         return StaticInput(n_neighbours=n_neighbours, n_deps=n_deps)
 
-    @functools.partial(jit, static_argnames=("self", "static"))
+    @jit(static_argnames=("self", "static"))
     def get_dynamic_input_with_dependencies(
         self, electrons: Electrons, static: StaticInput
     ) -> DynamicInputWithDependencies:
@@ -89,7 +89,7 @@ class InputConstructorMoon(GenericInputConstructor):
             electrons=electrons, neighbours=idx_nb, dependencies=deps, dep_maps=dep_maps
         )
 
-    @functools.partial(jit, static_argnames=("self"))
+    @jit(static_argnames="self")
     def _get_max_nr_of_dependencies(self, dist_ee: DistanceMatrix, dist_ne: DistanceMatrix):
         # Thest first electron message passing step can depend at most on electrons within 1 * cutoff
         n_deps_max_h0 = jnp.max(jnp.sum(dist_ee < self.cutoff, axis=-1))
@@ -296,8 +296,9 @@ class SparseMoonWavefunction(ParameterizedWaveFunction):
         _get_Gamma = jax.vmap(_get_Gamma, in_axes=(None, 0, 0))  # vmap over center
         return _get_Gamma(params, r, R_nb_en_)
 
-    def orbitals(self, params: SparseMoonParams, el: Electrons, static_input: StaticInput):
+    def orbitals(self, params: Parameters, el: Electrons, static_input: StaticInput):
         r, spin = el
+        params = cast(SparseMoonParams, params)
         idx_nb = self.input_constructor.get_dynamic_input(el, static_input).neighbours
 
         # Step 0: Get neighbours
