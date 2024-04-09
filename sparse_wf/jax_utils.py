@@ -1,5 +1,6 @@
 import functools
 from typing import Callable, TypeVar, cast, ParamSpec
+import folx
 
 import jax
 import jax.tree_util as jtu
@@ -61,3 +62,43 @@ def jit(fun: Callable[P, R], *jit_args, **jit_kwargs) -> Callable[P, R]:
         return cast(R, jitted(*args, **kwargs))
 
     return wrapper
+
+
+@functools.wraps(folx.forward_laplacian)
+def fwd_lap(f, argnums=None, sparsity_threshold=0.6):
+    """Applies forward laplacian transform using the folx package, but adds the option to specifiy which args are being differentiated,
+    and chooses sparse jacobians by default."""
+
+    if argnums is None:
+        # Take laplacian wrt to all arguments. This is the default of folx anyway so lets just use that
+        return folx.forward_laplacian(f, sparsity_threshold=sparsity_threshold)
+
+    if isinstance(argnums, int):
+        argnums = (argnums,)
+    argnums = sorted(argnums)
+    assert len(set(argnums)) == len(argnums), "argnums must be unique"
+
+    @functools.wraps(f)
+    def transformed(*args):
+        should_take_lap = [i in argnums for i in range(len(args))]
+
+        # Create a new function that only depends on the argments that should be differentiated (specified by argnums)
+        # and apply the forward laplacian transform to this function
+        @functools.partial(folx.forward_laplacian, sparsity_threshold=sparsity_threshold)
+        def func_with_only_args_to_diff(*args_to_diff_):
+            # Combine the differentiable and non-differentiable arguments in their original order and pass them to the original function
+            idx_arg_diff = 0
+            combined_args = []
+            for i, do_lap in enumerate(should_take_lap):
+                if do_lap:
+                    combined_args.append(args_to_diff_[idx_arg_diff])
+                    idx_arg_diff += 1
+                else:
+                    combined_args.append(args[i])
+            return f(*combined_args)
+
+        args_to_diff = [arg for arg, do_lap in zip(args, should_take_lap) if do_lap]
+        lap_array = func_with_only_args_to_diff(*args_to_diff)
+        return lap_array
+
+    return transformed

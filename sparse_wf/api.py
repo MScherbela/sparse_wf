@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import NamedTuple, Protocol, TypeAlias, Optional
+from typing import NamedTuple, Protocol, TypeAlias, Callable
 
 import numpy as np
 import optax
@@ -11,9 +11,21 @@ from folx.api import FwdLaplArray
 AnyArray = Array | list | np.ndarray
 Int = Integer[Array, ""]
 
-Electrons = Float[Array, "*batch_dims n_electrons spatial=3"]
 
 Position = Float[Array, "spatial=3"] | Float[np.ndarray, "spatial=3"] | tuple[float, float, float] | list[float]
+ElectronPositions = Float[Array, "*batch_dims n_electrons spatial=3"]
+Spins = Integer[Array, "*batch_dims n_electrons"]
+
+
+class Electrons(NamedTuple):
+    r: ElectronPositions
+    spins: Spins
+
+    @property
+    def n_el(self) -> int:
+        return self.r.shape[-2]
+
+
 Nuclei = Float[Array, "n_nuclei spatial=3"]
 Charges = Integer[Array, "n_nuclei"]
 MeanField: TypeAlias = SCF
@@ -49,11 +61,14 @@ Step = Integer[ArrayLike, ""]
 ElectronElectronEdges = Integer[Array, "n_electrons n_nb_ee"]
 ElectronNucleiEdges = Integer[Array, "n_electrons n_nb_en"]
 NucleiElectronEdges = Integer[Array, "n_nuclei n_nb_ne"]
+DistanceMatrix = Float[Array, "*batch_dims n1 n2"]
+
 
 class NrOfNeighbours(NamedTuple):
     ee: int
     en: int
     ne: int
+
 
 class NeighbourIndices(NamedTuple):
     ee: ElectronElectronEdges
@@ -62,6 +77,7 @@ class NeighbourIndices(NamedTuple):
 
 
 NrOfDependencies = NamedTuple
+
 
 class StaticInput(NamedTuple):
     n_neighbours: NrOfNeighbours
@@ -72,9 +88,11 @@ Dependency = Integer[Array, "n_deps"]
 Dependencies = Integer[Dependency, "*batch_dims"]
 DependencyMap = Integer[Array, "*batch_dims n_center n_neighbour n_deps"]
 
+
 class DynamicInput(NamedTuple):
     electrons: Electrons
     neighbours: NeighbourIndices
+
 
 class DynamicInputWithDependencies(NamedTuple):
     electrons: Electrons
@@ -88,7 +106,9 @@ class InputConstructor(Protocol):
 
     def get_dynamic_input(self, electrons: Electrons, static: StaticInput) -> DynamicInput: ...
 
-    def get_dynamic_input_with_dependencies(self, electrons: Electrons, static: StaticInput) -> DynamicInputWithDependencies: ...
+    def get_dynamic_input_with_dependencies(
+        self, electrons: Electrons, static: StaticInput
+    ) -> DynamicInputWithDependencies: ...
 
 
 class ClosedInputConstructor(Protocol):
@@ -135,11 +155,14 @@ class ParameterizedSLogPsi(Protocol):
 class ParameterizedLogPsi(Protocol):
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude: ...
 
+
 class ParameterizedLogPsiWithFwdLap(Protocol):
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> Fwd
+    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> FwdLaplArray: ...
+
 
 class ParameterizedWaveFunction(Protocol):
-    construct_input: InputConstructor
+    init: Callable[[PRNGKeyArray], Parameters]
+    input_constructor: InputConstructor
     orbitals: ParameterizedOrbitalFunction
     hf_transformation: HFOrbitalsToNNOrbitals
     signed: ParameterizedSLogPsi
