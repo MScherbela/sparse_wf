@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import NamedTuple, Protocol, TypeAlias
+from typing import NamedTuple, Protocol, TypeAlias, TypedDict
 
 import numpy as np
 import optax
@@ -190,8 +190,7 @@ class NaturalGradientOptState(NamedTuple):
     natgrad: NaturalGradientState | None
 
 
-@struct.dataclass
-class TrainingState:
+class TrainingState(struct.PyTreeNode):
     params: Parameters
     electrons: Electrons
     opt_state: NaturalGradientOptState
@@ -232,9 +231,16 @@ class Trainer:
 ############################################################################
 # Pretraining
 ############################################################################
-@struct.dataclass
 class PretrainState(TrainingState):
     pre_opt_state: optax.OptState
+
+    def to_train_state(self):
+        return TrainingState(
+            params=self.params,
+            electrons=self.electrons,
+            opt_state=self.opt_state,
+            width_state=self.width_state,
+        )
 
 
 Loss = Float[Array, ""]
@@ -256,3 +262,12 @@ class UpdatePretrainFn(Protocol):
 class Pretrainer(NamedTuple):
     init: InitPretrainState
     step: UpdatePretrainFn
+
+
+############################################################################
+# Arguments
+############################################################################
+
+
+class ModelArgs(TypedDict):
+    hidden_size: int

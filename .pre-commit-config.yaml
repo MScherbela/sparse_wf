@@ -21,5 +21,5 @@ repos:
     rev: "v1.9.0"
     hooks:
       - id: mypy
-        additional_dependencies: [jax, numpy, flax, jaxtyping]
+        additional_dependencies: [jax, numpy, flax, jaxtyping, wandb]
         args: [--config=pyproject.toml]
