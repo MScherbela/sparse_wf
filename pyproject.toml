@@ -32,7 +32,5 @@ ignore = ["F722"]
 
 [tool.mypy]
 strict = false
-exclude = [
-    "sparse_wf/preliminary_experiments"
-    ]
+exclude = ["sparse_wf/preliminary_experiments"]
 disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
