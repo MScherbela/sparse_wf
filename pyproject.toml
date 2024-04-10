@@ -19,6 +19,7 @@ dependencies = [
     "folx",
     "pyscf",
     "seml[ssh_forward]",
+    "tqdm",
 ]
 
 [project.optional-dependencies]

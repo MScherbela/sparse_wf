@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import NamedTuple, Protocol, TypeAlias, Callable, TypedDict
+from typing import NamedTuple, Protocol, Sequence, TypeAlias, Callable, TypedDict
 
 import numpy as np
 import optax
@@ -198,46 +198,46 @@ class WidthScheduler(NamedTuple):
 ############################################################################
 # Natural Gradient
 ############################################################################
-class NaturalGradientState(NamedTuple):
+class PreconditionerState(NamedTuple):
     last_grad: Parameters
 
 
-class NaturalGradientInit(Protocol):
-    def __call__(self, params: Parameters) -> NaturalGradientState: ...
+class PreconditionerInit(Protocol):
+    def __call__(self, params: Parameters) -> PreconditionerState: ...
 
 
-class NaturalGradientPreconditioner(Protocol):
+class ApplyPreconditioner(Protocol):
     def __call__(
         self,
         params: Parameters,
         electrons: Electrons,
         static: StaticInput,
         dE_dlogpsi: EnergyCotangent,
-        natgrad_state: NaturalGradientState,
-    ) -> tuple[Gradients, NaturalGradientState, AuxData]: ...
+        natgrad_state: PreconditionerState,
+    ) -> tuple[Gradients, PreconditionerState, AuxData]: ...
 
 
-class NaturalGradient(NamedTuple):
-    init: NaturalGradientInit
-    precondition: NaturalGradientPreconditioner
+class Preconditioner(NamedTuple):
+    init: PreconditionerInit
+    precondition: ApplyPreconditioner
 
 
 ############################################################################
 # Optimizer
 ############################################################################
-class NaturalGradientOptState(NamedTuple):
+class OptState(NamedTuple):
     opt: optax.OptState
-    natgrad: NaturalGradientState | None
+    natgrad: PreconditionerState
 
 
 class TrainingState(struct.PyTreeNode):
     params: Parameters
     electrons: Electrons
-    opt_state: NaturalGradientOptState
+    opt_state: OptState
     width_state: WidthSchedulerState
 
 
-class UpdateFn(Protocol):
+class VMCStepFn(Protocol):
     def __call__(
         self,
         key: PRNGKeyArray,
@@ -259,13 +259,13 @@ class InitTrainState(Protocol):
 @dataclass(frozen=True)
 class Trainer:
     init: InitTrainState
-    update: UpdateFn
+    step: VMCStepFn
     wave_function: ParameterizedWaveFunction
     mcmc: MCStep
     width_scheduler: WidthScheduler
     energy_fn: EnergyFn
     optimizer: optax.GradientTransformation
-    natgrad: NaturalGradient | None
+    preconditioner: Preconditioner
 
 
 ############################################################################
@@ -310,4 +310,29 @@ class Pretrainer(NamedTuple):
 
 
 class ModelArgs(TypedDict):
-    hidden_size: int
+    cutoff: float
+    feature_dim: int
+    nuc_mlp_depth: int
+    pair_mlp_widths: Sequence[int]
+    pair_n_envelopes: int
+
+
+class SpringArgs(TypedDict):
+    damping: float
+    decay_factor: float
+
+
+class CgArgs(TypedDict):
+    damping: float
+    maxiter: int
+
+
+class PreconditionerArgs(TypedDict):
+    preconditioner: str
+    spring_args: SpringArgs
+    cg_args: CgArgs
+
+
+class ClippingArgs(TypedDict):
+    clip_local_energy: float
+    stat: str

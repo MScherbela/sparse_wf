@@ -1,11 +1,17 @@
 import jax
 import numpy as np
+import pyscf
 from sparse_wf.api import Electrons, HFOrbitalFn, HFOrbitals
 from sparse_wf.systems.molecule import Molecule
 
 
-def make_hf_orbitals(molecule: Molecule, basis: str) -> HFOrbitalFn:
-    mol = molecule.to_pyscf(basis=basis)
+def make_hf_orbitals(molecule: Molecule | pyscf.gto.Mole, basis: str) -> HFOrbitalFn:
+    if isinstance(molecule, Molecule):
+        mol = molecule.to_pyscf(basis=basis)
+    else:
+        mol = molecule
+        mol.basis = basis
+        mol.build()
     mf = mol.RHF()
     mf.kernel()
 

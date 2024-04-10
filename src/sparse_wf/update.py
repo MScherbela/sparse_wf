@@ -7,12 +7,13 @@ import optax
 from sparse_wf.api import (
     Array,
     AuxData,
+    ClippingArgs,
     Electrons,
     EnergyFn,
     LocalEnergy,
     MCStep,
-    NaturalGradient,
-    NaturalGradientOptState,
+    Preconditioner,
+    OptState,
     Parameters,
     ParameterizedWaveFunction,
     PRNGKeyArray,
@@ -22,8 +23,7 @@ from sparse_wf.api import (
     Width,
     WidthScheduler,
 )
-from sparse_wf.jax_utils import jit, pgather
-from sparse_wf.tree_utils import tree_dot
+from sparse_wf.jax_utils import pgather, pmap, pmean, replicate
 
 
 class ClipStatistic(Enum):
@@ -37,16 +37,16 @@ def clip_local_energies(e_loc: LocalEnergy, clip_local_energy: float, stat: str 
     def stat_fn(x):
         match stat:
             case ClipStatistic.MEAN:
-                return jnp.mean(x, keepdims=True)
+                return pmean(jnp.mean(x, keepdims=True))
             case ClipStatistic.MEDIAN:
-                return jnp.median(x, keepdims=True)
+                return pmean(jnp.median(x, keepdims=True))
             case _:
                 raise ValueError(f"Unknown statistic: {stat}")
 
     if clip_local_energy > 0.0:
         full_e = pgather(e_loc, axis=0, tiled=True)
         clip_center = stat_fn(full_e)
-        mad = jnp.mean(jnp.abs(full_e - clip_center), keepdims=True)
+        mad = pmean(jnp.mean(jnp.abs(full_e - clip_center), keepdims=True))
         max_dev = clip_local_energy * mad
         e_loc = jnp.clip(e_loc, clip_center - max_dev, clip_center + max_dev)
     return e_loc
@@ -54,7 +54,7 @@ def clip_local_energies(e_loc: LocalEnergy, clip_local_energy: float, stat: str 
 
 def local_energy_diff(e_loc: LocalEnergy, clip_local_energy: float, stat: str | ClipStatistic) -> LocalEnergy:
     e_loc = clip_local_energies(e_loc, clip_local_energy, stat)
-    center = jnp.mean(e_loc, keepdims=True)
+    center = pmean(jnp.mean(e_loc, keepdims=True))
     e_loc -= center
     return e_loc
 
@@ -65,27 +65,27 @@ def make_trainer(
     mcmc_step: MCStep,
     width_scheduler: WidthScheduler,
     optimizer: optax.GradientTransformation,
-    natural_gradient: NaturalGradient | None = None,
+    preconditioner: Preconditioner,
+    clipping_args: ClippingArgs,
 ) -> Trainer:
-    batch_log_amplitude = jax.vmap(wave_function, in_axes=(None, 0, 0))
-
     def init(
         key: PRNGKeyArray,
         params: Parameters,
         electrons: Electrons,
         init_width: Width,
     ) -> TrainingState:
+        params = replicate(params)
         return TrainingState(
             params=params,
-            opt_state=NaturalGradientOptState(
-                opt=optimizer.init(params),
-                natgrad=natural_gradient.init(params) if natural_gradient is not None else None,
+            opt_state=OptState(
+                opt=pmap(optimizer.init)(params),
+                natgrad=pmap(preconditioner.init)(params),
             ),
-            electrons=electrons,
-            width_state=width_scheduler.init(init_width),
+            electrons=electrons.reshape(jax.device_count(), -1, *electrons.shape[1:]),
+            width_state=replicate(width_scheduler.init(init_width)),
         )
 
-    @jit
+    @pmap(static_broadcasted_argnums=2)
     def step(
         key: PRNGKeyArray,
         state: TrainingState,
@@ -95,31 +95,23 @@ def make_trainer(
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
         energy = energy_function(state.params, electrons, static)
-        energy_diff = local_energy_diff(energy, 5.0, "median")
+        energy_diff = local_energy_diff(energy, **clipping_args)
 
-        # TODO (ms,ng): Does this function actually parallelize across gpus when using pmap? S
-        # Seems like it only avarages across the local devices...
-
-        def loss_fn(params):
-            return jnp.vdot(batch_log_amplitude(params, electrons, static), energy_diff) / energy_diff.size
-
-        gradient = jax.grad(loss_fn)(state.params)
         aux_data: dict[str, Array] = {
             "E": energy.mean(),
             "E_std": energy.std(),
             "pmove": pmove.mean(),
-            "grad_norm": jnp.sqrt(tree_dot(gradient, gradient)),
         }
         natgrad = state.opt_state.natgrad
-        if natural_gradient is not None:
-            gradient, natgrad, nat_aux_data = natural_gradient.precondition(
-                state.params,
-                electrons,
-                static,
-                energy_diff,
-                state.opt_state.natgrad,  # type: ignore
-            )
-            aux_data.update(nat_aux_data)
+        gradient, natgrad, preconditioner_aux = preconditioner.precondition(
+            state.params,
+            electrons,
+            static,
+            energy_diff,
+            state.opt_state.natgrad,  # type: ignore
+        )
+        aux_data.update(preconditioner_aux)
+        aux_data = pmean(aux_data)
 
         updates, opt = optimizer.update(gradient, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)
@@ -128,7 +120,7 @@ def make_trainer(
             TrainingState(
                 params=params,
                 electrons=electrons,
-                opt_state=NaturalGradientOptState(opt, natgrad),
+                opt_state=OptState(opt, natgrad),
                 width_state=width_state,
             ),
             energy,
@@ -137,11 +129,11 @@ def make_trainer(
 
     return Trainer(
         init=init,
-        update=step,
+        step=step,
         wave_function=wave_function,
         mcmc=mcmc_step,
         width_scheduler=width_scheduler,
         energy_fn=energy_function,
         optimizer=optimizer,
-        natgrad=natural_gradient,
+        preconditioner=preconditioner,
     )

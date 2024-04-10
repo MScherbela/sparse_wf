@@ -138,6 +138,14 @@ class Molecule:
         mol.build()
         return mol
 
+    @classmethod
+    def from_pyscf(cls, mol: pyscf.gto.Mole):
+        atoms = [Atom(charge, position) for charge, position in zip(mol.atom_charges(), mol.atom_coords())]
+        nuc_charge = sum(a.atomic_number for a in atoms)
+        num_elecs = nuc_charge - mol.charge
+        spin_up, spin_down = (num_elecs + mol.spin) // 2, (num_elecs - mol.spin) // 2
+        return cls(atoms, (spin_up, spin_down))
+
     def __str__(self) -> str:
         if self._name is not None:
             return self._name

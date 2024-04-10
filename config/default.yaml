@@ -2,10 +2,28 @@ molecule: "Li 0 0 0"
 spin: 1
 
 model_args:
-  hidden_size: 256
+  cutoff: 5.0
+  feature_dim: 256
+  nuc_mlp_depth: 3
+  pair_mlp_widths: [16, 8]
+  pair_n_envelopes: 4
+
+preconditioner_args:
+  preconditioner: identity
+  spring_args:
+    damping: 1e-3
+    decay_factor: 0.99
+  cg_args:
+    damping: 1e-3
+    max_iter: 100
+
+clipping_args:
+  clip_local_energy: 5.0
+  stat: median
 
 batch_size: 4096
 steps: 100_000
+pretrain_steps: 10_000
 mcmc_steps: 20
-energy_clip_threshold: 5.0
+init_width: 0.02
 basis: sto-6g

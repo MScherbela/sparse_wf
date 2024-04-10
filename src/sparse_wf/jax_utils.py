@@ -5,7 +5,7 @@ import folx
 import jax
 import jax.tree_util as jtu
 
-from sparse_wf.api import PRNGKeyArray, PyTree
+from sparse_wf.api import PRNGKeyArray
 
 T = TypeVar("T")
 
@@ -22,7 +22,7 @@ def p_split(key: PRNGKeyArray) -> tuple[PRNGKeyArray, ...]:
     return _p_split(key)
 
 
-def replicate(pytree: PyTree) -> PyTree:
+def replicate(pytree: T) -> T:
     n = jax.local_device_count()
     stacked_pytree = jtu.tree_map(lambda x: jax.lax.broadcast(x, (n,)), pytree)
     return broadcast(stacked_pytree)
@@ -30,21 +30,6 @@ def replicate(pytree: PyTree) -> PyTree:
 
 # Axis name we pmap over.
 PMAP_AXIS_NAME = "qmc_pmap_axis"
-
-
-# Shortcut for jax.pmap over PMAP_AXIS_NAME. Prefer this if pmapping any
-# function which does communications or reductions.
-@functools.wraps(jax.pmap)
-def pmap(fn: Callable[P, R], *p_args, **p_kwargs) -> Callable[P, R]:
-    pmapped = functools.partial(jax.pmap, axis_name=PMAP_AXIS_NAME)(fn, *p_args, **p_kwargs)
-
-    @functools.wraps(fn)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        return pmapped(*args, **kwargs)
-
-    return wrapper
-
-
 pmean = functools.partial(jax.lax.pmean, axis_name=PMAP_AXIS_NAME)
 psum = functools.partial(jax.lax.psum, axis_name=PMAP_AXIS_NAME)
 pmax = functools.partial(jax.lax.pmax, axis_name=PMAP_AXIS_NAME)
@@ -77,6 +62,34 @@ def jit(
         return inner_jit
 
     return inner_jit(fun)
+
+
+@overload
+def pmap(fun: None = None, *jit_args, **jit_kwargs) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+
+
+@overload
+def pmap(fun: Callable[P, R], *jit_args, **jit_kwargs) -> Callable[P, R]: ...
+
+
+# Shortcut for jax.pmap over PMAP_AXIS_NAME. Prefer this if pmapping any
+# function which does communications or reductions.
+def pmap(
+    fun: Callable[P, R] | None = None, *pmap_args, **pmap_kwargs
+) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
+    def inner_pmap(fun: Callable[P, R]) -> Callable[P, R]:
+        pmapped = functools.partial(jax.pmap, axis_name=PMAP_AXIS_NAME)(fun, *pmap_args, **pmap_kwargs)
+
+        @functools.wraps(fun)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            return cast(R, pmapped(*args, **kwargs))
+
+        return wrapper
+
+    if fun is None:
+        return inner_pmap
+
+    return inner_pmap(fun)
 
 
 @functools.wraps(folx.forward_laplacian)

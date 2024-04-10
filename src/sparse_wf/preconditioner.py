@@ -6,30 +6,56 @@ from jax.scipy.sparse.linalg import cg
 from sparse_wf.api import (
     Electrons,
     EnergyCotangent,
-    NaturalGradient,
-    NaturalGradientState,
+    Preconditioner,
+    PreconditionerState,
     Parameters,
     ParameterizedWaveFunction,
+    PreconditionerArgs,
     StaticInput,
 )
 from sparse_wf.jax_utils import pall_to_all, pgather, pidx, psum
 from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub
 
 
-def make_cg_preconditioner(
+def make_identity_preconditioner(
     wave_function: ParameterizedWaveFunction,
-    damping: float = 1e-3,
-    maxiter: int = 100,
-) -> NaturalGradient:
+) -> Preconditioner:
     def init(params):
-        return NaturalGradientState(last_grad=jax.tree_map(lambda x: jnp.zeros_like(x), params))
+        return PreconditionerState(last_grad=jax.tree_map(lambda x: jnp.zeros_like(x), params))
 
     def precondition(
         params: Parameters,
         electrons: Electrons,
         static: StaticInput,
         dE_dlogpsi: EnergyCotangent,
-        natgrad_state: NaturalGradientState,
+        natgrad_state: PreconditionerState,
+    ):
+        N = dE_dlogpsi.size * jax.device_count()
+
+        def log_p_closure(p: Parameters):
+            return jax.vmap(wave_function, in_axes=(None, 0, 0))(p, electrons, static) / N
+
+        _, vjp = jax.vjp(log_p_closure, params)
+        grad = psum(vjp(dE_dlogpsi)[0])
+        return grad, natgrad_state, {}
+
+    return Preconditioner(init, precondition)
+
+
+def make_cg_preconditioner(
+    wave_function: ParameterizedWaveFunction,
+    damping: float = 1e-3,
+    maxiter: int = 100,
+) -> Preconditioner:
+    def init(params):
+        return PreconditionerState(last_grad=jax.tree_map(lambda x: jnp.zeros_like(x), params))
+
+    def precondition(
+        params: Parameters,
+        electrons: Electrons,
+        static: StaticInput,
+        dE_dlogpsi: EnergyCotangent,
+        natgrad_state: PreconditionerState,
     ):
         N = dE_dlogpsi.size * jax.device_count()
 
@@ -48,25 +74,25 @@ def make_cg_preconditioner(
             return psum(result)
 
         natgrad = cg(A=Fisher_matmul, b=grad, x0=natgrad_state.last_grad, tol=0, atol=0, maxiter=maxiter)
-        return natgrad, NaturalGradientState(last_grad=natgrad), {}
+        return natgrad, PreconditionerState(last_grad=natgrad), {}
 
-    return NaturalGradient(init, precondition)
+    return Preconditioner(init, precondition)
 
 
 def make_spring_preconditioner(
     wave_function: ParameterizedWaveFunction,
     damping: float = 1e-3,
     decay_factor: float = 0.99,
-) -> NaturalGradient:
+) -> Preconditioner:
     def init(params):
-        return NaturalGradientState(last_grad=jax.tree_map(lambda x: jnp.zeros_like(x), params))
+        return PreconditionerState(last_grad=jax.tree_map(lambda x: jnp.zeros_like(x), params))
 
     def precondition(
         params: Parameters,
         electrons: Electrons,
         static: StaticInput,
         dE_dlogpsi: EnergyCotangent,
-        natgrad_state: NaturalGradientState,
+        natgrad_state: PreconditionerState,
     ):
         n_dev = jax.device_count()
         N = dE_dlogpsi.size * n_dev
@@ -122,6 +148,18 @@ def make_spring_preconditioner(
 
         natgrad = centered_vjp(jnp.linalg.solve(T, cotangent).reshape(n_dev, -1)[pidx()])
         natgrad = tree_add(natgrad, decayed_last_grad)
-        return natgrad, NaturalGradientState(last_grad=natgrad), {}
+        return natgrad, PreconditionerState(last_grad=natgrad), {}
 
-    return NaturalGradient(init, precondition)
+    return Preconditioner(init, precondition)
+
+
+def make_preconditioner(wf: ParameterizedWaveFunction, args: PreconditionerArgs):
+    match args["preconditioner"].lower():
+        case "identity":
+            return make_identity_preconditioner(wf)
+        case "cg":
+            return make_cg_preconditioner(wf, **args["cg_args"])
+        case "spring":
+            return make_spring_preconditioner(wf, **args["spring_args"])
+        case _:
+            raise ValueError(f"Unknown preconditioner: {args['preconditioner']}")

@@ -12,23 +12,23 @@ from sparse_wf.api import (
     Trainer,
     TrainingState,
 )
-from sparse_wf.jax_utils import jit
+from sparse_wf.jax_utils import pmap
 
 
 def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: optax.GradientTransformation) -> Pretrainer:
     batch_orbitals = jax.vmap(trainer.wave_function.orbitals, in_axes=(None, 0, 0))
     batch_src_orbitals = jax.vmap(source_model, in_axes=(0,))
 
-    @jit
     def init(training_state: TrainingState):
         return PretrainState(
             training_state.params,
             training_state.electrons,
             training_state.opt_state,
             training_state.width_state,
-            pre_opt_state=optimizer.init(training_state.params),
+            pre_opt_state=pmap(optimizer.init)(training_state.params),
         )
 
+    @pmap(static_broadcasted_argnums=2)
     def step(key: PRNGKeyArray, state: PretrainState, static: StaticInput) -> tuple[PretrainState, AuxData]:
         targets = trainer.wave_function.hf_transformation(batch_src_orbitals(state.electrons))
 
@@ -55,4 +55,4 @@ def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: opta
             "pmove": pmove,
         }
 
-    return Pretrainer(init, jit(step, static_argnames="static"))
+    return Pretrainer(init, step)
