@@ -1,6 +1,7 @@
 import jax.config
 import time
 import jax
+from jax import config as jax_config
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
@@ -8,8 +9,8 @@ from graph import build_edges, get_affected_electrons
 from mcmc import MCMCState, single_electron_proposal
 from model import Wavefunction
 
-jax.config.update("jax_enable_x64", True)
-jax.config.update("jax_default_matmul_precision", "highest")
+jax_config.update("jax_enable_x64", True)
+jax_config.update("jax_default_matmul_precision", "highest")
 
 
 @jax.jit

@@ -10,7 +10,7 @@ from sparse_wf.api import (
     MCStep,
     Parameters,
     PMove,
-    ParametrizedLogPsi,
+    ParameterizedLogPsi,
     StaticInput,
     Width,
     PRNGKeyArray,
@@ -45,7 +45,7 @@ def mh_update(
 
 
 def make_mcmc(
-    network: ParametrizedLogPsi,
+    network: ParameterizedLogPsi,
     steps: int = 10,
 ) -> MCStep:
     batch_network = jax.vmap(network, in_axes=(None, 0))

@@ -9,7 +9,7 @@ from sparse_wf.api import (
     NaturalGradient,
     NaturalGradientState,
     Parameters,
-    ParametrizedWaveFunction,
+    ParameterizedWaveFunction,
     StaticInput,
 )
 from sparse_wf.jax_utils import pall_to_all, pgather, pidx, psum
@@ -17,7 +17,7 @@ from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub
 
 
 def make_cg_preconditioner(
-    wave_function: ParametrizedWaveFunction,
+    wave_function: ParameterizedWaveFunction,
     damping: float = 1e-3,
     maxiter: int = 100,
 ) -> NaturalGradient:
@@ -54,7 +54,7 @@ def make_cg_preconditioner(
 
 
 def make_spring_preconditioner(
-    wave_function: ParametrizedWaveFunction,
+    wave_function: ParameterizedWaveFunction,
     damping: float = 1e-3,
     decay_factor: float = 0.99,
 ) -> NaturalGradient:

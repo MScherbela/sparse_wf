@@ -17,7 +17,7 @@ n_el=150, iteration=2, sparse time=0.027, naive time=0.189
 --------------------------------------------------------------------------------
 Summary: batch_size=8, n_el=150, sparse time=0.030, naive time=0.190, speedup=6.3
 2024-04-04 15:47:55.349186: W external/xla/xla/service/hlo_rematerialization.cc:2946] Can't reduce memory use below 27.18GiB (29189992303 bytes) by rematerialization; only reduced to 38.50GiB (41342329568 bytes), down from 38.50GiB (41342516864 bytes) originally
-2024-04-04 15:48:06.867202: W external/tsl/tsl/framework/bfc_allocator.cc:482] Allocator (GPU_0_bfc) ran out of memory trying to allocate 37.58GiB (rounded to 40354462976)requested by op 
+2024-04-04 15:48:06.867202: W external/tsl/tsl/framework/bfc_allocator.cc:482] Allocator (GPU_0_bfc) ran out of memory trying to allocate 37.58GiB (rounded to 40354462976)requested by op
 2024-04-04 15:48:06.867521: W external/tsl/tsl/framework/bfc_allocator.cc:494] *_*****_____________________________________________________________________________________________
 E0404 15:48:06.868105   93627 pjrt_stream_executor_client.cc:2809] Execution of replica 0 failed: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 40354462792 bytes.
 BufferAssignment OOM Debugging.

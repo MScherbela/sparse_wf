@@ -14,7 +14,7 @@ from sparse_wf.api import (
     NaturalGradient,
     NaturalGradientOptState,
     Parameters,
-    ParametrizedWaveFunction,
+    ParameterizedWaveFunction,
     PRNGKeyArray,
     StaticInput,
     Trainer,
@@ -60,7 +60,7 @@ def local_energy_diff(e_loc: LocalEnergy, clip_local_energy: float, stat: str | 
 
 
 def make_trainer(
-    wave_function: ParametrizedWaveFunction,
+    wave_function: ParameterizedWaveFunction,
     energy_function: EnergyFn,
     mcmc_step: MCStep,
     width_scheduler: WidthScheduler,
@@ -96,6 +96,9 @@ def make_trainer(
         width_state = width_scheduler.update(state.width_state, pmove)
         energy = energy_function(state.params, electrons, static)
         energy_diff = local_energy_diff(energy, 5.0, "median")
+
+        # TODO (ms,ng): Does this function actually parallelize across gpus when using pmap? S
+        # Seems like it only avarages across the local devices...
 
         def loss_fn(params):
             return jnp.vdot(batch_log_amplitude(params, electrons, static), energy_diff) / energy_diff.size
