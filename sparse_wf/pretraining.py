@@ -1,5 +1,3 @@
-from dataclasses import replace
-
 import jax
 import optax
 
@@ -47,7 +45,12 @@ def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: opta
         electrons, pmove = trainer.mcmc(key, params, state.electrons, static, state.width_state.width)
         width_state = trainer.width_scheduler.update(state.width_state, pmove)
 
-        return replace(state, params=params, electrons=electrons, width_state=width_state, pre_opt_state=opt_state), {
+        return state.replace(
+            params=params,
+            electrons=electrons,
+            pre_opt_state=opt_state,
+            width_state=width_state,
+        ), {
             "loss": loss_val,
             "pmove": pmove,
         }
