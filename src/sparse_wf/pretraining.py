@@ -12,11 +12,11 @@ from sparse_wf.api import (
     Trainer,
     TrainingState,
 )
-from sparse_wf.jax_utils import pmap
+from sparse_wf.jax_utils import pmap, pmean
 
 
 def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: optax.GradientTransformation) -> Pretrainer:
-    batch_orbitals = jax.vmap(trainer.wave_function.orbitals, in_axes=(None, 0, 0))
+    batch_orbitals = jax.vmap(trainer.wave_function.orbitals, in_axes=(None, 0, None))
     batch_src_orbitals = jax.vmap(source_model, in_axes=(0,))
 
     def init(training_state: TrainingState):
@@ -32,12 +32,13 @@ def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: opta
     def step(key: PRNGKeyArray, state: PretrainState, static: StaticInput) -> tuple[PretrainState, AuxData]:
         targets = trainer.wave_function.hf_transformation(batch_src_orbitals(state.electrons))
 
-        def loss(params: Parameters):
+        @jax.value_and_grad
+        def loss_and_grad(params: Parameters):
             predicted_orbitals = batch_orbitals(params, state.electrons, static)
             return sum(((o - p_o) ** 2).mean() for o, p_o in zip(targets, predicted_orbitals))
 
         # Update
-        loss_val, grad = jax.value_and_grad(loss)(state.params)
+        loss_val, grad = pmean(loss_and_grad(state.params))
         updates, opt_state = optimizer.update(grad, state.pre_opt_state, state.params)
         params = optax.apply_updates(state.params, updates)
 

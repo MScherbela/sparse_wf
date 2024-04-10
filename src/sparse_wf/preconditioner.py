@@ -33,7 +33,7 @@ def make_identity_preconditioner(
         N = dE_dlogpsi.size * jax.device_count()
 
         def log_p_closure(p: Parameters):
-            return jax.vmap(wave_function, in_axes=(None, 0, 0))(p, electrons, static) / N
+            return jax.vmap(wave_function, in_axes=(None, 0, None))(p, electrons, static) / N
 
         _, vjp = jax.vjp(log_p_closure, params)
         grad = psum(vjp(dE_dlogpsi)[0])
@@ -60,7 +60,7 @@ def make_cg_preconditioner(
         N = dE_dlogpsi.size * jax.device_count()
 
         def log_p_closure(p: Parameters):
-            return jax.vmap(wave_function, in_axes=(None, 0, 0))(p, electrons, static)
+            return jax.vmap(wave_function, in_axes=(None, 0, None))(p, electrons, static)
 
         _, vjp = jax.vjp(log_p_closure, params)
         _, jvp = jax.linearize(vjp, params)
@@ -102,7 +102,7 @@ def make_spring_preconditioner(
             return wave_function(params, electrons, static) * normalization
 
         # Gather individual jacobians
-        jac_fn = jax.vmap(jax.grad(log_p), in_axes=(None, 0, 0))
+        jac_fn = jax.vmap(jax.grad(log_p), in_axes=(None, 0, None))
         jacobians = jtu.tree_leaves(jac_fn(params, electrons, static))
         jacobians = jtu.tree_map(lambda x: x.reshape(N, -1), jacobians)
 
@@ -123,7 +123,7 @@ def make_spring_preconditioner(
         T = psum(T)
 
         def log_p_closed(params: Parameters):
-            result = jax.vmap(wave_function, in_axes=(None, 0, 0))(params, electrons, static)
+            result = jax.vmap(wave_function, in_axes=(None, 0, None))(params, electrons, static)
             return result * normalization
 
         prim_out, vjp = jax.vjp(log_p_closed, params)

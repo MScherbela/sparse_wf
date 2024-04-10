@@ -47,11 +47,11 @@ def main(
         project="sparse_wf",
         config=config,
     )
-
-    mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin)
     key = jax.random.PRNGKey(seed)
 
-    wf = SparseMoonWavefunction.create(mol.atom_coords(), mol.atom_charges(), mol.nelectron, mol.nelec[0], **model_args)
+    mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin)
+
+    wf = SparseMoonWavefunction.create(mol.atom_coords(), mol.atom_charges(), mol.charge, mol.spin, **model_args)
     key, subkey = jax.random.split(key)
     params = wf.init(subkey)
     key, subkey = jax.random.split(key)
@@ -72,7 +72,6 @@ def main(
     state = trainer.init(key, params, electrons, jnp.array(init_width))
 
     pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol, basis), optax.adam(1e-3))
-    key, subkey = jax.random.split(key)
     state = pretrainer.init(state)
 
     key, *subkeys = jax.random.split(key, jax.device_count() + 1)

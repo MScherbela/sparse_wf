@@ -5,7 +5,6 @@ import jax.numpy as jnp
 import optax
 
 from sparse_wf.api import (
-    Array,
     AuxData,
     ClippingArgs,
     Electrons,
@@ -97,11 +96,13 @@ def make_trainer(
         energy = energy_function(state.params, electrons, static)
         energy_diff = local_energy_diff(energy, **clipping_args)
 
-        aux_data: dict[str, Array] = {
-            "E": energy.mean(),
-            "E_std": energy.std(),
-            "pmove": pmove.mean(),
-        }
+        E_mean = pmean(energy.mean())
+        E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
+        aux_data = dict(
+            E=E_mean,
+            E_std=E_std,
+            pmove=pmove,
+        )
         natgrad = state.opt_state.natgrad
         gradient, natgrad, preconditioner_aux = preconditioner.precondition(
             state.params,
@@ -111,7 +112,6 @@ def make_trainer(
             state.opt_state.natgrad,  # type: ignore
         )
         aux_data.update(preconditioner_aux)
-        aux_data = pmean(aux_data)
 
         updates, opt = optimizer.update(gradient, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)

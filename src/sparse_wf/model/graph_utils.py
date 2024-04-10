@@ -98,7 +98,7 @@ def get_with_fill(
     ind: Integer[Array, "*batch_dims n_neighbours"],
     fill: float | int,
 ) -> Shaped[Array, "*batch_dims n_neighbours feature_dim"]:
-    return arr.at[ind].get(mode="fill", fill_value=fill)
+    return jnp.asarray(arr).at[ind].get(mode="fill", fill_value=fill)
 
 
 # @jit(static_argnums=(2,))
