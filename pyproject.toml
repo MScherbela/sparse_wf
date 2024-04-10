@@ -18,6 +18,7 @@ dependencies = [
     "matplotlib",
     "folx",
     "pyscf",
+    "seml[ssh_forward]",
 ]
 
 [project.optional-dependencies]
