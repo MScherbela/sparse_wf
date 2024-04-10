@@ -145,7 +145,7 @@ class ParameterizedLogPsi(Protocol):
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude: ...
 
 
-class ParameterizedLogPsiWithFwdLap(Protocol):
+class ParameterizedLocalEnergy(Protocol):
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> FwdLaplArray: ...
 
 
@@ -156,7 +156,7 @@ class ParameterizedWaveFunction(Protocol):
     hf_transformation: HFOrbitalsToNNOrbitals
     signed: ParameterizedSLogPsi
     __call__: ParameterizedLogPsi
-    fwd_lap: ParameterizedLogPsiWithFwdLap
+    local_energy: ParameterizedLocalEnergy
 
 
 class EnergyFn(Protocol):

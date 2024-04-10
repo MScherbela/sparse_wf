@@ -14,13 +14,12 @@ from sparse_wf.api import (
     SignedLogAmplitude,
     Int,
 )
-import chex
 import jax.numpy as jnp
 from typing import NamedTuple, cast, Sequence, Optional
 from jaxtyping import Float, Array, PRNGKeyArray, Integer
 import jax
 import numpy as np
-from sparse_wf.model.utils import cutoff_function, Embedding, FilterKernel, contract, MLP
+from sparse_wf.model.utils import cutoff_function, Embedding, FilterKernel, contract, MLP, potential_energy
 from sparse_wf.jax_utils import jit, fwd_lap
 from sparse_wf.model.graph_utils import (
     densify_jacobian_by_zero_padding,
@@ -32,7 +31,9 @@ from sparse_wf.model.graph_utils import (
     get_with_fill,
 )
 import flax.linen as nn
+from flax.struct import PyTreeNode
 import functools
+from folx.api import FwdLaplArray
 
 
 class DependenciesMoon(NamedTuple):
@@ -52,8 +53,7 @@ class DependencyMapsMoon(NamedTuple):
     H_to_hout: DependencyMap
 
 
-@chex.dataclass
-class SparseMoonParams:
+class SparseMoonParams(PyTreeNode):
     ee_filter: Parameters
     ne_filter: Parameters
     en_filter: Parameters
@@ -64,8 +64,8 @@ class SparseMoonParams:
 
 class InputConstructorMoon(GenericInputConstructor):
     # This function cannot be jitted, because it returns a static tuple of integers
-    def get_static_input(self, r: Electrons) -> StaticInput:
-        dist_ee, dist_ne = self.get_full_distance_matrices(r)
+    def get_static_input(self, electrons: Electrons) -> StaticInput:
+        dist_ee, dist_ne = self.get_full_distance_matrices(electrons)
         n_neighbours = self.get_nr_of_neighbours(dist_ee, dist_ne)
         n_deps_h0, n_deps_H, n_deps_hout = self._get_max_nr_of_dependencies(dist_ee, dist_ne)
         n_deps = NrOfDependenciesMoon(
@@ -204,7 +204,7 @@ class OrbitalLayer(nn.Module):
         return phi
 
 
-class SparseMoonWavefunction(ParameterizedWaveFunction):
+class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
     def __init__(
         self,
         R: Nuclei,
@@ -260,8 +260,12 @@ class SparseMoonWavefunction(ParameterizedWaveFunction):
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput):
         return self.signed(params, electrons, static)[1]
 
-    def fwd_lap(self, params: Parameters, electrons: Electrons, static: StaticInput):
-        return self.orbitals_with_fwd_lap(params, electrons, static)
+    def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
+        log_psi = self.log_psi_with_fwd_lap(params, electrons, static) # TODO: reuse pre-computed E_nuc_nuc
+        lap_psi = log_psi.laplacian + jnp.sum(log_psi.jacobian.data**2, axis=0)
+        E_kin = -0.5 * lap_psi
+        E_pot = potential_energy(electrons, self.R, self.Z) # TODO: reuse pre-computed E_nuc_nuc
+        return E_pot + E_kin
 
     def init(self, rng: PRNGKeyArray):
         rngs = jax.random.split(rng, 6)
@@ -275,10 +279,10 @@ class SparseMoonWavefunction(ParameterizedWaveFunction):
         )
         return params
 
-    def get_neighbour_coordinates(self, r: Electrons, idx_nb: NeighbourIndices):
+    def get_neighbour_coordinates(self, electrons: Electrons, idx_nb: NeighbourIndices):
         spin_nb_ee = get_with_fill(self.spins, idx_nb.ee, 0.0)
-        r_nb_ee = get_with_fill(r, idx_nb.ee, NO_NEIGHBOUR)  # [n_el  x n_neighbouring_electrons x 3]
-        r_nb_ne = get_with_fill(r, idx_nb.ne, NO_NEIGHBOUR)  # [n_nuc x n_neighbouring_electrons x 3]
+        r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)  # [n_el  x n_neighbouring_electrons x 3]
+        r_nb_ne = get_with_fill(electrons, idx_nb.ne, NO_NEIGHBOUR)  # [n_nuc x n_neighbouring_electrons x 3]
         R_nb_en = get_with_fill(self.R, idx_nb.en, NO_NEIGHBOUR)  # [n_el  x n_neighbouring_nuclei    x 3]
         return spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en
 
@@ -315,15 +319,15 @@ class SparseMoonWavefunction(ParameterizedWaveFunction):
         _get_Gamma = jax.vmap(_get_Gamma, in_axes=(None, 0, 0))  # vmap over center
         return _get_Gamma(params, r, R_nb_en_)
 
-    def orbitals(self, params: Parameters, r: Electrons, static_input: StaticInput):
+    def orbitals(self, params: Parameters, electrons: Electrons, static_input: StaticInput):
         params = cast(SparseMoonParams, params)
-        idx_nb = self.input_constructor.get_dynamic_input(r, static_input).neighbours
+        idx_nb = self.input_constructor.get_dynamic_input(electrons, static_input).neighbours
 
         # Step 0: Get neighbours
-        spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(r, idx_nb)
+        spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(electrons, idx_nb)
 
         # Step 1: Get h0
-        h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0, 0, 0))(params, r, r_nb_ee, self.spins, spin_nb_ee)
+        h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0, 0, 0))(params, electrons, r_nb_ee, self.spins, spin_nb_ee)
 
         # Step 2: Contract to nuclei + MLP
         Gamma_ne = self._get_Gamma_ne_vmapped(params, self.R, r_nb_ne)
@@ -332,13 +336,13 @@ class SparseMoonWavefunction(ParameterizedWaveFunction):
         H = cast(Embedding, self.mlp_nuc.apply(params.mlp_nuc, H0))
 
         # Step 3: Contract back to electrons => Final electron embeddings h_out
-        Gamma_en = self._get_Gamma_en_vmapped(params, r, R_nb_en)
+        Gamma_en = self._get_Gamma_en_vmapped(params, electrons, R_nb_en)
         H_nb_en = get_with_fill(H, idx_nb.en, 0.0)
         h_out = contract(H_nb_en, Gamma_en, h0)
         return h_out
 
-    def orbitals_with_fwd_lap(self, params: SparseMoonParams, el: Electrons, static_input: StaticInput):
-        r, idx_nb, deps, dep_maps = self.input_constructor.get_dynamic_input_with_dependencies(el, static_input)
+    def log_psi_with_fwd_lap(self, params: SparseMoonParams, electrons: Electrons, static_input: StaticInput) -> FwdLaplArray:
+        r, idx_nb, deps, dep_maps = self.input_constructor.get_dynamic_input_with_dependencies(electrons, static_input)
         n_deps = cast(NrOfDependenciesMoon, static_input.n_deps)
         dep_maps = cast(DependencyMapsMoon, dep_maps)
 
