@@ -31,26 +31,26 @@ from sparse_wf.model.graph_utils import (
     get_with_fill,
 )
 import flax.linen as nn
-from flax.struct import PyTreeNode
+from flax.struct import PyTreeNode, field
 import functools
 from folx.api import FwdLaplArray
 
 
 class DependenciesMoon(NamedTuple):
-    h0: Dependencies
-    Hnuc: Dependencies
-    hout: Dependencies
+    h_el_initial: Dependencies
+    H_nuc: Dependencies
+    h_el_out: Dependencies
 
 
 class NrOfDependenciesMoon(NrOfDependencies):
-    h0: int
-    Hnuc: int
-    hout: int
+    h_el_initial: int
+    H_nuc: int
+    h_el_out: int
 
 
 class DependencyMapsMoon(NamedTuple):
-    h0_to_H: DependencyMap
-    H_to_hout: DependencyMap
+    h_el_initial_to_H_nuc: DependencyMap
+    H_nuc_to_h_el_out: DependencyMap
 
 
 class SparseMoonParams(PyTreeNode):
@@ -69,9 +69,9 @@ class InputConstructorMoon(GenericInputConstructor):
         n_neighbours = self.get_nr_of_neighbours(dist_ee, dist_ne)
         n_deps_h0, n_deps_H, n_deps_hout = self._get_max_nr_of_dependencies(dist_ee, dist_ne)
         n_deps = NrOfDependenciesMoon(
-            h0=self._round_to_next_step(n_deps_h0),
-            Hnuc=self._round_to_next_step(n_deps_H),
-            hout=self._round_to_next_step(n_deps_hout),
+            h_el_initial=self._round_to_next_step(n_deps_h0),
+            H_nuc=self._round_to_next_step(n_deps_H),
+            h_el_out=self._round_to_next_step(n_deps_hout),
         )
         return StaticInput(n_neighbours=n_neighbours, n_deps=n_deps)
 
@@ -136,11 +136,11 @@ class InputConstructorMoon(GenericInputConstructor):
 
         # Step 2: Nuclear embeddings depend on all dependencies of their neighbouring electrons
         deps_neighbours = get_deps_nb(deps_h0, idx_nb.ne)
-        deps_H, dep_map_h0_to_H = merge_dependencies(deps_neighbours, idx_nb.ne, n_deps_max.Hnuc)
+        deps_H, dep_map_h0_to_H = merge_dependencies(deps_neighbours, idx_nb.ne, n_deps_max.H_nuc)
 
         # Step 3: Output electron embeddings depend on themselves, their neighbouring electrons and all dependencies of their neighbouring nuclei
         deps_neighbours = get_deps_nb(deps_H, idx_nb.en)
-        deps_hout, dep_map_H_to_hout = merge_dependencies(deps_neighbours, deps_h0, n_deps_max.hout)
+        deps_hout, dep_map_H_to_hout = merge_dependencies(deps_neighbours, deps_h0, n_deps_max.h_el_out)
 
         return DependenciesMoon(deps_h0, deps_H, deps_hout), DependencyMapsMoon(dep_map_h0_to_H, dep_map_H_to_hout)
 
@@ -205,8 +205,31 @@ class OrbitalLayer(nn.Module):
 
 
 class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
-    def __init__(
-        self,
+    R: Nuclei
+    Z: Charges
+    n_electrons: int = field(pytree_node=False)
+    n_up: int = field(pytree_node=False)
+    cutoff: float
+    ee_filter: PairwiseFilter
+    ne_filter: PairwiseFilter
+    en_filter: PairwiseFilter
+    mlp_nuc: MLP
+    lin_h0: nn.Dense
+    lin_orbitals: nn.Dense
+    input_constructor: InputConstructorMoon
+
+    @property
+    def n_dn(self):
+        return self.n_electrons - self.n_up
+
+    @property
+    def spins(self):
+        return jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_dn)])
+
+
+    @classmethod
+    def create(
+        cls,
         R: Nuclei,
         Z: Charges,
         charge: int,
@@ -217,37 +240,23 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         pair_mlp_widths: Sequence[int],
         pair_n_envelopes: int,
     ):
-        self.R = R
-        self.Z = Z
-
-        self.charge = charge
-        self.n_electrons = sum(Z) - charge
-        self.spin = spin
-        assert (self.n_electrons + self.spin) % 2 == 0
-        self.n_up = (self.n_electrons + self.spin) // 2
-        self.n_dn = self.n_electrons - self.n_up
-        self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_dn)])
-
-        self.cutoff = cutoff
-        self.feature_dim = feature_dim
-        self.nuc_mlp_depth = nuc_mlp_depth
-        self.pair_mlp_widths = pair_mlp_widths
-        self.pair_n_envelopes = pair_n_envelopes
-
-        self.ee_filter = PairwiseFilter(
-            self.cutoff, self.pair_mlp_widths, self.pair_n_envelopes, self.feature_dim, name="Gamma_ee"
+        n_electrons = np.sum(Z) - charge
+        assert (n_electrons + spin) % 2 == 0, f"Number of electrons={n_electrons}) and spin={spin} are incompatible"
+        n_up = (n_electrons + spin) // 2
+        return cls(
+            R=R,
+            Z=Z,
+            n_electrons=int(n_electrons),
+            n_up=int(n_up),
+            cutoff=cutoff,
+            ee_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ee"),
+            ne_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ne"),
+            en_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_en"),
+            mlp_nuc=MLP(widths=[feature_dim] * nuc_mlp_depth, name="mlp_nuc"),
+            lin_h0=nn.Dense(feature_dim, use_bias=True, name="lin_h0"),
+            lin_orbitals=nn.Dense(n_electrons, use_bias=False, name="lin_orbitals"),
+            input_constructor=InputConstructorMoon(R, Z, cutoff),
         )
-        self.ne_filter = PairwiseFilter(
-            self.cutoff, self.pair_mlp_widths, self.pair_n_envelopes, self.feature_dim, name="Gamma_ne"
-        )
-        self.en_filter = PairwiseFilter(
-            self.cutoff, self.pair_mlp_widths, self.pair_n_envelopes, self.feature_dim, name="Gamma_en"
-        )
-        self.mlp_nuc = MLP(widths=[self.feature_dim] * self.nuc_mlp_depth, name="mlp_nuc")
-        self.lin_h0 = nn.Dense(self.feature_dim, use_bias=True, name="lin_h0")
-        self.lin_orbitals = nn.Dense(self.n_electrons, use_bias=False, name="lin_orbitals")
-
-        self.input_constructor = InputConstructorMoon(R, Z, cutoff)
 
     def hf_transformation(self, hf_orbitals):
         raise NotImplementedError("Not implemented yet")
@@ -261,21 +270,22 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         return self.signed(params, electrons, static)[1]
 
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
-        log_psi = self.log_psi_with_fwd_lap(params, electrons, static) # TODO: reuse pre-computed E_nuc_nuc
+        log_psi = self.log_psi_with_fwd_lap(params, electrons, static)  # TODO: reuse pre-computed E_nuc_nuc
         lap_psi = log_psi.laplacian + jnp.sum(log_psi.jacobian.data**2, axis=0)
         E_kin = -0.5 * lap_psi
-        E_pot = potential_energy(electrons, self.R, self.Z) # TODO: reuse pre-computed E_nuc_nuc
+        E_pot = potential_energy(electrons, self.R, self.Z)  # TODO: reuse pre-computed E_nuc_nuc
         return E_pot + E_kin
 
     def init(self, rng: PRNGKeyArray):
         rngs = jax.random.split(rng, 6)
+        feature_dim = self.lin_h0.features
         params = SparseMoonParams(
             ee_filter=self.ee_filter.init(rngs[0], np.zeros([5])),  # dist + 3 * diff + spin
             ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
             en_filter=self.en_filter.init(rngs[2], np.zeros([4])),  # dist + 3 * diff
-            lin_h0=self.lin_h0.init(rngs[3], np.zeros([self.feature_dim])),
-            mlp_nuc=self.mlp_nuc.init(rngs[5], np.zeros([self.feature_dim])),
-            lin_orbitals=self.lin_orbitals.init(rngs[4], np.zeros([self.feature_dim])),
+            lin_h0=self.lin_h0.init(rngs[3], np.zeros([feature_dim])),
+            mlp_nuc=self.mlp_nuc.init(rngs[5], np.zeros([feature_dim])),
+            lin_orbitals=self.lin_orbitals.init(rngs[4], np.zeros([feature_dim])),
         )
         return params
 
@@ -341,7 +351,9 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         h_out = contract(H_nb_en, Gamma_en, h0)
         return h_out
 
-    def log_psi_with_fwd_lap(self, params: SparseMoonParams, electrons: Electrons, static_input: StaticInput) -> FwdLaplArray:
+    def log_psi_with_fwd_lap(
+        self, params: SparseMoonParams, electrons: Electrons, static_input: StaticInput
+    ) -> FwdLaplArray:
         r, idx_nb, deps, dep_maps = self.input_constructor.get_dynamic_input_with_dependencies(electrons, static_input)
         n_deps = cast(NrOfDependenciesMoon, static_input.n_deps)
         dep_maps = cast(DependencyMapsMoon, dep_maps)
@@ -363,10 +375,10 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         # Gamma_ne: [n_nuc x n_neighbour x feature_dim]; Gamma_ne.jac: [n_nuc x 3 x n_neighbour x feature_dim] (sparse)
         Gamma_ne = get_Gamma_ne(params, self.R, r_nb_ne)
         Gamma_ne = densify_jacobian_diagonally(Gamma_ne)  # deps: 3 --> 3*n_neighbours
-        Gamma_ne = densify_jacobian_by_zero_padding(Gamma_ne, 3 * n_deps.Hnuc)  # deps: 3*n_neighbours --> 3*n_deps2
+        Gamma_ne = densify_jacobian_by_zero_padding(Gamma_ne, 3 * n_deps.H_nuc)  # deps: 3*n_neighbours --> 3*n_deps2
 
         # 2b: Get the neighbouring electron embeddings
-        h0_nb_ne = get_neighbour_with_FwdLapArray(h0, idx_nb.ne, n_deps.Hnuc, dep_maps.h0_to_H)
+        h0_nb_ne = get_neighbour_with_FwdLapArray(h0, idx_nb.ne, n_deps.H_nuc, dep_maps.h_el_initial_to_H_nuc)
 
         # 2c: Contract and apply the MLP
         @jax.vmap
@@ -384,9 +396,9 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         get_Gamma_en = jax.vmap(get_Gamma_en, in_axes=(None, 0, 0))  # vmap over centers
         # Shapes: Gamma_en: [n_el x n_neighbouring_nuc x feature_dim]; Gamma_en.jac: [n_el x 3 x n_neighbouring_nuc x feature_dim] (dense)
         Gamma_en = get_Gamma_en(params, r, R_nb_en)
-        Gamma_en = densify_jacobian_by_zero_padding(Gamma_en, 3 * n_deps.hout)  # deps: 3 --> 3*n_deps3
+        Gamma_en = densify_jacobian_by_zero_padding(Gamma_en, 3 * n_deps.h_el_out)  # deps: 3 --> 3*n_deps3
 
-        H_nb_en = get_neighbour_with_FwdLapArray(H, idx_nb.en, n_deps.hout, dep_maps.H_to_hout)
-        h0 = densify_jacobian_by_zero_padding(h0, 3 * n_deps.hout)  # deps: 3*n_deps1 --> 3*n_deps3
+        H_nb_en = get_neighbour_with_FwdLapArray(H, idx_nb.en, n_deps.h_el_out, dep_maps.H_nuc_to_h_el_out)
+        h0 = densify_jacobian_by_zero_padding(h0, 3 * n_deps.h_el_out)  # deps: 3*n_deps1 --> 3*n_deps3
         h_out = jax.vmap(fwd_lap(contract))(H_nb_en, Gamma_en, h0)
         return h_out

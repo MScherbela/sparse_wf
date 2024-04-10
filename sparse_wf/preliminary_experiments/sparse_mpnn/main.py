@@ -23,7 +23,7 @@ def build_atom_chain(rng, n_nuc, n_el_per_nuc, batch_size):
 rng_r, rng_model = jax.random.split(jax.random.PRNGKey(0))
 electrons, R, Z = build_atom_chain(rng_r, n_nuc=25, n_el_per_nuc=2, batch_size=1)
 
-model = SparseMoonWavefunction(
+model = SparseMoonWavefunction.create(
     R=R,
     Z=Z,
     charge=0,
@@ -47,7 +47,7 @@ def apply_with_external_fwd_lap(params, electrons: Electrons, static_args: Stati
 @functools.partial(jax.jit, static_argnums=(2,))
 @functools.partial(jax.vmap, in_axes=(None, 0, None))
 def apply_with_internal_fwd_lap(params, electrons: Electrons, static_args: StaticInput):
-    return model.orbitals_with_fwd_lap(params, electrons, static_args)
+    return model.log_psi_with_fwd_lap(params, electrons, static_args)
 
 
 h_with_external_lap = apply_with_external_fwd_lap(params, electrons, static_args)
