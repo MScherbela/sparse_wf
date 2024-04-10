@@ -17,6 +17,7 @@ def nuclear_potential_energy(R: Nuclei, Z: Charges) -> Float[Array, ""]:
     E_pot = jnp.triu(E_pot, k=1)
     return jnp.sum(E_pot)
 
+
 def potential_energy(r: Electrons, R: Nuclei, Z: Charges, E_nuc_nuc: Optional[Float[Array, ""]] = None):
     """Compute the potential energy of the system"""
 
