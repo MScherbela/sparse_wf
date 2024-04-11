@@ -1,37 +1,18 @@
-import functools
+import jax.nn as jnn
 from jaxtyping import Float, Array
 from typing import Callable, Optional, Sequence, cast
 import flax.linen as nn
 import jax.numpy as jnp
 import jax
-from sparse_wf.api import Electrons, Nuclei, Charges
+import numpy as np
+import functools
+
+from sparse_wf.api import HFOrbitals, SlaterMatrices, SignedLogAmplitude
+from sparse_wf.model.dense_ferminet import ElecInp, ElecNucDistances
 
 FilterKernel = Float[Array, "neighbour features"]
 Embedding = Float[Array, "features"]
 NeighbourEmbeddings = Float[Embedding, "neighbours"]
-
-
-@functools.partial(jnp.vectorize, signature="(m,d),(m)->()")
-def nuclear_potential_energy(R: Nuclei, Z: Charges) -> Float[Array, ""]:
-    """Compute the nuclear potential energy of the system"""
-    dist = jnp.linalg.norm(R[:, None, :] - R, axis=-1)
-    E_pot = Z[:, None] * Z / dist
-    E_pot = jnp.triu(E_pot, k=1)
-    return jnp.sum(E_pot)
-
-
-@functools.partial(jnp.vectorize, signature="(n,d),(m,d),(m)->()")
-def potential_energy(r: Electrons, R: Nuclei, Z: Charges):
-    """Compute the potential energy of the system"""
-    dist_ee = jnp.triu(jnp.linalg.norm(r[:, None] - r, axis=-1), k=1)
-    dist_en = jnp.linalg.norm(r[:, None] - R, axis=-1)
-
-    E_ee = jnp.sum(jnp.triu(1 / dist_ee, k=1))
-    E_en = -jnp.sum(Z / dist_en)
-    # We can always compute this since it's compile time static, it will anyway only be computed once
-    E_nuc_nuc = nuclear_potential_energy(R, Z)
-
-    return E_ee + E_en + E_nuc_nuc
 
 
 class MLP(nn.Module):
@@ -68,3 +49,88 @@ def contract(h_nb: NeighbourEmbeddings, Gamma_nb: FilterKernel, h_center: Option
     if h_center is not None:
         msg += h_center
     return cast(Embedding, jax.nn.silu(msg))
+
+
+def swap_bottom_blocks(matrix: Float[Array, "... n m"], n: int, m: int | None = None) -> Float[Array, "... n m"]:
+    if m is None:
+        m = n
+    return jnp.concatenate(
+        [
+            matrix[..., :n, :],
+            jnp.concatenate(
+                [
+                    matrix[..., n:, m:],
+                    matrix[..., n:, :m],
+                ],
+                axis=-1,
+            ),
+        ],
+        axis=-2,
+    )
+
+
+def signed_logpsi_from_orbitals(orbitals: SlaterMatrices) -> SignedLogAmplitude:
+    slogdets = [jnp.linalg.slogdet(orbs) for orbs in orbitals]
+    # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
+    # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
+    sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (1, 0))
+    logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
+    return (signpsi, logpsi)
+
+
+class IsotropicEnvelope(nn.Module):
+    out_dim: int
+
+    @nn.compact
+    def __call__(self, dists: ElecNucDistances) -> jax.Array:
+        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (dists.shape[-2], self.out_dim), dists.dtype))
+        pi = self.param("pi", jnn.initializers.ones, (dists.shape[-2], self.out_dim), dists.dtype)
+        dists = dists[..., -1:]
+        scaled_dists = dists * sigma
+        env = jnp.exp(-scaled_dists)
+        out = env * pi
+        return out.sum(-2)  # sum over atom positions
+
+
+class SlaterOrbitals(nn.Module):
+    n_determinants: int
+    spins: tuple[int, int]
+
+    @nn.compact
+    def __call__(self, h_one: ElecInp, dists: ElecNucDistances) -> SlaterMatrices:
+        n = h_one.shape[0]
+        spins = np.array(self.spins)
+        orbitals = nn.Dense(self.n_determinants * n)(h_one)
+        orbitals *= IsotropicEnvelope(self.n_determinants * n)(dists)
+        orbitals = orbitals.reshape(n, self.n_determinants, n)
+        orbitals = jnp.transpose(orbitals, (1, 0, 2))
+        # reverse bottom two blocks
+        orbitals = swap_bottom_blocks(orbitals, spins[0])
+        return (orbitals,)
+
+    @staticmethod
+    def transform_hf_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
+        leading_shape = hf_orbitals[0].shape[:-2]
+        n_up = hf_orbitals[0].shape[-1]
+        n_down = hf_orbitals[1].shape[-1]
+        full_det = jnp.concatenate(
+            [
+                jnp.concatenate(
+                    [
+                        hf_orbitals[0],
+                        jnp.zeros((*leading_shape, n_up, n_down)),
+                    ],
+                    axis=-1,
+                ),
+                jnp.concatenate(
+                    [
+                        jnp.zeros((*leading_shape, n_down, n_up)),
+                        hf_orbitals[1],
+                    ],
+                    axis=-1,
+                ),
+            ],
+            axis=-2,
+        )
+        # Add broadcast dimension for many determinants
+        return (full_det[..., None, :, :],)

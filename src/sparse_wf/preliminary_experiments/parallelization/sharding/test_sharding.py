@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import jax.distributed
 from jax.experimental.multihost_utils import broadcast_one_to_all
 import numpy as np
-import functools
+
 
 @jax.jit
 # @functools.partial(jax.vmap, in_axes=(None, 0))
@@ -14,9 +14,11 @@ def model(params, x):
     # y = y - jnp.mean(y, axis=0)
     return y
 
+
 @jax.jit
 def get_jacobian(params, x):
     return jax.vmap(jax.grad(model), in_axes=(None, 0))(params, x)
+
 
 def print_with_process_id(msg):
     print(f"Process {jax.process_index()}: {msg}", flush=True)
@@ -46,13 +48,10 @@ if __name__ == "__main__":
     x_global = jax.make_array_from_single_device_arrays(global_shape, sharding.reshape(-1, 1), [x_local])
     print_with_process_id("Merge successful")
 
-
-
     params = jnp.ones(dim)
-    print_with_process_id(f"Broadcasting params to all")
+    print_with_process_id("Broadcasting params to all")
     params = broadcast_one_to_all(params)
     print_with_process_id("Broadcast successful")
-
 
     # # Commit data to devices
     # # x = jax.device_put(x, sharding.reshape(-1, 1))

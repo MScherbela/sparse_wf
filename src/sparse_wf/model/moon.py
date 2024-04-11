@@ -12,13 +12,23 @@ from sparse_wf.api import (
     ParameterizedWaveFunction,
     SignedLogAmplitude,
     Int,
+    SlaterMatrices,
 )
 import jax.numpy as jnp
 from typing import NamedTuple, cast, Sequence, Optional
 from jaxtyping import Float, Array, PRNGKeyArray, Integer
 import jax
 import numpy as np
-from sparse_wf.model.utils import cutoff_function, Embedding, FilterKernel, contract, MLP, potential_energy
+from sparse_wf.model.utils import (
+    cutoff_function,
+    Embedding,
+    FilterKernel,
+    contract,
+    MLP,
+    SlaterOrbitals,
+    signed_logpsi_from_orbitals,
+)
+from sparse_wf.hamiltonian import potential_energy
 from sparse_wf.jax_utils import jit, fwd_lap
 from sparse_wf.model.graph_utils import (
     densify_jacobian_by_zero_padding,
@@ -33,6 +43,7 @@ import flax.linen as nn
 from flax.struct import PyTreeNode, field
 import functools
 from folx.api import FwdLaplArray
+import pyscf
 
 
 class DependenciesMoon(NamedTuple):
@@ -58,7 +69,7 @@ class SparseMoonParams(PyTreeNode):
     en_filter: Parameters
     mlp_nuc: Parameters
     lin_h0: Parameters
-    lin_orbitals: Parameters
+    slater_orbitals: Parameters
 
 
 class InputConstructorMoon(GenericInputConstructor):
@@ -214,7 +225,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
     en_filter: PairwiseFilter
     mlp_nuc: MLP
     lin_h0: nn.Dense
-    lin_orbitals: nn.Dense
+    slater_orbitals: SlaterOrbitals
     input_constructor: InputConstructorMoon
 
     @property
@@ -228,23 +239,22 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
     @classmethod
     def create(
         cls,
-        R: Nuclei,
-        Z: Charges,
-        charge: int,
-        spin: int,
+        mol: pyscf.gto.Mole,
+        n_determinants: int,
         cutoff: float,
         feature_dim: int,
         nuc_mlp_depth: int,
         pair_mlp_widths: Sequence[int],
         pair_n_envelopes: int,
     ):
-        n_electrons = np.sum(Z) - charge
-        assert (n_electrons + spin) % 2 == 0, f"Number of electrons={n_electrons}) and spin={spin} are incompatible"
-        n_up = (n_electrons + spin) // 2
+        n_up, n_dn = mol.nelec
+        n_el = n_up + n_dn
+        R = mol.atom_coords()
+        Z = mol.atom_charges()
         return cls(
             R=R,
             Z=Z,
-            n_electrons=int(n_electrons),
+            n_electrons=int(n_el),
             n_up=int(n_up),
             cutoff=cutoff,
             ee_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ee"),
@@ -252,7 +262,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
             en_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_en"),
             mlp_nuc=MLP(widths=[feature_dim] * nuc_mlp_depth, name="mlp_nuc"),
             lin_h0=nn.Dense(feature_dim, use_bias=True, name="lin_h0"),
-            lin_orbitals=nn.Dense(n_electrons, use_bias=False, name="lin_orbitals"),
+            slater_orbitals=SlaterOrbitals(n_determinants, (n_up, n_dn)),
             input_constructor=InputConstructorMoon(R, Z, cutoff),
         )
 
@@ -261,19 +271,16 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
 
     def signed(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         orbitals = self.orbitals(params, electrons, static)
-        # TODO: implement multi-determinant case
-        return jnp.linalg.slogdet(orbitals)
+        return signed_logpsi_from_orbitals(orbitals)
 
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput):
         return self.signed(params, electrons, static)[1]
 
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
-        log_psi = self.log_psi_with_fwd_lap(
-            params, electrons, static
-        )  # TODO: reuse pre-computed E_nuc_nuc - NG: we don't need to this, it will anyway be static at compile time and the XLA compiler takes care of this
+        log_psi = self.log_psi_with_fwd_lap(params, electrons, static)
         lap_psi = log_psi.laplacian + jnp.sum(log_psi.jacobian.data**2, axis=0)
         E_kin = -0.5 * lap_psi
-        E_pot = potential_energy(electrons, self.R, self.Z)  # TODO: reuse pre-computed E_nuc_nuc - NG: see above
+        E_pot = potential_energy(electrons, self.R, self.Z)
         return E_pot + E_kin
 
     def init(self, rng: PRNGKeyArray):
@@ -284,8 +291,8 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
             ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
             en_filter=self.en_filter.init(rngs[2], np.zeros([4])),  # dist + 3 * diff
             lin_h0=self.lin_h0.init(rngs[3], np.zeros([feature_dim])),
-            mlp_nuc=self.mlp_nuc.init(rngs[5], np.zeros([feature_dim])),
-            lin_orbitals=self.lin_orbitals.init(rngs[4], np.zeros([feature_dim])),
+            mlp_nuc=self.mlp_nuc.init(rngs[4], np.zeros([feature_dim])),
+            slater_orbitals=self.slater_orbitals.init(rngs[5], np.zeros([feature_dim])),
         )
         return params
 
@@ -329,7 +336,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         _get_Gamma = jax.vmap(_get_Gamma, in_axes=(None, 0, 0))  # vmap over center
         return _get_Gamma(params, r, R_nb_en_)
 
-    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput):
+    def _embedding(self, params: Parameters, electrons: Electrons, static: StaticInput):
         params = cast(SparseMoonParams, params)
         idx_nb = self.input_constructor.get_dynamic_input(electrons, static).neighbours
 
@@ -350,6 +357,10 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         H_nb_en = get_with_fill(H, idx_nb.en, 0.0)
         h_out = contract(H_nb_en, Gamma_en, h0)
         return h_out
+
+    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
+        h = self._embedding(params, electrons, static)
+        return cast(SlaterMatrices, self.slater_orbitals.apply(params.slater_orbitals, h))
 
     def log_psi_with_fwd_lap(
         self, params: SparseMoonParams, electrons: Electrons, static_input: StaticInput

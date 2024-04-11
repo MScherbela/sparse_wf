@@ -20,6 +20,7 @@ dependencies = [
     "pyscf",
     "seml[ssh_forward]",
     "tqdm",
+    "wandb"
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,7 @@ dev = ["ruff", "pre-commit"]
 
 [tool.ruff]
 line-length = 120
+exclude = ["src/sparse_wf/preliminary_experiments/*"]
 
 [tool.ruff.lint]
 # jaxtyping violates F722: https://docs.kidger.site/jaxtyping/faq/#flake8-or-ruff-are-throwing-an-error
@@ -34,5 +36,5 @@ ignore = ["F722"]
 
 [tool.mypy]
 strict = false
-exclude = ["sparse_wf/preliminary_experiments"]
+exclude = ["src/sparse_wf/preliminary_experiments"]
 disable_error_code = ["valid-type", "import-untyped", "import-not-found"]

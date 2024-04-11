@@ -1,4 +1,5 @@
 import os
+
 # os.environ["CUDA_VISIBLE_DEVICES"] = "" # Uncomment to run on CPU, in which case the code works
 os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2"
 
@@ -8,8 +9,10 @@ from jax.sharding import PositionalSharding
 import jax.numpy as jnp
 import jax.distributed
 
+
 def model(params, x):
     return x @ params
+
 
 if __name__ == "__main__":
     jax.print_environment_info()
@@ -22,7 +25,7 @@ if __name__ == "__main__":
     batch_size_total = 8
 
     # Get example data
-    x = jnp.ones((batch_size_total,  feature_dim))
+    x = jnp.ones((batch_size_total, feature_dim))
     params = jnp.ones(feature_dim)
 
     # Shard data, replicate params
