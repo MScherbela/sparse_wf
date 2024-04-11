@@ -2,6 +2,7 @@ import logging
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import numpy as np
 import optax
 import pyscf
 import tqdm
@@ -33,7 +34,7 @@ def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> E
 
 
 def to_log_data(aux_data: AuxData) -> dict[str, float]:
-    return jtu.tree_map(lambda x: x.mean().item(), aux_data)
+    return jtu.tree_map(lambda x: np.asarray(x).mean().item(), aux_data)
 
 
 def set_postfix(pbar: tqdm.tqdm, aux_data: dict[str, float]):
