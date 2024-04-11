@@ -9,21 +9,21 @@ model_args:
   pair_n_envelopes: 4
 
 preconditioner_args:
-  preconditioner: identity
+  preconditioner: spring
   spring_args:
-    damping: 1e-3
+    damping: 1.e-3
     decay_factor: 0.99
   cg_args:
-    damping: 1e-3
+    damping: 1.e-3
     max_iter: 100
 
 clipping_args:
   clip_local_energy: 5.0
   stat: median
 
-batch_size: 4096
+batch_size: 512
 steps: 100_000
-pretrain_steps: 10_000
+pretrain_steps: 1_000
 mcmc_steps: 20
 init_width: 0.02
 basis: sto-6g

@@ -268,10 +268,12 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         return self.signed(params, electrons, static)[1]
 
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
-        log_psi = self.log_psi_with_fwd_lap(params, electrons, static)  # TODO: reuse pre-computed E_nuc_nuc
+        log_psi = self.log_psi_with_fwd_lap(
+            params, electrons, static
+        )  # TODO: reuse pre-computed E_nuc_nuc - NG: we don't need to this, it will anyway be static at compile time and the XLA compiler takes care of this
         lap_psi = log_psi.laplacian + jnp.sum(log_psi.jacobian.data**2, axis=0)
         E_kin = -0.5 * lap_psi
-        E_pot = potential_energy(electrons, self.R, self.Z)  # TODO: reuse pre-computed E_nuc_nuc
+        E_pot = potential_energy(electrons, self.R, self.Z)  # TODO: reuse pre-computed E_nuc_nuc - NG: see above
         return E_pot + E_kin
 
     def init(self, rng: PRNGKeyArray):

@@ -48,7 +48,7 @@ def make_mcmc(
     network: ParameterizedLogPsi,
     steps: int = 10,
 ) -> MCStep:
-    batch_network = jax.vmap(network, in_axes=(None, 0))
+    batch_network = jax.vmap(network, in_axes=(None, 0, None))
 
     @jit(static_argnames="static")
     def mcmc_step(

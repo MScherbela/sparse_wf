@@ -1,0 +1,255 @@
+import functools
+from typing import Sequence, cast
+import flax.linen as nn
+import jax
+import jax.numpy as jnp
+import jax.nn as jnn
+import numpy as np
+import pyscf
+from jaxtyping import Array, Float
+from flax.struct import PyTreeNode
+from sparse_wf.api import (
+    DynamicInput,
+    DynamicInputWithDependencies,
+    Electrons,
+    ParameterizedWaveFunction,
+    Parameters,
+    StaticInput,
+    SlaterMatrices,
+    HFOrbitals,
+    PRNGKeyArray,
+    InputConstructor,
+)
+from sparse_wf.hamiltonian import make_local_energy
+
+
+ElecInp = Float[Array, "*batch n_electrons n_in"]
+PairInp = Float[Array, "*batch n_electrons n_electrns n_pair_in"]
+ElecOut = Float[Array, "*batch n_electrons n_out"]
+PairOut = Float[Array, "*batch n_electrons n_electrns n_pair_out"]
+FermiLayerOut = tuple[ElecOut, PairOut]
+ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei n_spatial=4"]
+
+
+def residual(x: Array, y: Array) -> Array:
+    if x.shape == y.shape:
+        return (x + y) / jnp.asarray(np.sqrt(2), dtype=x.dtype)
+    return x
+
+
+class RepeatedDense(nn.Module):
+    out_dim: int
+
+    @nn.compact
+    def __call__(self, x: jax.Array) -> jax.Array:
+        kernel = self.param("kernel", jnn.initializers.lecun_normal(), (x.shape[-1], self.out_dim), jnp.float32)
+        bias = self.param("bias", jnn.initializers.zeros, (self.out_dim,), jnp.float32)
+        out = x @ kernel + bias
+        return cast(jax.Array, out)
+
+
+class GroupDense(nn.Module):
+    out_dim: int
+
+    @nn.compact
+    def __call__(self, *groups: tuple[jax.Array, ...]) -> tuple[tuple[jax.Array, ...], ...]:
+        result: list[list[Array]] = []
+        for group in groups:
+            shapes = [x.shape[:-1] for x in group]
+            sizes = [np.prod(s) for s in shapes]
+            cum_sizes = np.cumsum(sizes)
+            inp = jnp.concatenate([x.reshape(-1, x.shape[-1]) for x in group], axis=0)
+            out = nn.Dense(self.out_dim)(inp)
+            result.append([x.reshape(*s, self.out_dim) for s, x in zip(shapes, jnp.split(out, cum_sizes[:-1], axis=0))])
+        return tuple(map(tuple, result))
+
+
+class FermiLayer(nn.Module):
+    spins: tuple[int, int]
+    single_dim: int
+    pair_dim: int
+    activation: str
+
+    @nn.compact
+    def __call__(self, h_one: ElecInp, h_two: PairInp) -> FermiLayerOut:
+        norm = np.asarray(1 / np.sqrt(3.0), dtype=jnp.float32)
+        out = nn.Dense(self.single_dim, use_bias=False)(h_one) * norm
+        spins = np.array(self.spins)
+
+        uu, ud, du, dd = [
+            s for split in jnp.split(h_two, spins[:1], axis=0) for s in jnp.split(split, spins[:1], axis=1)
+        ]
+        pair_inp = jnp.concatenate(
+            [jnp.concatenate(pairs, axis=-1) for pairs in [[uu.mean(1), ud.mean(1)], [dd.mean(1), du.mean(1)]]], axis=-2
+        )
+        out += nn.Dense(self.single_dim, use_bias=False)(pair_inp).reshape(spins.sum(), -1) * norm
+
+        up, down = jnp.split(h_one, spins[:1], axis=0)
+        up, down = jnp.mean(up, axis=0), jnp.mean(down, axis=0)
+        global_inp = jnp.stack([jnp.concatenate([up, down], axis=-1), jnp.concatenate([down, up], axis=-1)], axis=0)
+        out += RepeatedDense(self.single_dim)(global_inp).repeat(spins, axis=0) * norm
+
+        act = getattr(nn, self.activation)
+        out = act(out)
+
+        (uu, dd), (ud, du) = GroupDense(self.pair_dim)((uu, dd), (ud, du))
+        pair_out = jnp.concatenate(
+            [
+                jnp.concatenate([uu, ud], axis=1),
+                jnp.concatenate([du, dd], axis=1),
+            ],
+            axis=0,
+        )
+        pair_out = act(pair_out)
+        return out, pair_out
+
+
+class IsotropicEnvelope(nn.Module):
+    out_dim: int
+
+    @nn.compact
+    def __call__(self, dists: ElecNucDistances) -> jax.Array:
+        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (dists.shape[-2], self.out_dim), dists.dtype))
+        pi = self.param("pi", jnn.initializers.ones, (dists.shape[-2], self.out_dim), dists.dtype)
+        dists = dists[..., -1:]
+        scaled_dists = dists * sigma
+        env = jnp.exp(-scaled_dists)
+        out = env * pi
+        return out.sum(-2)  # sum over atom positions
+
+
+def swap_bottom_blocks(matrix: Float[Array, "... n m"], n: int, m: int | None = None) -> Float[Array, "... n m"]:
+    if m is None:
+        m = n
+    return jnp.concatenate(
+        [
+            matrix[..., :n, :],
+            jnp.concatenate(
+                [
+                    matrix[..., n:, m:],
+                    matrix[..., n:, :m],
+                ],
+                axis=-1,
+            ),
+        ],
+        axis=-2,
+    )
+
+
+class SlaterOrbitals(nn.Module):
+    n_determinants: int
+    spins: tuple[int, int]
+
+    @nn.compact
+    def __call__(self, h_one: ElecInp, dists: ElecNucDistances) -> SlaterMatrices:
+        n = h_one.shape[0]
+        spins = np.array(self.spins)
+        orbitals = nn.Dense(self.n_determinants * n)(h_one)
+        orbitals *= IsotropicEnvelope(self.n_determinants * n)(dists)
+        orbitals = orbitals.reshape(n, self.n_determinants, n)
+        orbitals = jnp.transpose(orbitals, (1, 0, 2))
+        # reverse bottom two blocks
+        orbitals = swap_bottom_blocks(orbitals, spins[0])
+        return (orbitals,)
+
+    @staticmethod
+    def transform_hf_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
+        leading_shape = hf_orbitals[0].shape[:-2]
+        n_up = hf_orbitals[0].shape[-1]
+        n_down = hf_orbitals[1].shape[-1]
+        full_det = jnp.concatenate(
+            [
+                jnp.concatenate(
+                    [
+                        hf_orbitals[0],
+                        jnp.zeros((*leading_shape, n_up, n_down)),
+                    ],
+                    axis=-1,
+                ),
+                jnp.concatenate(
+                    [
+                        jnp.zeros((*leading_shape, n_down, n_up)),
+                        hf_orbitals[1],
+                    ],
+                    axis=-1,
+                ),
+            ],
+            axis=-2,
+        )
+        # Add broadcast dimension for many determinants
+        return (full_det[..., None, :, :],)
+
+
+class FermiNetOrbitals(nn.Module):
+    mol: pyscf.gto.Mole
+    n_determinants: int = 4
+    hidden_dims: Sequence[tuple[int, int]] = ((64, 8), (64, 8), (64, 8), (64, 8))
+    activation: str = "silu"
+
+    @nn.compact
+    def __call__(self, electrons: Electrons, static: StaticInput):
+        electrons = electrons.reshape(-1, 3)
+        n_ele = electrons.shape[0]
+        assert n_ele == self.mol.nelectron
+        spins = int(self.mol.nelec[0]), int(self.mol.nelec[1])
+        nuclei = jnp.array(self.mol.atom_coords(), dtype=electrons.dtype)
+        r_im = electrons[..., None, :] - nuclei
+        r_im = jnp.concatenate([r_im, jnp.linalg.norm(r_im, axis=-1, keepdims=True)], axis=-1)
+
+        r_ij = electrons[..., None, :] - electrons
+        diag_mask = jnp.eye(n_ele, dtype=electrons.dtype)[..., None]
+        r_ij = jnp.concatenate(
+            [r_ij, jnp.linalg.norm(r_ij + diag_mask, axis=-1, keepdims=True) * (1 - diag_mask)], axis=-1
+        )
+
+        h_one, h_two = r_im.reshape(n_ele, -1), r_ij
+
+        for dim in self.hidden_dims:
+            h_one_new, h_two_new = FermiLayer(spins, dim[0], dim[1], self.activation)(h_one, h_two)
+            h_one, h_two = residual(h_one_new, h_one), residual(h_two_new, h_two)
+
+        return SlaterOrbitals(self.n_determinants, spins)(h_one, r_im)
+
+
+class DummyInputConstructor(InputConstructor):
+    def get_static_input(self, electrons: Electrons):
+        return StaticInput(None, None)  # type: ignore
+
+    def get_dynamic_input(self, electrons: Electrons, static: StaticInput):
+        return DynamicInput(electrons, None)  # type: ignore
+
+    def get_dynamic_input_with_dependencies(
+        self, electrons: Electrons, static: StaticInput
+    ) -> DynamicInputWithDependencies:
+        return DynamicInputWithDependencies(electrons, (), (), ())  # type: ignore
+
+
+class DenseFermiNet(ParameterizedWaveFunction, PyTreeNode):
+    mol: pyscf.gto.Mole
+    ferminet: FermiNetOrbitals
+    input_constructor: InputConstructor
+
+    @classmethod
+    def create(cls, mol: pyscf.gto.Mole):
+        return cls(mol, FermiNetOrbitals(mol), DummyInputConstructor())
+
+    def init(self, key: PRNGKeyArray):
+        return self.ferminet.init(key, np.zeros((self.mol.nelectron, 3), dtype=np.float32), None)
+
+    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
+        return self.ferminet.apply(params, electrons, static)  # type: ignore
+
+    def signed(self, params: Parameters, electrons: Electrons, static: StaticInput):
+        orbitals = self.orbitals(params, electrons, static)
+        slogdets = [jnp.linalg.slogdet(orbs) for orbs in orbitals]
+        sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (1, 0))
+        return jnn.logsumexp(logdet, b=sign, return_sign=True)[::-1]
+
+    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput):
+        return self.signed(params, electrons, static)[1]
+
+    def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
+        return SlaterOrbitals.transform_hf_orbitals(hf_orbitals)
+
+    def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
+        return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)
