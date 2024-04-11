@@ -89,14 +89,14 @@ def main(
     shared_key = broadcast(jnp.stack(subkeys))
 
     logging.info("Pretraining")
-    # with tqdm.trange(pretrain_steps) as pbar:
-    #     for _ in pbar:
-    #         shared_key, subkey = p_split(shared_key)
-    #         static = wf.input_constructor.get_static_input(state.electrons)
-    #         state, aux_data = pretrainer.step(subkey, state, static)
-    #         aux_data = to_log_data(aux_data)
-    #         wandb.log(aux_data)
-    #         set_postfix(pbar, aux_data)
+    with tqdm.trange(pretrain_steps) as pbar:
+        for _ in pbar:
+            shared_key, subkey = p_split(shared_key)
+            static = wf.input_constructor.get_static_input(state.electrons)
+            state, aux_data = pretrainer.step(subkey, state, static)
+            aux_data = to_log_data(aux_data)
+            wandb.log(aux_data)
+            set_postfix(pbar, aux_data)
 
     state = state.to_train_state()
 
