@@ -13,5 +13,5 @@
 source /opt/anaconda3/etc/profile.d/conda.sh
 conda activate sparse_wf
 
-export XLA_FLAGS=--xla_force_host_platform_device_count=2
+#export XLA_FLAGS=--xla_force_host_platform_device_count=2
 python test_sharding.py

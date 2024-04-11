@@ -1,4 +1,0 @@
-Process 0: Devices: [CpuDevice(id=0), CpuDevice(id=1)]
-CUDA backend failed to initialize: jaxlib/cuda/versions_helpers.cc:90: operation gpuDeviceGetAttribute( &major, GPU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, device) failed: CUDA_ERROR_NOT_INITIALIZED (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
-Process 1: Devices: [CpuDevice(id=0), CpuDevice(id=1)]
-CUDA backend failed to initialize: jaxlib/cuda/versions_helpers.cc:90: operation gpuDeviceGetAttribute( &major, GPU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, device) failed: CUDA_ERROR_NOT_INITIALIZED (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
