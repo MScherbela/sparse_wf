@@ -1,0 +1,42 @@
+Process 0: Found 2 devices: [cuda(id=0), cuda(id=1)]
+Process 1: Found 2 devices: [cuda(id=0), cuda(id=1)]
+Process 0: Generating local data and putting them on local device
+Process 0: sharding.addressable_devices={cuda(id=0)}
+Process 1: Generating local data and putting them on local device
+Process 1: sharding.addressable_devices={cuda(id=1)}
+2024-04-11 13:02:16.712611: W external/xla/xla/service/gpu/nvptx_compiler.cc:744] The NVIDIA driver's CUDA version is 12.3 which is older than the ptxas CUDA version (12.4.131). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+2024-04-11 13:02:16.712611: W external/xla/xla/service/gpu/nvptx_compiler.cc:744] The NVIDIA driver's CUDA version is 12.3 which is older than the ptxas CUDA version (12.4.131). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+Process 0: x_local.devices()={cuda(id=0)}
+Process 1: x_local.devices()={cuda(id=1)}
+Process 0: Merging into global data array: global_shape=(8, 3), sharding=PositionalSharding([{GPU 0} {GPU 1}], shape=(2,))
+Process 1: Merging into global data array: global_shape=(8, 3), sharding=PositionalSharding([{GPU 0} {GPU 1}], shape=(2,))
+Process 0: Merge successful
+Process 1: Merge successful
+Process 0: Broadcasting params to all
+Process 1: Broadcasting params to all
+Process 1: Broadcast successful
+Process 1: Computing forward pass...
+Process 0: Broadcast successful
+Process 0: Computing forward pass...
+Process 0: Forward pass successful: np.array(y.addressable_data(0))=array([0., 0., 0., 0.], dtype=float32)
+Process 0: Computing jacobian...
+Process 1: Forward pass successful: np.array(y.addressable_data(0))=array([3., 3., 3., 3.], dtype=float32)
+Process 1: Computing jacobian...
+E0411 13:02:17.434321 2346003 pjrt_stream_executor_client.cc:2766] Execution of replica 0 failed: INVALID_ARGUMENT: Executable expected shape f32[8,3]{1,0} for argument 0 but got incompatible shape f32[4,3]{1,0}
+E0411 13:02:17.434324 2346004 pjrt_stream_executor_client.cc:2766] Execution of replica 0 failed: INVALID_ARGUMENT: Executable expected shape f32[8,3]{1,0} for argument 0 but got incompatible shape f32[4,3]{1,0}
+Traceback (most recent call last):
+  File "/home/fs71573/scherbela/develop/sparse_wf/sparse_wf/preliminary_experiments/parallelization/sharding/test_sharding.py", line 67, in <module>
+    jac = get_jacobian(params, x_global)  # This line fails on GPUs, but works on CPUs
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jaxlib.xla_extension.XlaRuntimeError: INVALID_ARGUMENT: Executable expected shape f32[8,3]{1,0} for argument 0 but got incompatible shape f32[4,3]{1,0}
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+Traceback (most recent call last):
+  File "/home/fs71573/scherbela/develop/sparse_wf/sparse_wf/preliminary_experiments/parallelization/sharding/test_sharding.py", line 67, in <module>
+    jac = get_jacobian(params, x_global)  # This line fails on GPUs, but works on CPUs
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jaxlib.xla_extension.XlaRuntimeError: INVALID_ARGUMENT: Executable expected shape f32[8,3]{1,0} for argument 0 but got incompatible shape f32[4,3]{1,0}
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+srun: error: n3071-009: task 1: Exited with exit code 1
+srun: error: n3071-009: task 0: Exited with exit code 1
