@@ -34,7 +34,9 @@ class GenericInputConstructor(InputConstructor):
     @jit(static_argnames=("self", "static"))
     def get_dynamic_input(self, electrons: Electrons, static: StaticInput) -> DynamicInput:
         dist_ee, dist_ne = self.get_full_distance_matrices(electrons)
-        return DynamicInput(electrons=electrons, neighbours=self.get_neighbour_indices(dist_ee, dist_ne, static.n_neighbours))
+        return DynamicInput(
+            electrons=electrons, neighbours=self.get_neighbour_indices(dist_ee, dist_ne, static.n_neighbours)
+        )
 
     @jit(static_argnames=("self", "n_neighbours"))
     def get_neighbour_indices(
@@ -44,8 +46,9 @@ class GenericInputConstructor(InputConstructor):
             if exclude_diagonal:
                 dist += jnp.inf * jnp.eye(dist.shape[-1])
             in_cutoff = dist < self.cutoff
-            n_neighbours = jnp.max(jnp.sum(in_cutoff, axis=-1))
+
             # TODO: dynamically assert that n_neighbours <= max_n_neighbours
+            n_neighbours = jnp.max(jnp.sum(in_cutoff, axis=-1))  # noqa: F841
 
             @jax.vmap
             def _get_ind(in_cutoff_):
@@ -95,7 +98,7 @@ def get_with_fill(
     ind: Integer[Array, "*batch_dims n_neighbours"],
     fill: float | int,
 ) -> Shaped[Array, "*batch_dims n_neighbours feature_dim"]:
-    return arr.at[ind].get(mode="fill", fill_value=fill)
+    return jnp.asarray(arr).at[ind].get(mode="fill", fill_value=fill)
 
 
 # @jit(static_argnums=(2,))

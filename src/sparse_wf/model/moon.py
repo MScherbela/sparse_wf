@@ -7,7 +7,6 @@ from sparse_wf.api import (
     Nuclei,
     StaticInput,
     DynamicInputWithDependencies,
-    NrOfDependencies,
     NeighbourIndices,
     DistanceMatrix,
     ParameterizedWaveFunction,
@@ -42,7 +41,7 @@ class DependenciesMoon(NamedTuple):
     h_el_out: Dependencies
 
 
-class NrOfDependenciesMoon(NrOfDependencies):
+class NrOfDependenciesMoon(NamedTuple):
     h_el_initial: int
     H_nuc: int
     h_el_out: int
@@ -226,7 +225,6 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
     def spins(self):
         return jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_dn)])
 
-
     @classmethod
     def create(
         cls,
@@ -270,10 +268,12 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         return self.signed(params, electrons, static)[1]
 
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
-        log_psi = self.log_psi_with_fwd_lap(params, electrons, static)  # TODO: reuse pre-computed E_nuc_nuc
+        log_psi = self.log_psi_with_fwd_lap(
+            params, electrons, static
+        )  # TODO: reuse pre-computed E_nuc_nuc - NG: we don't need to this, it will anyway be static at compile time and the XLA compiler takes care of this
         lap_psi = log_psi.laplacian + jnp.sum(log_psi.jacobian.data**2, axis=0)
         E_kin = -0.5 * lap_psi
-        E_pot = potential_energy(electrons, self.R, self.Z)  # TODO: reuse pre-computed E_nuc_nuc
+        E_pot = potential_energy(electrons, self.R, self.Z)  # TODO: reuse pre-computed E_nuc_nuc - NG: see above
         return E_pot + E_kin
 
     def init(self, rng: PRNGKeyArray):
@@ -329,9 +329,9 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         _get_Gamma = jax.vmap(_get_Gamma, in_axes=(None, 0, 0))  # vmap over center
         return _get_Gamma(params, r, R_nb_en_)
 
-    def orbitals(self, params: Parameters, electrons: Electrons, static_input: StaticInput):
+    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput):
         params = cast(SparseMoonParams, params)
-        idx_nb = self.input_constructor.get_dynamic_input(electrons, static_input).neighbours
+        idx_nb = self.input_constructor.get_dynamic_input(electrons, static).neighbours
 
         # Step 0: Get neighbours
         spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(electrons, idx_nb)

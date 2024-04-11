@@ -1,0 +1,37 @@
+import functools
+import jax.numpy as jnp
+import folx
+
+from sparse_wf.api import Charges, Electrons, Nuclei, ParameterizedWaveFunction, EnergyFn, Parameters, StaticInput
+
+
+@functools.partial(jnp.vectorize, signature="(n,d),(m,d),(m)->()")
+def potential_energy(r: Electrons, R: Nuclei, Z: Charges):
+    """Compute the potential energy of the system"""
+    dist_ee = jnp.triu(jnp.linalg.norm(r[:, None] - r, axis=-1), k=1)
+    dist_en = jnp.linalg.norm(r[:, None] - R, axis=-1)
+    dist_nn = jnp.linalg.norm(R[:, None, :] - R, axis=-1)
+
+    E_ee = jnp.sum(jnp.triu(1 / dist_ee, k=1))
+    E_en = -jnp.sum(Z / dist_en)
+    E_nn = jnp.sum(jnp.triu(Z[:, None] * Z / dist_nn, k=1))
+
+    return E_ee + E_en + E_nn
+
+
+def make_local_energy(wf: ParameterizedWaveFunction, R: Nuclei, Z: Charges) -> EnergyFn:
+    """Create a local energy function from a wave function"""
+
+    @functools.partial(jnp.vectorize, signature="(n,d)->()", excluded=frozenset({0, 2}))
+    def local_energy(params: Parameters, electrons: Electrons, static: StaticInput):
+        """Compute the local energy of the system"""
+
+        def closed_wf(electrons):
+            return wf(params, electrons, static)
+
+        laplacian, jacobian = folx.ForwardLaplacianOperator(0.6)(closed_wf)(electrons)
+        kinetic_energy = -0.5 * (laplacian.sum() + jnp.vdot(jacobian, jacobian))
+        potential = potential_energy(electrons, R, Z)
+        return kinetic_energy + potential
+
+    return local_energy

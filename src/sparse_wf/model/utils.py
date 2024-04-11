@@ -1,3 +1,4 @@
+import functools
 from jaxtyping import Float, Array
 from typing import Callable, Optional, Sequence, cast
 import flax.linen as nn
@@ -10,23 +11,25 @@ Embedding = Float[Array, "features"]
 NeighbourEmbeddings = Float[Embedding, "neighbours"]
 
 
+@functools.partial(jnp.vectorize, signature="(m,d),(m)->()")
 def nuclear_potential_energy(R: Nuclei, Z: Charges) -> Float[Array, ""]:
     """Compute the nuclear potential energy of the system"""
-    dist = jnp.linalg.norm(R[:, None, :] - R[None, :, :], axis=-1)
-    E_pot = Z[:, None] * Z[None, :] / dist
+    dist = jnp.linalg.norm(R[:, None, :] - R, axis=-1)
+    E_pot = Z[:, None] * Z / dist
     E_pot = jnp.triu(E_pot, k=1)
     return jnp.sum(E_pot)
 
-def potential_energy(r: Electrons, R: Nuclei, Z: Charges, E_nuc_nuc: Optional[Float[Array, ""]] = None):
-    """Compute the potential energy of the system"""
 
-    dist_ee = jnp.triu(jnp.linalg.norm(r[:, :, None] - r[:, None, :], axis=-1), k=1)
-    dist_en = jnp.linalg.norm(r[..., :, None, :] - R, axis=-1)
+@functools.partial(jnp.vectorize, signature="(n,d),(m,d),(m)->()")
+def potential_energy(r: Electrons, R: Nuclei, Z: Charges):
+    """Compute the potential energy of the system"""
+    dist_ee = jnp.triu(jnp.linalg.norm(r[:, None] - r, axis=-1), k=1)
+    dist_en = jnp.linalg.norm(r[:, None] - R, axis=-1)
 
     E_ee = jnp.sum(jnp.triu(1 / dist_ee, k=1))
-    E_en = jnp.sum(Z / dist_en)
-    if E_nuc_nuc is None:
-        E_nuc_nuc = nuclear_potential_energy(R, Z)
+    E_en = -jnp.sum(Z / dist_en)
+    # We can always compute this since it's compile time static, it will anyway only be computed once
+    E_nuc_nuc = nuclear_potential_energy(R, Z)
 
     return E_ee + E_en + E_nuc_nuc
 

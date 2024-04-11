@@ -17,7 +17,7 @@ from sparse_wf.api import (
     WidthScheduler,
     WidthSchedulerState,
 )
-from .jax_utils import jit
+from sparse_wf.jax_utils import jit, psum
 
 
 def mh_update(
@@ -48,7 +48,7 @@ def make_mcmc(
     network: ParameterizedLogPsi,
     steps: int = 10,
 ) -> MCStep:
-    batch_network = jax.vmap(network, in_axes=(None, 0))
+    batch_network = jax.vmap(network, in_axes=(None, 0, None))
 
     @jit(static_argnames="static")
     def mcmc_step(
@@ -65,7 +65,7 @@ def make_mcmc(
 
         key, electrons, logprob, num_accepts = lax.fori_loop(0, steps, step_fn, (key, electrons, logprob, num_accepts))
 
-        pmove = num_accepts / (steps * electrons.shape[0])
+        pmove = psum(num_accepts) / (steps * electrons.shape[0] * jax.device_count())
         return electrons, pmove
 
     return mcmc_step
