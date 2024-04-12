@@ -13,7 +13,7 @@ from sparse_wf.api import AuxData, ClippingArgs, Electrons, ModelArgs, Precondit
 from sparse_wf.mcmc import make_mcmc, make_width_scheduler
 from sparse_wf.loggers import MultiLogger
 
-# from sparse_wf.model.moon import SparseMoonWavefunction
+from sparse_wf.model.moon import SparseMoonWavefunction
 from sparse_wf.model.dense_ferminet import DenseFermiNet
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
@@ -68,8 +68,8 @@ def main(
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
-    # wf = SparseMoonWavefunction.create(mol.atom_coords(), mol.atom_charges(), mol.charge, mol.spin, **model_args)
-    wf = DenseFermiNet.create(mol)
+    wf = SparseMoonWavefunction.create(mol, **model_args)
+    # wf = DenseFermiNet.create(mol)
     key, subkey = jax.random.split(key)
     params = wf.init(subkey)
     key, subkey = jax.random.split(key)

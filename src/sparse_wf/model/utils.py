@@ -112,30 +112,30 @@ class SlaterOrbitals(nn.Module):
         orbitals = swap_bottom_blocks(orbitals, spins[0]) # reverse bottom two blocks
         return (orbitals,)
 
-    @staticmethod
-    def transform_hf_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
-        leading_shape = hf_orbitals[0].shape[:-2]
-        n_up = hf_orbitals[0].shape[-1]
-        n_down = hf_orbitals[1].shape[-1]
-        full_det = jnp.concatenate(
-            [
-                jnp.concatenate(
-                    [
-                        hf_orbitals[0],
-                        jnp.zeros((*leading_shape, n_up, n_down)),
-                    ],
-                    axis=-1,
-                ),
-                jnp.concatenate(
-                    [
-                        jnp.zeros((*leading_shape, n_down, n_up)),
-                        hf_orbitals[1],
-                    ],
-                    axis=-1,
-                ),
-            ],
-            axis=-2,
-        )
-        # Add broadcast dimension for many determinants
-        return (full_det[..., None, :, :],)
+
+def hf_orbitals_to_fulldet_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
+    leading_shape = hf_orbitals[0].shape[:-2]
+    n_up = hf_orbitals[0].shape[-1]
+    n_down = hf_orbitals[1].shape[-1]
+    full_det = jnp.concatenate(
+        [
+            jnp.concatenate(
+                [
+                    hf_orbitals[0],
+                    jnp.zeros((*leading_shape, n_up, n_down)),
+                ],
+                axis=-1,
+            ),
+            jnp.concatenate(
+                [
+                    jnp.zeros((*leading_shape, n_down, n_up)),
+                    hf_orbitals[1],
+                ],
+                axis=-1,
+            ),
+        ],
+        axis=-2,
+    )
+    # Add broadcast dimension for many determinants
+    return (full_det[..., None, :, :],)
     

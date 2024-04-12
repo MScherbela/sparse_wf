@@ -29,7 +29,8 @@ from sparse_wf.model.utils import (
     MLP,
     SlaterOrbitals,
     signed_logpsi_from_orbitals,
-    IsotropicEnvelope
+    IsotropicEnvelope,
+    hf_orbitals_to_fulldet_orbitals
 )
 from sparse_wf.hamiltonian import potential_energy
 from sparse_wf.jax_utils import jit, fwd_lap
@@ -283,7 +284,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         )
 
     def hf_transformation(self, hf_orbitals):
-        raise NotImplementedError("Not implemented yet")
+        return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
     def signed(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         orbitals = self.orbitals(params, electrons, static)
@@ -292,9 +293,11 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput):
         return self.signed(params, electrons, static)[1]
 
+    @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
-        log_psi = self.log_psi_with_fwd_lap(params, electrons, static)
-        lap_psi = log_psi.laplacian + jnp.sum(log_psi.jacobian.data**2, axis=0)
+        lap_psi = fwd_lap(lambda r: self(params, r, static))(electrons).laplacian
+        # log_psi = self.log_psi_with_fwd_lap(params, electrons, static)
+        # lap_psi = log_psi.laplacian + jnp.sum(log_psi.jacobian.data**2, axis=0)
         E_kin = -0.5 * lap_psi
         E_pot = potential_energy(electrons, self.R, self.Z)
         return E_pot + E_kin

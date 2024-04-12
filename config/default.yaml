@@ -6,7 +6,8 @@ model_args:
   feature_dim: 256
   nuc_mlp_depth: 3
   pair_mlp_widths: [16, 8]
-  pair_n_envelopes: 4
+  pair_n_envelopes: 16
+  n_determinants: 4
 
 preconditioner_args:
   preconditioner: spring

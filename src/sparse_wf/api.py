@@ -327,6 +327,7 @@ class ModelArgs(TypedDict):
     nuc_mlp_depth: int
     pair_mlp_widths: Sequence[int]
     pair_n_envelopes: int
+    n_determinants: int
 
 
 class SpringArgs(TypedDict):
