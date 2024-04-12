@@ -2,6 +2,7 @@ import logging
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import numpy as np
 import optax
 import pyscf
 import tqdm
@@ -26,13 +27,14 @@ ex.add_config("config/default.yaml")
 
 
 def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> Electrons:
+    # TODO: center around nuclei, choose reasonable initial spin assignment
     batch_size = batch_size - (batch_size % jax.device_count())
     electrons = jax.random.normal(key, (batch_size, mol.nelectron, 3))
     return electrons
 
 
 def to_log_data(aux_data: AuxData) -> dict[str, float]:
-    return jtu.tree_map(lambda x: x.mean().item(), aux_data)
+    return jtu.tree_map(lambda x: np.asarray(x).mean().item(), aux_data)
 
 
 def set_postfix(pbar: tqdm.tqdm, aux_data: dict[str, float]):
@@ -55,13 +57,14 @@ def main(
     seed: int,
 ):
     config = locals()
+    # TODO : add entity and make project configurable
     wandb.init(
         project="sparse_wf",
         config=config,
     )
     key = jax.random.PRNGKey(seed)
 
-    mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin)
+    mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
     # wf = SparseMoonWavefunction.create(mol.atom_coords(), mol.atom_charges(), mol.charge, mol.spin, **model_args)

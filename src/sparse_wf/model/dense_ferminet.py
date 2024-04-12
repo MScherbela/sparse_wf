@@ -1,4 +1,3 @@
-import functools
 from typing import Sequence, cast
 import flax.linen as nn
 import jax
@@ -21,14 +20,13 @@ from sparse_wf.api import (
     InputConstructor,
 )
 from sparse_wf.hamiltonian import make_local_energy
+from sparse_wf.model.utils import ElecInp, SlaterOrbitals, signed_logpsi_from_orbitals
 
 
-ElecInp = Float[Array, "*batch n_electrons n_in"]
 PairInp = Float[Array, "*batch n_electrons n_electrns n_pair_in"]
 ElecOut = Float[Array, "*batch n_electrons n_out"]
 PairOut = Float[Array, "*batch n_electrons n_electrns n_pair_out"]
 FermiLayerOut = tuple[ElecOut, PairOut]
-ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei n_spatial=4"]
 
 
 def residual(x: Array, y: Array) -> Array:
@@ -37,6 +35,7 @@ def residual(x: Array, y: Array) -> Array:
     return x
 
 
+# TODO: Isn't that exactly the same as nn.Dense?
 class RepeatedDense(nn.Module):
     out_dim: int
 
@@ -104,82 +103,6 @@ class FermiLayer(nn.Module):
         return out, pair_out
 
 
-class IsotropicEnvelope(nn.Module):
-    out_dim: int
-
-    @nn.compact
-    def __call__(self, dists: ElecNucDistances) -> jax.Array:
-        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (dists.shape[-2], self.out_dim), dists.dtype))
-        pi = self.param("pi", jnn.initializers.ones, (dists.shape[-2], self.out_dim), dists.dtype)
-        dists = dists[..., -1:]
-        scaled_dists = dists * sigma
-        env = jnp.exp(-scaled_dists)
-        out = env * pi
-        return out.sum(-2)  # sum over atom positions
-
-
-def swap_bottom_blocks(matrix: Float[Array, "... n m"], n: int, m: int | None = None) -> Float[Array, "... n m"]:
-    if m is None:
-        m = n
-    return jnp.concatenate(
-        [
-            matrix[..., :n, :],
-            jnp.concatenate(
-                [
-                    matrix[..., n:, m:],
-                    matrix[..., n:, :m],
-                ],
-                axis=-1,
-            ),
-        ],
-        axis=-2,
-    )
-
-
-class SlaterOrbitals(nn.Module):
-    n_determinants: int
-    spins: tuple[int, int]
-
-    @nn.compact
-    def __call__(self, h_one: ElecInp, dists: ElecNucDistances) -> SlaterMatrices:
-        n = h_one.shape[0]
-        spins = np.array(self.spins)
-        orbitals = nn.Dense(self.n_determinants * n)(h_one)
-        orbitals *= IsotropicEnvelope(self.n_determinants * n)(dists)
-        orbitals = orbitals.reshape(n, self.n_determinants, n)
-        orbitals = jnp.transpose(orbitals, (1, 0, 2))
-        # reverse bottom two blocks
-        orbitals = swap_bottom_blocks(orbitals, spins[0])
-        return (orbitals,)
-
-    @staticmethod
-    def transform_hf_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
-        leading_shape = hf_orbitals[0].shape[:-2]
-        n_up = hf_orbitals[0].shape[-1]
-        n_down = hf_orbitals[1].shape[-1]
-        full_det = jnp.concatenate(
-            [
-                jnp.concatenate(
-                    [
-                        hf_orbitals[0],
-                        jnp.zeros((*leading_shape, n_up, n_down)),
-                    ],
-                    axis=-1,
-                ),
-                jnp.concatenate(
-                    [
-                        jnp.zeros((*leading_shape, n_down, n_up)),
-                        hf_orbitals[1],
-                    ],
-                    axis=-1,
-                ),
-            ],
-            axis=-2,
-        )
-        # Add broadcast dimension for many determinants
-        return (full_det[..., None, :, :],)
-
-
 class FermiNetOrbitals(nn.Module):
     mol: pyscf.gto.Mole
     n_determinants: int = 4
@@ -241,9 +164,7 @@ class DenseFermiNet(ParameterizedWaveFunction, PyTreeNode):
 
     def signed(self, params: Parameters, electrons: Electrons, static: StaticInput):
         orbitals = self.orbitals(params, electrons, static)
-        slogdets = [jnp.linalg.slogdet(orbs) for orbs in orbitals]
-        sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (1, 0))
-        return jnn.logsumexp(logdet, b=sign, return_sign=True)[::-1]
+        return signed_logpsi_from_orbitals(orbitals)
 
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput):
         return self.signed(params, electrons, static)[1]

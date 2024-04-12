@@ -19,6 +19,7 @@ import jax
 from folx.api import FwdLaplArray, FwdJacobian
 import einops
 from sparse_wf.jax_utils import jit
+import numpy as np
 
 NO_NEIGHBOUR = 1_000_000
 
@@ -94,7 +95,7 @@ class GenericInputConstructor(InputConstructor):
 
 
 def get_with_fill(
-    arr: Shaped[Array, "n_elements feature_dim"],  # noqa: F821
+    arr: Shaped[Array, "n_elements feature_dim"] | Shaped[np.ndarray, " n_elements feature_dim"],
     ind: Integer[Array, "*batch_dims n_neighbours"],
     fill: float | int,
 ) -> Shaped[Array, "*batch_dims n_neighbours feature_dim"]:

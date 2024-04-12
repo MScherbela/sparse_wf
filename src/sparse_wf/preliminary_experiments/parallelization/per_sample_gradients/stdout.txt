@@ -1,0 +1,65 @@
+2024-04-11 13:22:22.416936: W external/xla/xla/service/gpu/nvptx_compiler.cc:744] The NVIDIA driver's CUDA version is 12.3 which is older than the ptxas CUDA version (12.4.131). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+E0411 13:22:23.248970 2354012 pjrt_stream_executor_client.cc:2766] Execution of replica 0 failed: INVALID_ARGUMENT: Executable expected shape f32[8,3]{1,0} for argument 0 but got incompatible shape f32[4,3]{1,0}
+E0411 13:22:23.248983 2354014 pjrt_stream_executor_client.cc:2766] Execution of replica 0 failed: INVALID_ARGUMENT: Executable expected shape f32[8,3]{1,0} for argument 0 but got incompatible shape f32[4,3]{1,0}
+jax:    0.4.24
+jaxlib: 0.4.24
+numpy:  1.26.4
+python: 3.12.2 | packaged by Anaconda, Inc. | (main, Feb 27 2024, 17:35:02) [GCC 11.2.0]
+jax.devices (2 total, 2 local): [cuda(id=0) cuda(id=1)]
+process_count: 1
+
+$ nvidia-smi
+Thu Apr 11 13:22:21 2024
++---------------------------------------------------------------------------------------+
+| NVIDIA-SMI 545.23.08              Driver Version: 545.23.08    CUDA Version: 12.3     |
+|-----------------------------------------+----------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |         Memory-Usage | GPU-Util  Compute M. |
+|                                         |                      |               MIG M. |
+|=========================================+======================+======================|
+|   0  NVIDIA A100-PCIE-40GB          Off | 00000000:01:00.0 Off |                  Off |
+| N/A   40C    P0              36W / 250W |    429MiB / 40960MiB |      2%      Default |
+|                                         |                      |             Disabled |
++-----------------------------------------+----------------------+----------------------+
+|   1  NVIDIA A100-PCIE-40GB          Off | 00000000:81:00.0 Off |                  Off |
+| N/A   37C    P0              42W / 250W |    429MiB / 40960MiB |      4%      Default |
+|                                         |                      |             Disabled |
++-----------------------------------------+----------------------+----------------------+
+
++---------------------------------------------------------------------------------------+
+| Processes:                                                                            |
+|  GPU   GI   CI        PID   Type   Process name                            GPU Memory |
+|        ID   ID                                                             Usage      |
+|=======================================================================================|
+|    0   N/A  N/A   2353406      C   python                                      416MiB |
+|    1   N/A  N/A   2353406      C   python                                      416MiB |
++---------------------------------------------------------------------------------------+
+
+Devices:  [cuda(id=0), cuda(id=1)]
+Forward pass (with vectorizable function) works
+Forward pass with explicity vmap also works
+Gradient of global function works
+Traceback (most recent call last):
+  File "/home/fs71573/scherbela/develop/sparse_wf/sparse_wf/preliminary_experiments/parallelization/per_sample_gradients/per_sample_gradients.py", line 41, in <module>
+    per_sample_grads = jax.vmap(jax.grad(model), in_axes=(None, 0))(params, x)
+  File "/home/fs71573/scherbela/develop/sparse_wf/sparse_wf/preliminary_experiments/parallelization/per_sample_gradients/per_sample_gradients.py", line 12, in model
+    return x @ params
+  File "/gpfs/data/fs71573/scherbela/conda_envs/sparse_wf/lib/python3.12/site-packages/jax/_src/numpy/array_methods.py", line 736, in op
+    return getattr(self.aval, f"_{name}")(self, *args)
+  File "/gpfs/data/fs71573/scherbela/conda_envs/sparse_wf/lib/python3.12/site-packages/jax/_src/numpy/array_methods.py", line 264, in deferring_binary_op
+    return binary_op(*args)
+jax._src.source_info_util.JaxStackTraceBeforeTransformation: jaxlib.xla_extension.XlaRuntimeError: INVALID_ARGUMENT: Executable expected shape f32[8,3]{1,0} for argument 0 but got incompatible shape f32[4,3]{1,0}: while running replica 0 and partition 0 of a replicated computation (other replicas may have failed as well).
+
+The preceding stack trace is the source of the JAX operation that, once transformed by JAX, triggered the following exception.
+
+--------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/fs71573/scherbela/develop/sparse_wf/sparse_wf/preliminary_experiments/parallelization/per_sample_gradients/per_sample_gradients.py", line 41, in <module>
+    per_sample_grads = jax.vmap(jax.grad(model), in_axes=(None, 0))(params, x)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jaxlib.xla_extension.XlaRuntimeError: INVALID_ARGUMENT: Executable expected shape f32[8,3]{1,0} for argument 0 but got incompatible shape f32[4,3]{1,0}: while running replica 0 and partition 0 of a replicated computation (other replicas may have failed as well).
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.

@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 import folx
 import functools
+from pyscf.gto import Mole
 
 from jax import config as jax_config
 
@@ -17,17 +18,16 @@ def build_atom_chain(rng, n_nuc, n_el_per_nuc, batch_size):
     r = R[:, None, :] + jax.random.normal(rng, [batch_size, n_nuc, n_el_per_nuc, 3])
     r = jax.lax.collapse(r, 1, 3)
     Z = jnp.ones(n_nuc, dtype=int) * n_el_per_nuc
-    return r, R, Z
+    mol = Mole(atoms=[(R_, Z_) for R_, Z_ in zip(R, Z)])
+    return r, mol
 
 
 rng_r, rng_model = jax.random.split(jax.random.PRNGKey(0))
-electrons, R, Z = build_atom_chain(rng_r, n_nuc=25, n_el_per_nuc=2, batch_size=1)
+electrons, mol = build_atom_chain(rng_r, n_nuc=25, n_el_per_nuc=2, batch_size=1)
 
 model = SparseMoonWavefunction.create(
-    R=R,
-    Z=Z,
-    charge=0,
-    spin=0,
+    mol,
+    n_determinants=1,
     cutoff=4.0,
     feature_dim=64,
     nuc_mlp_depth=3,
