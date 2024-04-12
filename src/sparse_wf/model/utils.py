@@ -6,9 +6,11 @@ import jax.numpy as jnp
 import jax
 import numpy as np
 import functools
-
 from sparse_wf.api import HFOrbitals, SlaterMatrices, SignedLogAmplitude
-from sparse_wf.model.dense_ferminet import ElecInp, ElecNucDistances
+
+ElecInp = Float[Array, "*batch n_electrons n_in"]
+ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei n_spatial=4"]
+
 
 FilterKernel = Float[Array, "neighbour features"]
 Embedding = Float[Array, "features"]

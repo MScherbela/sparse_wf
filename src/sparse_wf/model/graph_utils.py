@@ -95,7 +95,7 @@ class GenericInputConstructor(InputConstructor):
 
 
 def get_with_fill(
-    arr: Shaped[Array, "n_elements feature_dim"] | Shaped[np.ndarray, " n_elements, feature_dim"],
+    arr: Shaped[Array, "n_elements feature_dim"] | Shaped[np.ndarray, " n_elements feature_dim"],
     ind: Integer[Array, "*batch_dims n_neighbours"],
     fill: float | int,
 ) -> Shaped[Array, "*batch_dims n_neighbours feature_dim"]:

@@ -20,15 +20,13 @@ from sparse_wf.api import (
     InputConstructor,
 )
 from sparse_wf.hamiltonian import make_local_energy
-from sparse_wf.model.utils import SlaterOrbitals, signed_logpsi_from_orbitals
+from sparse_wf.model.utils import ElecInp, SlaterOrbitals, signed_logpsi_from_orbitals
 
 
-ElecInp = Float[Array, "*batch n_electrons n_in"]
 PairInp = Float[Array, "*batch n_electrons n_electrns n_pair_in"]
 ElecOut = Float[Array, "*batch n_electrons n_out"]
 PairOut = Float[Array, "*batch n_electrons n_electrns n_pair_out"]
 FermiLayerOut = tuple[ElecOut, PairOut]
-ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei n_spatial=4"]
 
 
 def residual(x: Array, y: Array) -> Array:
