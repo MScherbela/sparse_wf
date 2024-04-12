@@ -95,7 +95,8 @@ def make_spring_preconditioner(
         natgrad_state: PreconditionerState,
     ):
         n_dev = jax.device_count()
-        N = dE_dlogpsi.size * n_dev
+        local_batch_size = dE_dlogpsi.size
+        N = local_batch_size * n_dev
         normalization = 1 / jnp.sqrt(N)
 
         def log_p(params: Parameters, electrons: Electrons, static: StaticInput):
@@ -104,7 +105,7 @@ def make_spring_preconditioner(
         # Gather individual jacobians
         jac_fn = jax.vmap(jax.grad(log_p), in_axes=(None, 0, None))
         jacobians = jtu.tree_leaves(jac_fn(params, electrons, static))
-        jacobians = jtu.tree_map(lambda x: x.reshape(N, -1), jacobians)
+        jacobians = jtu.tree_map(lambda x: x.reshape(local_batch_size, -1), jacobians)
 
         # Compute T
         T = jnp.zeros((N, N))
