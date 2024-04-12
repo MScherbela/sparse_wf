@@ -7,9 +7,10 @@ import jax
 import numpy as np
 import functools
 from sparse_wf.api import HFOrbitals, SlaterMatrices, SignedLogAmplitude
+import einops
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
-ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei n_spatial=4"]
+ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei"]
 
 
 FilterKernel = Float[Array, "neighbour features"]
@@ -82,16 +83,19 @@ def signed_logpsi_from_orbitals(orbitals: SlaterMatrices) -> SignedLogAmplitude:
 
 class IsotropicEnvelope(nn.Module):
     out_dim: int
+    cutoff: Optional[float] = None
 
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
-        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (dists.shape[-2], self.out_dim), dists.dtype))
-        pi = self.param("pi", jnn.initializers.ones, (dists.shape[-2], self.out_dim), dists.dtype)
-        dists = dists[..., -1:]
+        n_nuc = dists.shape[-1]
+        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (n_nuc, self.out_dim), dists.dtype))
+        pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.out_dim), dists.dtype)
         scaled_dists = dists * sigma
         env = jnp.exp(-scaled_dists)
+        if self.cutoff is not None:
+            env *= cutoff_function(dists / self.cutoff)
         out = env * pi
-        return out.sum(-2)  # sum over atom positions
+        return out.sum(axis=-2)  # sum over atom positions
 
 
 class SlaterOrbitals(nn.Module):
@@ -100,14 +104,12 @@ class SlaterOrbitals(nn.Module):
 
     @nn.compact
     def __call__(self, h_one: ElecInp, dists: ElecNucDistances) -> SlaterMatrices:
-        n = h_one.shape[0]
+        n_el = h_one.shape[-2]
         spins = np.array(self.spins)
-        orbitals = nn.Dense(self.n_determinants * n)(h_one)
-        orbitals *= IsotropicEnvelope(self.n_determinants * n)(dists)
-        orbitals = orbitals.reshape(n, self.n_determinants, n)
-        orbitals = jnp.transpose(orbitals, (1, 0, 2))
-        # reverse bottom two blocks
-        orbitals = swap_bottom_blocks(orbitals, spins[0])
+        orbitals = nn.Dense(self.n_determinants * n_el)(h_one)
+        orbitals *= IsotropicEnvelope(self.n_determinants * n_el)(dists)
+        orbitals = einops.rearrange(orbitals, "... el (det orb) -> ... det el orb", el=n_el, orb=n_el, det=self.n_determinants)
+        orbitals = swap_bottom_blocks(orbitals, spins[0]) # reverse bottom two blocks
         return (orbitals,)
 
     @staticmethod
@@ -136,3 +138,4 @@ class SlaterOrbitals(nn.Module):
         )
         # Add broadcast dimension for many determinants
         return (full_det[..., None, :, :],)
+    

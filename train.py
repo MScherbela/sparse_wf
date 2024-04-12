@@ -1,4 +1,5 @@
 import logging
+import pathlib
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -8,8 +9,9 @@ import pyscf
 import tqdm
 import wandb
 from seml.experiment import Experiment
-from sparse_wf.api import AuxData, ClippingArgs, Electrons, ModelArgs, PreconditionerArgs, PRNGKeyArray
+from sparse_wf.api import AuxData, ClippingArgs, Electrons, ModelArgs, PreconditionerArgs, PRNGKeyArray, LoggingArgs
 from sparse_wf.mcmc import make_mcmc, make_width_scheduler
+from sparse_wf.loggers import MultiLogger
 
 # from sparse_wf.model.moon import SparseMoonWavefunction
 from sparse_wf.model.dense_ferminet import DenseFermiNet
@@ -23,7 +25,7 @@ jax.config.update("jax_default_matmul_precision", "float32")
 ex = Experiment()
 
 
-ex.add_config("config/default.yaml")
+ex.add_config(str(pathlib.Path(__file__).parent / "config/default.yaml"))
 
 
 def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> Electrons:
@@ -55,13 +57,12 @@ def main(
     init_width: float,
     basis: str,
     seed: int,
+    logging_args: LoggingArgs
 ):
     config = locals()
     # TODO : add entity and make project configurable
-    wandb.init(
-        project="sparse_wf",
-        config=config,
-    )
+    loggers = MultiLogger(logging_args)
+    loggers.log_config(config)
     key = jax.random.PRNGKey(seed)
 
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
@@ -98,7 +99,7 @@ def main(
             static = wf.input_constructor.get_static_input(state.electrons)
             state, aux_data = pretrainer.step(subkey, state, static)
             aux_data = to_log_data(aux_data)
-            wandb.log(aux_data)
+            loggers.log(aux_data)
             set_postfix(pbar, aux_data)
 
     state = state.to_train_state()
@@ -110,5 +111,5 @@ def main(
             static = wf.input_constructor.get_static_input(state.electrons)
             state, _, aux_data = trainer.step(subkey, state, static)
             aux_data = to_log_data(aux_data)
-            wandb.log(aux_data)
+            loggers.log(aux_data)
             set_postfix(pbar, aux_data)

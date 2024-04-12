@@ -38,3 +38,7 @@ ignore = ["F722"]
 strict = false
 exclude = ["src/sparse_wf/preliminary_experiments"]
 disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
+
+[project.scripts]
+# TODO: refactor train.py to have a single main function to allow this
+#swf-train = "train:main"

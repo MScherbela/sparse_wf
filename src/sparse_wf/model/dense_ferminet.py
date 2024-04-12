@@ -130,8 +130,9 @@ class FermiNetOrbitals(nn.Module):
         for dim in self.hidden_dims:
             h_one_new, h_two_new = FermiLayer(spins, dim[0], dim[1], self.activation)(h_one, h_two)
             h_one, h_two = residual(h_one_new, h_one), residual(h_two_new, h_two)
+        dist_im = r_im[..., -1]
 
-        return SlaterOrbitals(self.n_determinants, spins)(h_one, r_im)
+        return SlaterOrbitals(self.n_determinants, spins)(h_one, dist_im)
 
 
 class DummyInputConstructor(InputConstructor):

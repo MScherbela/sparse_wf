@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import NamedTuple, Protocol, Sequence, TypeAlias, Callable, TypedDict
+from typing import NamedTuple, Protocol, Sequence, TypeAlias, Callable, TypedDict, Optional
 
 import numpy as np
 import optax
@@ -305,6 +305,18 @@ class Pretrainer(NamedTuple):
 
 
 ############################################################################
+# Logging
+############################################################################
+
+class Logger(Protocol):
+    def __init__(self, config: dict) -> None: ...
+
+    def log(self, data: dict) -> None: ...
+
+    def log_config(self, config: dict) -> None: ...
+
+
+############################################################################
 # Arguments
 ############################################################################
 
@@ -336,3 +348,16 @@ class PreconditionerArgs(TypedDict):
 class ClippingArgs(TypedDict):
     clip_local_energy: float
     stat: str
+
+class WandBArgs(TypedDict):
+    use: bool
+    project: str
+    entity: Optional[str]
+
+class FileLoggingArgs(TypedDict):
+    use: bool
+    path: str
+
+class LoggingArgs(TypedDict):
+    wandb: WandBArgs
+    file: FileLoggingArgs

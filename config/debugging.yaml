@@ -3,7 +3,7 @@ spin: 1
 
 model_args:
   cutoff: 5.0
-  feature_dim: 256
+  feature_dim: 17
   nuc_mlp_depth: 3
   pair_mlp_widths: [16, 8]
   pair_n_envelopes: 4
@@ -19,20 +19,18 @@ preconditioner_args:
 
 clipping_args:
   clip_local_energy: 5.0
-  stat: 
-  
+  stat: median
+
 logging_args:
   wandb:
-    use: true
-    project: "sparse_wf"
-    entity: 
-  file:
     use: false
-    path: "log.txt"
+  file:
+    use: true
+    path: "debug.log"
 
-batch_size: 512
-steps: 100_000
-pretrain_steps: 1_000
+batch_size: 64
+steps: 50
+pretrain_steps: 10
 mcmc_steps: 20
 init_width: 0.02
 basis: sto-6g
