@@ -30,7 +30,8 @@ from sparse_wf.model.utils import (
     SlaterOrbitals,
     signed_logpsi_from_orbitals,
     IsotropicEnvelope,
-    hf_orbitals_to_fulldet_orbitals
+    hf_orbitals_to_fulldet_orbitals,
+    swap_bottom_blocks
 )
 from sparse_wf.hamiltonian import potential_energy
 from sparse_wf.jax_utils import jit, fwd_lap
@@ -200,21 +201,21 @@ class PairwiseFilter(nn.Module):
         return nn.Dense(self.out_dim, use_bias=False)(beta)
 
 
-class SlaterOrbitalsWithFwdLap(nn.Module):
-    n_determinants: int
-    spins: tuple[int, int]
+# class SlaterOrbitalsWithFwdLap(nn.Module):
+#     n_determinants: int
+#     spins: tuple[int, int]
 
-    @nn.compact
-    def __call__(self, h_one: FwdLaplArray, dists: DistanceMatrix) -> tuple[FwdLaplArray, ]:
-        n = h_one.shape[0]
-        spins = np.array(self.spins)
-        orbitals = nn.Dense(self.n_determinants * n)(h_one)
-        orbitals *= IsotropicEnvelope(self.n_determinants * n)(dists)
-        orbitals = orbitals.reshape(n, self.n_determinants, n)
-        orbitals = jnp.transpose(orbitals, (1, 0, 2))
-        # reverse bottom two blocks
-        orbitals = swap_bottom_blocks(orbitals, spins[0])
-        return (orbitals,)
+#     @nn.compact
+#     def __call__(self, h_one: FwdLaplArray, dists: DistanceMatrix) -> tuple[FwdLaplArray, ]:
+#         n = h_one.shape[0]
+#         spins = np.array(self.spins)
+#         orbitals = nn.Dense(self.n_determinants * n)(h_one)
+#         orbitals *= IsotropicEnvelope(self.n_determinants * n)(dists)
+#         orbitals = orbitals.reshape(n, self.n_determinants, n)
+#         orbitals = jnp.transpose(orbitals, (1, 0, 2))
+#         # reverse bottom two blocks
+#         orbitals = swap_bottom_blocks(orbitals, spins[0])
+#         return (orbitals,)
 
 
 class SparseMoonParams(PyTreeNode):
@@ -386,7 +387,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         # Neural network orbitals
         dyn_input = self.input_constructor.get_dynamic_input(electrons, static)
         h = self._embedding(params, dyn_input, static)
-        orbitals = self.lin_orbitals.apply(params.lin_orbitals, h)
+        orbitals = cast(jax.Array, self.lin_orbitals.apply(params.lin_orbitals, h))
 
         # Envelope
         R_nb = get_with_fill(self.R, dyn_input.neighbours.en, NO_NEIGHBOUR)
@@ -394,7 +395,8 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         envelopes = cast(jax.Array, self.envelopes.apply(params.envelopes, dist_en))
         orbitals *= envelopes
         orbitals = einops.rearrange(orbitals, "... el (det orb) -> ... det el orb", el=n_el, orb=n_el, det=self.n_determinants)
-        return cast(SlaterMatrices, (orbitals,))
+        orbitals = swap_bottom_blocks(orbitals, self.n_up)
+        return (orbitals,)
 
     def log_psi_with_fwd_lap(
         self, params: SparseMoonParams, electrons: Electrons, static_input: StaticInput
