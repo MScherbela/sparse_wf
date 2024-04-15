@@ -183,7 +183,7 @@ class PairwiseFilter(nn.Module):
         """Compute the pairwise filters between two particles.
 
         Args:
-            dist_diff: The distance and spin difference between two particles [n_el x n_nb x 4].
+            dist_diff: The distance, 3D difference and optionall spin difference between two particles [n_el x n_nb x 4(5)].
                 The 0th feature dimension must contain the distance, the remaining dimensions can contain arbitrary
                 features that are used to compute the pairwise filters, e.g. product of spins.
         """
