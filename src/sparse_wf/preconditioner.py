@@ -74,7 +74,7 @@ def make_cg_preconditioner(
             result = tree_add(undamped, tree_mul(v, damping))
             return psum(result)
 
-        natgrad = cg(A=Fisher_matmul, b=grad, x0=natgrad_state.last_grad, tol=0, atol=0, maxiter=maxiter)
+        natgrad, _ = cg(A=Fisher_matmul, b=grad, x0=natgrad_state.last_grad, tol=0, atol=0, maxiter=maxiter)
         return natgrad, PreconditionerState(last_grad=natgrad), {}
 
     return Preconditioner(init, precondition)
