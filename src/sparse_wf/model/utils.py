@@ -22,14 +22,19 @@ class MLP(nn.Module):
     widths: Sequence[int]
     activate_final: bool = False
     activation: Callable = jax.nn.silu
+    residual: bool = False
 
     @nn.compact
     def __call__(self, x: Float[Array, "*batch_dims _"]) -> Float[Array, "*batch_dims _"]:
         depth = len(self.widths)
         for ind_layer, out_width in enumerate(self.widths):
-            x = nn.Dense(out_width)(x)
+            y = nn.Dense(out_width)(x)
             if (ind_layer < depth - 1) or self.activate_final:
-                x = self.activation(x)
+                y = self.activation(y)
+                if self.residual and (x.shape[-1] == out_width):
+                    x = x + y
+                else:
+                    x = y
         return x
 
 
@@ -40,7 +45,8 @@ def cutoff_function(d: Float[Array, "*dims"], p=4) -> Float[Array, "*dims"]:  # 
     cutoff = 1 + a * d**p + b * d ** (p + 1) + c * d ** (p + 2)
     # Heavyside is only required to enforce cutoff in fully connected implementation
     # and when evaluating the cutoff to a padding/placeholder "neighbour" which is far away
-    cutoff *= jax.numpy.heaviside(1 - d, 0.0)
+    # cutoff *= jax.numpy.heaviside(1 - d, 0.0)
+    cutoff = jnp.where(d < 1, cutoff, 0.0)
     return cutoff
 
 
@@ -51,7 +57,8 @@ def contract(h_nb: NeighbourEmbeddings, Gamma_nb: FilterKernel, h_center: Option
     msg = jnp.einsum("...nf,...nf->...f", h_nb, Gamma_nb)
     if h_center is not None:
         msg += h_center
-    return cast(Embedding, jax.nn.silu(msg))
+    emb_out = jax.nn.silu(msg)
+    return cast(Embedding, emb_out)
 
 
 def swap_bottom_blocks(matrix: Float[Array, "... n m"], n: int, m: int | None = None) -> Float[Array, "... n m"]:
@@ -90,7 +97,7 @@ class IsotropicEnvelope(nn.Module):
         n_nuc = dists.shape[-1]
         sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (n_nuc, self.out_dim), dists.dtype))
         pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.out_dim), dists.dtype)
-        scaled_dists = dists * sigma
+        scaled_dists = dists[..., None] * sigma
         env = jnp.exp(-scaled_dists)
         if self.cutoff is not None:
             env *= cutoff_function(dists / self.cutoff)
@@ -108,8 +115,10 @@ class SlaterOrbitals(nn.Module):
         spins = np.array(self.spins)
         orbitals = nn.Dense(self.n_determinants * n_el)(h_one)
         orbitals *= IsotropicEnvelope(self.n_determinants * n_el)(dists)
-        orbitals = einops.rearrange(orbitals, "... el (det orb) -> ... det el orb", el=n_el, orb=n_el, det=self.n_determinants)
-        orbitals = swap_bottom_blocks(orbitals, spins[0]) # reverse bottom two blocks
+        orbitals = einops.rearrange(
+            orbitals, "... el (det orb) -> ... det el orb", el=n_el, orb=n_el, det=self.n_determinants
+        )
+        orbitals = swap_bottom_blocks(orbitals, spins[0])  # reverse bottom two blocks
         return (orbitals,)
 
 
@@ -138,4 +147,3 @@ def hf_orbitals_to_fulldet_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
     )
     # Add broadcast dimension for many determinants
     return (full_det[..., None, :, :],)
-    

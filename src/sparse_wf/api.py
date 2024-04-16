@@ -308,6 +308,7 @@ class Pretrainer(NamedTuple):
 # Logging
 ############################################################################
 
+
 class Logger(Protocol):
     def __init__(self, config: dict) -> None: ...
 
@@ -350,15 +351,27 @@ class ClippingArgs(TypedDict):
     clip_local_energy: float
     stat: str
 
+
 class WandBArgs(TypedDict):
     use: bool
     project: str
     entity: Optional[str]
 
+
 class FileLoggingArgs(TypedDict):
     use: bool
     path: str
 
+
 class LoggingArgs(TypedDict):
+    smoothing: int
     wandb: WandBArgs
     file: FileLoggingArgs
+
+
+class OptimizationArgs(TypedDict):
+    steps: int
+    learning_rate: float
+    grad_norm_constraint: float
+    preconditioner_args: PreconditionerArgs
+    clipping: ClippingArgs

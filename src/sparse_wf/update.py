@@ -34,13 +34,12 @@ def clip_local_energies(e_loc: LocalEnergy, clip_local_energy: float, stat: str 
     stat = ClipStatistic(stat)
 
     def stat_fn(x):
-        match stat:
-            case ClipStatistic.MEAN:
-                return pmean(jnp.mean(x, keepdims=True))
-            case ClipStatistic.MEDIAN:
-                return pmean(jnp.median(x, keepdims=True))
-            case _:
-                raise ValueError(f"Unknown statistic: {stat}")
+        if stat == ClipStatistic.MEAN:
+            return pmean(jnp.mean(x, keepdims=True))
+        elif stat == ClipStatistic.MEDIAN:
+            return pmean(jnp.median(x, keepdims=True))
+        else:
+            raise ValueError(f"Unknown statistic: {stat}")
 
     if clip_local_energy > 0.0:
         full_e = pgather(e_loc, axis=0, tiled=True)
@@ -98,11 +97,7 @@ def make_trainer(
 
         E_mean = pmean(energy.mean())
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
-        aux_data = dict(
-            E=E_mean,
-            E_std=E_std,
-            pmove=pmove,
-        )
+        aux_data = {"opt/E": E_mean, "opt/E_std": E_std, "mcmc/pmove": pmove, "mcmc/stepsize": state.width_state.width}
         natgrad = state.opt_state.natgrad
         gradient, natgrad, preconditioner_aux = preconditioner.precondition(
             state.params,

@@ -1,36 +1,21 @@
-molecule: "Li 0 0 0"
-spin: 1
+molecule: "Be 0 0 0"
+spin: 0
 
 model_args:
   cutoff: 10.0
-  feature_dim: 128
-  nuc_mlp_depth: 3
-  pair_mlp_widths: [16, 8]
-  pair_n_envelopes: 16
 
-preconditioner_args:
-  preconditioner: spring
-  spring_args:
-    damping: 1.e-3
-    decay_factor: 0.99
-  cg_args:
-    damping: 1.e-3
-    max_iter: 100
 
-clipping_args:
-  clip_local_energy: 5.0
-  stat: median
+optimization:
+  # learning_rate: 0.001
+  # grad_norm_constraint: 0.1
+  preconditioner_args:
+    preconditioner: spring
+    spring_args:
+      damping: 5.e-3
 
 logging_args:
   wandb:
-    use: true
-  file:
-    use: true
-    path: "debug.log"
+    entity: tum_daml_nicholas
+    project: debug_moon
 
-batch_size: 128
-steps: 500
-pretrain_steps: 5000
-mcmc_steps: 20
-init_width: 0.02
-basis: sto-6g
+pretrain_steps: 700

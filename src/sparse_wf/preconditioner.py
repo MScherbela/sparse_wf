@@ -13,7 +13,7 @@ from sparse_wf.api import (
     PreconditionerArgs,
     StaticInput,
 )
-from sparse_wf.jax_utils import pall_to_all, pgather, pidx, psum
+from sparse_wf.jax_utils import pall_to_all, pgather, pidx, psum, pmean
 from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub
 
 
@@ -37,7 +37,8 @@ def make_identity_preconditioner(
 
         _, vjp = jax.vjp(log_p_closure, params)
         grad = psum(vjp(dE_dlogpsi)[0])
-        return grad, natgrad_state, {}
+        precond_grad_norm = jnp.sqrt(pmean(sum([jnp.sum(g**2) for g in jtu.tree_leaves(grad)])))
+        return grad, natgrad_state, {"opt/precond_grad_norm": precond_grad_norm}
 
     return Preconditioner(init, precondition)
 
@@ -155,12 +156,12 @@ def make_spring_preconditioner(
 
 
 def make_preconditioner(wf: ParameterizedWaveFunction, args: PreconditionerArgs):
-    match args["preconditioner"].lower():
-        case "identity":
-            return make_identity_preconditioner(wf)
-        case "cg":
-            return make_cg_preconditioner(wf, **args["cg_args"])
-        case "spring":
-            return make_spring_preconditioner(wf, **args["spring_args"])
-        case _:
-            raise ValueError(f"Unknown preconditioner: {args['preconditioner']}")
+    preconditioner = args["preconditioner"].lower()
+    if preconditioner == "identity":
+        return make_identity_preconditioner(wf)
+    elif preconditioner == "cg":
+        return make_cg_preconditioner(wf, **args["cg_args"])
+    elif preconditioner == "spring":
+        return make_spring_preconditioner(wf, **args["spring_args"])
+    else:
+        raise ValueError(f"Unknown preconditioner: {args['preconditioner']}")

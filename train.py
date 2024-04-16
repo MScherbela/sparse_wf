@@ -1,4 +1,6 @@
 import logging
+
+# chex.fake_pmap_and_jit().start()
 import pathlib
 import jax
 import jax.numpy as jnp
@@ -7,21 +9,22 @@ import numpy as np
 import optax
 import pyscf
 import tqdm
-import wandb
 from seml.experiment import Experiment
-from sparse_wf.api import AuxData, ClippingArgs, Electrons, ModelArgs, PreconditionerArgs, PRNGKeyArray, LoggingArgs
+from sparse_wf.api import AuxData, Electrons, ModelArgs, PRNGKeyArray, LoggingArgs, OptimizationArgs
 from sparse_wf.mcmc import make_mcmc, make_width_scheduler
 from sparse_wf.loggers import MultiLogger
 
-from sparse_wf.model.moon import SparseMoonWavefunction
-from sparse_wf.model.dense_ferminet import DenseFermiNet
+from sparse_wf.model.moon import SparseMoonWavefunction  # noqa: F401
+from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.systems.scf import make_hf_orbitals
 from sparse_wf.update import make_trainer
 from sparse_wf.jax_utils import broadcast, p_split
 
+
 jax.config.update("jax_default_matmul_precision", "float32")
+jax.config.update("jax_enable_x64", False)
 ex = Experiment()
 
 
@@ -48,16 +51,14 @@ def main(
     molecule: str,
     spin: int,
     model_args: ModelArgs,
-    preconditioner_args: PreconditionerArgs,
-    clipping_args: ClippingArgs,
+    optimization: OptimizationArgs,
     batch_size: int,
-    steps: int,
     pretrain_steps: int,
     mcmc_steps: int,
     init_width: float,
     basis: str,
     seed: int,
-    logging_args: LoggingArgs
+    logging_args: LoggingArgs,
 ):
     config = locals()
     # TODO : add entity and make project configurable
@@ -68,10 +69,11 @@ def main(
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
-    wf = SparseMoonWavefunction.create(mol, **model_args)
-    # wf = DenseFermiNet.create(mol)
+    # wf = SparseMoonWavefunction.create(mol, **model_args)
+    wf = DenseFermiNet.create(mol)
     key, subkey = jax.random.split(key)
     params = wf.init(subkey)
+    logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jax.tree_leaves(params))}")
     key, subkey = jax.random.split(key)
     electrons = init_electrons(subkey, mol, batch_size)
 
@@ -80,9 +82,11 @@ def main(
         wf.local_energy,
         make_mcmc(wf, mcmc_steps),
         make_width_scheduler(),
-        optax.chain(optax.clip_by_global_norm(1.0), optax.scale(-0.1)),
-        make_preconditioner(wf, preconditioner_args),
-        clipping_args,
+        optax.chain(
+            optax.clip_by_global_norm(optimization["grad_norm_constraint"]), optax.scale(-optimization["learning_rate"])
+        ),
+        make_preconditioner(wf, optimization["preconditioner_args"]),
+        optimization["clipping"],
     )
     state = trainer.init(key, params, electrons, jnp.array(init_width))
 
@@ -100,16 +104,21 @@ def main(
             state, aux_data = pretrainer.step(subkey, state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(aux_data)
+            if np.isnan(aux_data["loss"]):
+                raise ValueError("NaN in pretraining loss")
             set_postfix(pbar, aux_data)
 
     state = state.to_train_state()
 
     logging.info("Training")
-    with tqdm.trange(steps) as pbar:
-        for _ in pbar:
+    with tqdm.trange(optimization["steps"]) as pbar:
+        for opt_step in pbar:
             shared_key, subkey = p_split(shared_key)
             static = wf.input_constructor.get_static_input(state.electrons)
+            # assert static.n_neighbours == (3, 1, 4)  # TODO: remove
             state, _, aux_data = trainer.step(subkey, state, static)
             aux_data = to_log_data(aux_data)
-            loggers.log(aux_data)
+            loggers.log(dict(opt_step=opt_step, **aux_data))
+            if np.isnan(aux_data["opt/E"]):
+                raise ValueError("NaN in energy")
             set_postfix(pbar, aux_data)
