@@ -1,8 +1,9 @@
 import logging
-
+import chex # noqa: F401
 # chex.fake_pmap_and_jit().start()
 import pathlib
 import jax
+# jax.config.update("jax_disable_jit", True)
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
@@ -69,8 +70,8 @@ def main(
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
-    # wf = SparseMoonWavefunction.create(mol, **model_args)
-    wf = DenseFermiNet.create(mol)
+    wf = SparseMoonWavefunction.create(mol, **model_args)
+    # wf = DenseFermiNet.create(mol)
     key, subkey = jax.random.split(key)
     params = wf.init(subkey)
     logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jax.tree_leaves(params))}")

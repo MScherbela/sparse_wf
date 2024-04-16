@@ -14,8 +14,14 @@ optimization:
       damping: 5.e-3
 
 logging_args:
+  smoothing: 500
+  file:
+    use: True
+    path: "log.txt"
   wandb:
-    entity: tum_daml_nicholas
-    project: debug_moon
+    use: True
+    entity: leongerard
+    project: debug
 
+batch_size: 512
 pretrain_steps: 700
