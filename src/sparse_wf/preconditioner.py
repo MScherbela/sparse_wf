@@ -64,7 +64,7 @@ def make_cg_preconditioner(
             return jax.vmap(wave_function, in_axes=(None, 0, None))(p, electrons, static)
 
         _, vjp = jax.vjp(log_p_closure, params)
-        _, jvp = jax.linearize(vjp, params)
+        _, jvp = jax.linearize(log_p_closure, params)
 
         grad = psum(vjp(dE_dlogpsi)[0])
 
