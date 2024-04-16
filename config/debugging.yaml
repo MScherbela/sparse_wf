@@ -1,0 +1,21 @@
+molecule: "Be 0 0 0"
+spin: 0
+
+model_args:
+  cutoff: 10.0
+
+
+optimization:
+  # learning_rate: 0.001
+  # grad_norm_constraint: 0.1
+  preconditioner_args:
+    preconditioner: spring
+    spring_args:
+      damping: 5.e-3
+
+logging_args:
+  wandb:
+    entity: tum_daml_nicholas
+    project: debug_moon
+
+pretrain_steps: 700

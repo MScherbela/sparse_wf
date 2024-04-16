@@ -2,28 +2,42 @@ molecule: "Li 0 0 0"
 spin: 1
 
 model_args:
-  cutoff: 5.0
+  cutoff: 10.0
   feature_dim: 256
   nuc_mlp_depth: 3
   pair_mlp_widths: [16, 8]
-  pair_n_envelopes: 4
+  pair_n_envelopes: 32
+  n_determinants: 4
 
-preconditioner_args:
-  preconditioner: spring
-  spring_args:
-    damping: 1.e-3
-    decay_factor: 0.99
-  cg_args:
-    damping: 1.e-3
-    max_iter: 100
 
-clipping_args:
-  clip_local_energy: 5.0
-  stat: median
+logging_args:
+  smoothing: 500
+  wandb:
+    use: true
+    project: sparse_wf
+    entity: tum_daml_nicholas
+  file:
+    use: false
+    path: "log.txt"
+
+optimization:
+  steps: 100_000
+  learning_rate: 0.1
+  grad_norm_constraint: 1.0
+  preconditioner_args:
+    preconditioner: spring
+    spring_args:
+      damping: 1.e-3
+      decay_factor: 0.99
+    cg_args:
+      damping: 1.e-3
+      max_iter: 100
+  clipping:
+    clip_local_energy: 5.0
+    stat: median
 
 batch_size: 512
-steps: 100_000
 pretrain_steps: 1_000
 mcmc_steps: 20
-init_width: 0.02
+init_width: 0.1
 basis: sto-6g

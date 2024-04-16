@@ -20,7 +20,7 @@ from sparse_wf.api import (
     InputConstructor,
 )
 from sparse_wf.hamiltonian import make_local_energy
-from sparse_wf.model.utils import ElecInp, SlaterOrbitals, signed_logpsi_from_orbitals
+from sparse_wf.model.utils import ElecInp, SlaterOrbitals, signed_logpsi_from_orbitals, hf_orbitals_to_fulldet_orbitals
 
 
 PairInp = Float[Array, "*batch n_electrons n_electrns n_pair_in"]
@@ -130,8 +130,9 @@ class FermiNetOrbitals(nn.Module):
         for dim in self.hidden_dims:
             h_one_new, h_two_new = FermiLayer(spins, dim[0], dim[1], self.activation)(h_one, h_two)
             h_one, h_two = residual(h_one_new, h_one), residual(h_two_new, h_two)
+        dist_im = r_im[..., -1]
 
-        return SlaterOrbitals(self.n_determinants, spins)(h_one, r_im)
+        return SlaterOrbitals(self.n_determinants, spins)(h_one, dist_im)
 
 
 class DummyInputConstructor(InputConstructor):
@@ -170,7 +171,7 @@ class DenseFermiNet(ParameterizedWaveFunction, PyTreeNode):
         return self.signed(params, electrons, static)[1]
 
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
-        return SlaterOrbitals.transform_hf_orbitals(hf_orbitals)
+        return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
         return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)

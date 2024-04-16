@@ -112,7 +112,7 @@ def merge_dependencies(
     # Get maximum number of new dependencies after the merge
     n_new_deps_max = n_deps_max - len(fixed_deps)
 
-    new_deps = jnp.where(jnp.isin(deps, fixed_deps), NO_NEIGHBOUR, deps)  # TODO (ng): How to avoid this type error
+    new_deps = jnp.where(jnp.isin(deps, fixed_deps), NO_NEIGHBOUR, deps)
     new_unique_deps = jnp.unique(new_deps, size=n_new_deps_max, fill_value=NO_NEIGHBOUR)
     deps_out = jnp.concatenate([fixed_deps, new_unique_deps], axis=-1)
 

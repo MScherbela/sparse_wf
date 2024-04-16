@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import NamedTuple, Protocol, Sequence, TypeAlias, Callable, TypedDict
+from typing import NamedTuple, Protocol, Sequence, TypeAlias, Callable, TypedDict, Optional
 
 import numpy as np
 import optax
@@ -305,6 +305,19 @@ class Pretrainer(NamedTuple):
 
 
 ############################################################################
+# Logging
+############################################################################
+
+
+class Logger(Protocol):
+    def __init__(self, config: dict) -> None: ...
+
+    def log(self, data: dict) -> None: ...
+
+    def log_config(self, config: dict) -> None: ...
+
+
+############################################################################
 # Arguments
 ############################################################################
 
@@ -315,6 +328,7 @@ class ModelArgs(TypedDict):
     nuc_mlp_depth: int
     pair_mlp_widths: Sequence[int]
     pair_n_envelopes: int
+    n_determinants: int
 
 
 class SpringArgs(TypedDict):
@@ -336,3 +350,28 @@ class PreconditionerArgs(TypedDict):
 class ClippingArgs(TypedDict):
     clip_local_energy: float
     stat: str
+
+
+class WandBArgs(TypedDict):
+    use: bool
+    project: str
+    entity: Optional[str]
+
+
+class FileLoggingArgs(TypedDict):
+    use: bool
+    path: str
+
+
+class LoggingArgs(TypedDict):
+    smoothing: int
+    wandb: WandBArgs
+    file: FileLoggingArgs
+
+
+class OptimizationArgs(TypedDict):
+    steps: int
+    learning_rate: float
+    grad_norm_constraint: float
+    preconditioner_args: PreconditionerArgs
+    clipping: ClippingArgs

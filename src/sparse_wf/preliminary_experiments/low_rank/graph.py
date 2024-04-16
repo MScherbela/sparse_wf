@@ -5,7 +5,6 @@ import chex
 import jax
 import jax.numpy as jnp
 
-# TODO: choose something nicer
 SENTINEL_INDEX = 100_000
 
 
