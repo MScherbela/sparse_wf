@@ -106,7 +106,7 @@ class FermiLayer(nn.Module):
 class FermiNetOrbitals(nn.Module):
     mol: pyscf.gto.Mole
     n_determinants: int = 4
-    hidden_dims: Sequence[tuple[int, int]] = ((64, 8), (64, 8), (64, 8), (64, 8))
+    hidden_dims: Sequence[tuple[int, int]] = ((256, 32), (256, 32), (256, 32), (256, 32))
     activation: str = "silu"
 
     @nn.compact
