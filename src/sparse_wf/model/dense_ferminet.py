@@ -35,7 +35,7 @@ def residual(x: Array, y: Array) -> Array:
     return x
 
 
-# TODO: Isn't that exactly the same as nn.Dense?
+# IDEA: Isn't that exactly the same as nn.Dense?
 class RepeatedDense(nn.Module):
     out_dim: int
 

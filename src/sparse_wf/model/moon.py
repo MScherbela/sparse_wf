@@ -6,7 +6,6 @@ from sparse_wf.api import (
     Charges,
     Nuclei,
     StaticInput,
-    DynamicInput,
     DynamicInputWithDependencies,
     NeighbourIndices,
     DistanceMatrix,
@@ -45,9 +44,10 @@ from sparse_wf.model.graph_utils import (
 import flax.linen as nn
 from flax.struct import PyTreeNode, field
 import functools
-from folx.api import FwdLaplArray
+from folx.api import FwdLaplArray, FwdJacobian
 import pyscf
 import einops
+import jax.tree_util as jtu
 
 
 class DependenciesMoon(NamedTuple):
@@ -306,7 +306,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         feature_dim = self.lin_h0.features
         n_atoms = self.R.shape[0]
         params = SparseMoonParams(
-            ee_filter=self.ee_filter.init(rngs[0], np.zeros([4])),  # dist + 3 * diff + spin # TODO: change back to 5
+            ee_filter=self.ee_filter.init(rngs[0], np.zeros([5])),  # dist + 3 * diff + spin
             ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
             en_filter=self.en_filter.init(rngs[2], np.zeros([4])),  # dist + 3 * diff
             lin_h0=self.lin_h0.init(rngs[3], np.zeros([feature_dim])),
@@ -357,18 +357,33 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         _get_Gamma = jax.vmap(_get_Gamma, in_axes=(None, 0, 0))  # vmap over center
         return _get_Gamma(params, r, R_nb_en_)
 
-    def _embedding(self, params: Parameters, dynamic: DynamicInput, static: StaticInput):
+    def _envelopes(self, params, r: Float[Array, "dim=3"]):
+        dist_en_full = jnp.linalg.norm(r[None, :] - self.R, axis=-1)
+        return cast(jax.Array, self.envelopes.apply(params.envelopes, dist_en_full))
+
+    def _embedding_to_orbitals(self, params, r: Float[Array, "dim=3"], h: Embedding):
+        orbitals = cast(jax.Array, self.lin_orbitals.apply(params.lin_orbitals, h))
+
+        dist_en_full = jnp.linalg.norm(r[None, :] - self.R, axis=-1)
+        envelopes = cast(jax.Array, self.envelopes.apply(params.envelopes, dist_en_full))
+        orbitals *= envelopes
+        orbitals = einops.rearrange(orbitals, "(det orb) -> det orb", det=self.n_determinants)
+        return orbitals
+
+    def _merge_orbitals_with_envelopes(self, orbitals, envelopes):
+        orbitals = orbitals * envelopes
+        orbitals = einops.rearrange(orbitals, "(det orb) -> det orb", det=self.n_determinants)
+        return orbitals
+
+    def _embedding(self, params: Parameters, electrons: Electrons, static: StaticInput):
         params = cast(SparseMoonParams, params)
-        idx_nb = dynamic.neighbours
-        electrons = dynamic.electrons
+        idx_nb = self.input_constructor.get_dynamic_input(electrons, static).neighbours
 
         # # Step 0: Get neighbours
         spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(electrons, idx_nb)
 
         # Step 1: Get h0
-        # h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0, 0, 0))(params, electrons, r_nb_ee, self.spins, spin_nb_ee) # TODO: restore original
-        # h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0))(params, electrons, r_nb_ee)
-        h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0))(params, electrons, R_nb_en)
+        h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0, 0, 0))(params, electrons, r_nb_ee, self.spins, spin_nb_ee)
 
         # # Step 2: Contract to nuclei + MLP
         Gamma_ne = self._get_Gamma_ne_vmapped(params, self.R, r_nb_ne)
@@ -381,30 +396,73 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         H_nb_en = get_with_fill(H, idx_nb.en, 0.0)
         h_out = contract(H_nb_en, Gamma_en, h0)
         return h_out
-        # return h0
-        # return jnp.zeros([electrons.shape[-2], self.ee_filter.out_dim])
 
     @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(el,dim)->(det,el,orb)")
     def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
-        n_el = electrons.shape[-2]
-
-        # Neural network orbitals
-        dyn_input = self.input_constructor.get_dynamic_input(electrons, static)
-        h = self._embedding(params, dyn_input, static)
+        h = self._embedding(params, electrons, static)
         orbitals = cast(jax.Array, self.lin_orbitals.apply(params.lin_orbitals, h))
-
-        # Envelope
-        # R_nb = get_with_fill(self.R, dyn_input.neighbours.en, NO_NEIGHBOUR)
-        dist_en_full = jnp.linalg.norm(electrons[..., :, None, :] - self.R, axis=-1)
-        envelopes = cast(jax.Array, self.envelopes.apply(params.envelopes, dist_en_full))
-        orbitals *= envelopes
-        orbitals = einops.rearrange(
-            orbitals, "... el (det orb) -> ... det el orb", el=n_el, orb=n_el, det=self.n_determinants
-        )
+        envelopes = jax.vmap(lambda r: self._envelopes(params, r))(electrons)
+        orbitals = jax.vmap(self._merge_orbitals_with_envelopes, in_axes=0, out_axes=-2)(
+            orbitals, envelopes
+        )  # vmap over electrons
         orbitals = swap_bottom_blocks(orbitals, self.n_up)
         return (orbitals,)
 
-    def log_psi_with_fwd_lap(
+    def orbitals_with_fwd_lap(
+        self, params: Parameters, electrons: Electrons, static: StaticInput
+    ) -> tuple[FwdLaplArray, ...]:
+        n_deps = cast(NrOfDependenciesMoon, static.n_deps)
+        params = cast(SparseMoonParams, params)
+
+        h = self._embedding_with_fwd_lap(params, electrons, static)
+        # vmaps over electrons
+        orbitals = jax.vmap(
+            fwd_lap(lambda h_: self.lin_orbitals.apply(params.lin_orbitals, h_)), in_axes=-2, out_axes=-2
+        )(h)
+        envelopes = jax.vmap(fwd_lap(lambda r: self._envelopes(params, r)), in_axes=-2, out_axes=-2)(electrons)
+        envelopes = densify_jacobian_by_zero_padding(envelopes, 3 * n_deps.h_el_out)  # type: ignore
+        orbitals = jax.vmap(fwd_lap(lambda o, e: self._merge_orbitals_with_envelopes(o, e)), in_axes=-2, out_axes=-2)(
+            orbitals, envelopes
+        )
+        orbitals = jtu.tree_map(lambda o: swap_bottom_blocks(o, self.n_up), orbitals)
+        return (orbitals,)
+
+    def _slogdet_with_sparse_fwd_lap(self, orbitals: FwdLaplArray, deps: Integer[Array, "el ndeps"]):
+        n_el, n_orb = orbitals.x.shape[-2:]
+        n_deps = deps.shape[-1]
+        assert n_el == n_orb
+        logdet, sign = jnp.linalg.slogdet(orbitals.x)  # IDEA: re-use LU decomposition of orbitals to accelerate this
+        orb_inv = jnp.linalg.inv(orbitals.x)  # TODO: replace this with LU decomposition and subsequent LU solve
+        jacobian_in = einops.rearrange(
+            orbitals.jacobian.data, "(deps dim) el orb -> el deps dim orb", deps=n_deps, dim=3, el=n_el, orb=n_orb
+        )
+
+        # Get reverse dependency map D_tilde
+        @jax.vmap  # vmap over centers
+        @functools.partial(jax.vmap, in_axes=(None, 0))  # vmap over neighbours
+        def get_reverse_dep(idx_center: Int, idx_nb: Int):
+            return jnp.nonzero(deps[idx_nb, :] == idx_center, size=1, fill_value=NO_NEIGHBOUR)[0]
+
+        reverse_deps = get_reverse_dep(jnp.arange(n_el), deps)
+
+        jacobian = jnp.zeros([n_el, n_deps, 3, n_orb])
+        jacobian[deps, :, reverse_deps, :] = jacobian_in
+
+        M = einops.einsum(
+            jacobian,
+            orb_inv,
+            "inputs dependants dim orb, orb el -> inputs dim dependents el",
+        )
+        M_hat = jax.vmap(lambda m, idx: m[..., idx])(M, deps)
+
+        tr_JHJ = einops.einsum(M_hat, M_hat, "inputs dim dependant1 dependant2, inputs dim dependant2 dependant1")
+        jvp_jac = einops.reduce(M, "inputs dim el orb -> inputs dim", "sum")
+        jvp_lap = einops.einsum(orb_inv, orbitals.laplacian, "orb el, el orb")
+
+        # TODO: properly pass on the sign
+        return sign, FwdLaplArray(logdet, FwdJacobian(data=jvp_jac), tr_JHJ + jvp_lap)
+
+    def _embedding_with_fwd_lap(
         self, params: SparseMoonParams, electrons: Electrons, static_input: StaticInput
     ) -> FwdLaplArray:
         r, idx_nb, deps, dep_maps = self.input_constructor.get_dynamic_input_with_dependencies(electrons, static_input)
@@ -416,17 +474,19 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
 
         # Step 1: Contract ee to get electron embeedings h0
         get_h0 = fwd_lap(self._get_h0, argnums=(1, 2))
-        get_h0 = jax.vmap(get_h0, in_axes=(None, 0, 0, 0, 0))
-        # Shapes: h0: [nel x feature_dim]; h0.jac: [n_el x 3*n_deps1 x feature_dim] (dense)
+        get_h0 = jax.vmap(get_h0, in_axes=(None, 0, 0, 0, 0), out_axes=-2)  # vmap over center electrons
+        # Shapes: h0: [nel x feature_dim]; h0.jac: [3*n_deps1 x n_el x feature_dim] (dense)
         h0 = get_h0(params, r, r_nb_ee, self.spins, spin_nb_ee)
 
         # Step 2: Contract to nuclei + MLP on nuclei => nuclear embedding H
         # 2a: Get the spatial filter between nuclei and neighbouring electrons
         get_Gamma_ne = fwd_lap(self._get_Gamma_ne, argnums=(2,))
         get_Gamma_ne = jax.vmap(get_Gamma_ne, in_axes=(None, None, 0), out_axes=-2)  # vmap over neighbours
-        get_Gamma_ne = jax.vmap(get_Gamma_ne, in_axes=(None, 0, 0))  # vmap over centers
-        # Gamma_ne: [n_nuc x n_neighbour x feature_dim]; Gamma_ne.jac: [n_nuc x 3 x n_neighbour x feature_dim] (sparse)
+        get_Gamma_ne = jax.vmap(get_Gamma_ne, in_axes=(None, 0, 0), out_axes=-3)  # vmap over centers
+        # Gamma_ne: [n_nuc x n_neighbour x feature_dim]; Gamma_ne.jac: [3 x n_nuc x n_neighbour x feature_dim] (sparse)
         Gamma_ne = get_Gamma_ne(params, self.R, r_nb_ne)
+
+        # TODO: check axes from here on down
         Gamma_ne = densify_jacobian_diagonally(Gamma_ne)  # deps: 3 --> 3*n_neighbours
         Gamma_ne = densify_jacobian_by_zero_padding(Gamma_ne, 3 * n_deps.H_nuc)  # deps: 3*n_neighbours --> 3*n_deps2
 
@@ -434,7 +494,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         h0_nb_ne = get_neighbour_with_FwdLapArray(h0, idx_nb.ne, n_deps.H_nuc, dep_maps.h_el_initial_to_H_nuc)
 
         # 2c: Contract and apply the MLP
-        @jax.vmap
+        @functools.partial(jax.vmap, in_axes=(-3, -3), out_axes=-2)  # vmap over centers (nuclei)
         @fwd_lap
         def contract_and_mlp(h0_nb_ne, Gamma_ne):
             H0 = contract(h0_nb_ne, Gamma_ne)
@@ -446,12 +506,14 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         # 3a: Get Filters
         get_Gamma_en = fwd_lap(self._get_Gamma_en, argnums=(1,))
         get_Gamma_en = jax.vmap(get_Gamma_en, in_axes=(None, None, 0), out_axes=-2)  # vmap over neighbours
-        get_Gamma_en = jax.vmap(get_Gamma_en, in_axes=(None, 0, 0))  # vmap over centers
-        # Shapes: Gamma_en: [n_el x n_neighbouring_nuc x feature_dim]; Gamma_en.jac: [n_el x 3 x n_neighbouring_nuc x feature_dim] (dense)
+        get_Gamma_en = jax.vmap(get_Gamma_en, in_axes=(None, 0, 0), out_axes=-3)  # vmap over centers
+        # Shapes: Gamma_en: [n_el x n_neighbouring_nuc x feature_dim]; Gamma_en.jac: [3 x n_el x n_neighbouring_nuc x feature_dim] (dense)
         Gamma_en = get_Gamma_en(params, r, R_nb_en)
         Gamma_en = densify_jacobian_by_zero_padding(Gamma_en, 3 * n_deps.h_el_out)  # deps: 3 --> 3*n_deps3
 
         H_nb_en = get_neighbour_with_FwdLapArray(H, idx_nb.en, n_deps.h_el_out, dep_maps.H_nuc_to_h_el_out)
         h0 = densify_jacobian_by_zero_padding(h0, 3 * n_deps.h_el_out)  # deps: 3*n_deps1 --> 3*n_deps3
-        h_out = jax.vmap(fwd_lap(contract))(H_nb_en, Gamma_en, h0)
+        h_out = jax.vmap(fwd_lap(contract), in_axes=(-3, -3, -2), out_axes=-2)(
+            H_nb_en, Gamma_en, h0
+        )  # vmap over centers (electrons)
         return h_out

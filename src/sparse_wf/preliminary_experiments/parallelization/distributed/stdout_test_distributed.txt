@@ -1,4 +1,2 @@
-Process 0: Global devices: [cuda(id=0), cuda(id=1), cuda(id=2), cuda(id=3)], Local devices: [cuda(id=0)]
-Process 3: Global devices: [cuda(id=0), cuda(id=1), cuda(id=2), cuda(id=3)], Local devices: [cuda(id=3)]
-Process 1: Global devices: [cuda(id=0), cuda(id=1), cuda(id=2), cuda(id=3)], Local devices: [cuda(id=1)]
-Process 2: Global devices: [cuda(id=0), cuda(id=1), cuda(id=2), cuda(id=3)], Local devices: [cuda(id=2)]
+Process 0: Global devices: [cuda(id=0), cuda(id=1)], Local devices: [cuda(id=0)]
+Process 1: Global devices: [cuda(id=0), cuda(id=1)], Local devices: [cuda(id=1)]

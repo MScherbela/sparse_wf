@@ -20,6 +20,7 @@ from folx.api import FwdLaplArray, FwdJacobian
 import einops
 from sparse_wf.jax_utils import jit
 import numpy as np
+import jax.tree_util as jtu
 
 NO_NEIGHBOUR = 1_000_000
 
@@ -45,7 +46,8 @@ class GenericInputConstructor(InputConstructor):
     ) -> NeighbourIndices:
         def _get_ind_neighbour(dist, max_n_neighbours: int, exclude_diagonal=False):
             if exclude_diagonal:
-                dist += jnp.inf * jnp.eye(dist.shape[-1])
+                n_particles = dist.shape[-1]
+                dist += jnp.diag(jnp.inf * jnp.ones(n_particles))
             in_cutoff = dist < self.cutoff
 
             # TODO: dynamically assert that n_neighbours <= max_n_neighbours
@@ -79,7 +81,7 @@ class GenericInputConstructor(InputConstructor):
     @jit(static_argnames="self")
     def _get_max_n_neighbours(self, dist_ee: DistanceMatrix, dist_ne: DistanceMatrix):
         n_el = dist_ee.shape[-1]
-        dist_ee += jnp.inf * jnp.eye(n_el)
+        dist_ee += jnp.diag(jnp.inf * jnp.ones(n_el))
         n_ee = jnp.max(jnp.sum(dist_ee < self.cutoff, axis=-1))
         n_ne = jnp.max(jnp.sum(dist_ne < self.cutoff, axis=-1))
         n_en = jnp.max(jnp.sum(dist_ne < self.cutoff, axis=-2))
@@ -126,34 +128,33 @@ def merge_dependencies(
 
 
 # vmap over center particle
-@functools.partial(jax.vmap, in_axes=(None, 0, None, 0))
+@functools.partial(jax.vmap, in_axes=(None, 0, None, 0), out_axes=-3)
 def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, n_deps_out, dep_map):
-    # Get and assert shapes
     n_neighbour = ind_neighbour.shape[-1]
-    feature_dims = h.x.shape[1:]
+    n_features = h.shape[-1]
 
     # Get neighbour data by indexing into the input data and padding with 0 any out of bounds indices
-    h_neighbour = get_with_fill(h.x, ind_neighbour, 0.0)
-    jac_neighbour = get_with_fill(h.jacobian.data, ind_neighbour, 0.0)
-    lap_h_neighbour = get_with_fill(h.laplacian, ind_neighbour, 0.0)
+    h_neighbour, jac_neighbour, lap_neighbour = jtu.tree_map(
+        lambda x: x.at[..., ind_neighbour, :].get(mode="fill", fill_value=0), h
+    )
+    jac_neighbour = jac_neighbour.data
 
     # Remaining issue: The jacobians for each embedding can depend on different input coordinates
     # 1) Split jacobian input dim into electrons x xyz
     jac_neighbour = einops.rearrange(
         jac_neighbour,
-        "n_neighbour (n_dep_in dim) D -> n_neighbour n_dep_in dim D",
+        "(n_dep_in dim) n_neighbour features -> n_dep_in dim n_neighbour features",
         n_neighbour=n_neighbour,
         dim=3,
     )
 
     # 2) Combine the jacobians into a larger jacobian, that depends on the joint dependencies
-    @functools.partial(jax.vmap, in_axes=(0, 0), out_axes=2)
+    @functools.partial(jax.vmap, in_axes=(-2, -2), out_axes=-2)  # vmap over neighbours
     def _jac_for_neighbour(J, dep_map_):
-        jac_out = jnp.zeros([n_deps_out, 3, *feature_dims])
+        jac_out = jnp.zeros([n_deps_out, 3, n_features])
         jac_out = jac_out.at[dep_map_].set(J, mode="drop")
         return jac_out
 
-    # total_neighbors_t
     jac_neighbour = _jac_for_neighbour(jac_neighbour, dep_map)
 
     # 3) Merge electron and xyz dim back together to jacobian input dim
@@ -164,10 +165,9 @@ def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, n_deps_out, d
         dim=3,
         n_neighbour=n_neighbour,
     )
-    return FwdLaplArray(h_neighbour, FwdJacobian(data=jac_neighbour), lap_h_neighbour)
+    return FwdLaplArray(h_neighbour, FwdJacobian(data=jac_neighbour), lap_neighbour)
 
 
-@functools.partial(jax.vmap, in_axes=(0, None))
 def densify_jacobian_by_zero_padding(h: FwdLaplArray, n_deps_out):
     jac = h.jacobian.data
     n_deps_sparse = jac.shape[0]
@@ -175,14 +175,16 @@ def densify_jacobian_by_zero_padding(h: FwdLaplArray, n_deps_out):
     return FwdLaplArray(x=h.x, jacobian=FwdJacobian(jnp.concatenate([jac, padding], axis=0)), laplacian=h.laplacian)
 
 
-@jax.vmap
 def densify_jacobian_diagonally(h: FwdLaplArray):
     jac = h.jacobian.data
-    assert jac.shape[0] == 3
-    n_neighbours = jac.shape[1]
+    dim, n_centers, n_neighbours, n_features = jac.shape
+    assert dim == 3
 
     idx_neighbour = jnp.arange(n_neighbours)
-    jac_out = jnp.zeros([n_neighbours, 3, n_neighbours, *jac.shape[2:]])
-    jac_out = jac_out.at[idx_neighbour, :, idx_neighbour, ...].set(jac.swapaxes(0, 1))
+    jac_out = jnp.zeros([n_neighbours, 3, n_centers, n_neighbours, n_features])
+    jac_out = jac_out.at[idx_neighbour, :, :, idx_neighbour, :].set(
+        jnp.moveaxis(jac, 2, 0)
+    )  # move n_neighbours to the front
+    assert jac_out.shape == (n_neighbours, 3, n_centers, n_neighbours, n_features)
     jac_out = jax.lax.collapse(jac_out, 0, 2)  # merge (n_deps, 3) into (n_deps*3)
     return FwdLaplArray(x=h.x, jacobian=FwdJacobian(jac_out), laplacian=h.laplacian)
