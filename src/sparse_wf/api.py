@@ -249,7 +249,6 @@ class VMCStepFn(Protocol):
 class InitTrainState(Protocol):
     def __call__(
         self,
-        key: PRNGKeyArray,
         params: Parameters,
         electrons: Electrons,
         init_width: Width,

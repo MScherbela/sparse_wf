@@ -67,7 +67,6 @@ def make_trainer(
     clipping_args: ClippingArgs,
 ) -> Trainer:
     def init(
-        key: PRNGKeyArray,
         params: Parameters,
         electrons: Electrons,
         init_width: Width,
@@ -79,7 +78,7 @@ def make_trainer(
                 opt=pmap(optimizer.init)(params),
                 natgrad=pmap(preconditioner.init)(params),
             ),
-            electrons=electrons.reshape(jax.device_count(), -1, *electrons.shape[1:]),
+            electrons=electrons.reshape(jax.local_device_count(), -1, *electrons.shape[1:]),
             width_state=replicate(width_scheduler.init(init_width)),
         )
 

@@ -1,7 +1,9 @@
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pyscf
 from sparse_wf.api import Electrons, HFOrbitalFn, HFOrbitals
+from sparse_wf.jax_utils import replicate, copy_from_main
 from sparse_wf.systems.molecule import Molecule
 
 
@@ -12,10 +14,14 @@ def make_hf_orbitals(molecule: Molecule | pyscf.gto.Mole, basis: str) -> HFOrbit
         mol = molecule
         mol.basis = basis
         mol.build()
-    mf = mol.RHF()
-    mf.kernel()
 
-    coeffs = mf.mo_coeff
+    coeffs = jnp.zeros((mol.nao, mol.nao))
+    if jax.process_index() == 0:
+        mf = mol.RHF()
+        mf.kernel()
+        coeffs = jnp.asarray(mf.mo_coeff)
+    # We first copy for each local device and then synchronize across processes
+    coeffs = copy_from_main(replicate(coeffs))[0]
     n_up, n_down = mol.nelec
 
     def cpu_atomic_orbitals(electrons: np.ndarray):

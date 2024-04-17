@@ -130,3 +130,7 @@ def fwd_lap(f, argnums=None, sparsity_threshold=0.6):
         return lap_array
 
     return transformed
+
+
+def copy_from_main(x: T) -> T:
+    return pmap(lambda x: pgather(x, axis=0)[0])(x)

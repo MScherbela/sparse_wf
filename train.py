@@ -1,7 +1,5 @@
 import logging
-
-# chex.fake_pmap_and_jit().start()
-import pathlib
+import os
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -20,7 +18,7 @@ from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.systems.scf import make_hf_orbitals
 from sparse_wf.update import make_trainer
-from sparse_wf.jax_utils import broadcast, p_split
+from sparse_wf.jax_utils import p_split
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -28,12 +26,13 @@ jax.config.update("jax_enable_x64", False)
 ex = Experiment()
 
 
-ex.add_config(str(pathlib.Path(__file__).parent / "config/default.yaml"))
+ex.add_config("config/default.yaml")
 
 
 def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> Electrons:
     # TODO: center around nuclei, choose reasonable initial spin assignment
-    batch_size = batch_size - (batch_size % jax.device_count())
+    batch_size = batch_size // jax.process_count()
+    batch_size = batch_size - (batch_size % jax.local_device_count())
     electrons = jax.random.normal(key, (batch_size, mol.nelectron, 3))
     return electrons
 
@@ -64,17 +63,36 @@ def main(
     # TODO : add entity and make project configurable
     loggers = MultiLogger(logging_args)
     loggers.log_config(config)
-    key = jax.random.PRNGKey(seed)
+    # initialize distributed training
+    if int(os.environ.get("SLURM_NTASKS", 1)) > 1:
+        jax.distributed.initialize()
+    logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
 
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
     # wf = SparseMoonWavefunction.create(mol, **model_args)
     wf = DenseFermiNet.create(mol)
-    key, subkey = jax.random.split(key)
+
+    # Setup random keys
+    # the main key will always be identitcal on all processes
+    main_key = jax.random.PRNGKey(seed)
+    # the proc_key will be unique per process.
+    main_key, subkey = jax.random.split(main_key)
+    proc_key = jax.random.split(main_key, jax.process_count())[jax.process_index()]
+    # This key is (n_dev, 2) and intended for pmapped functions. It differs per device.
+    main_key, subkey = jax.random.split(main_key)
+    local_device_keys = jax.random.split(subkey, jax.device_count()).reshape(
+        jax.process_count(), jax.local_device_count(), 2
+    )[jax.process_index()]
+
+    # We want the parameters to be identical so we use the main_key here
+    main_key, subkey = jax.random.split(main_key)
     params = wf.init(subkey)
     logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jax.tree_leaves(params))}")
-    key, subkey = jax.random.split(key)
+
+    # We want to initialize differently per process so we use the proc_key here
+    proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
 
     trainer = make_trainer(
@@ -88,18 +106,15 @@ def main(
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
     )
-    state = trainer.init(key, params, electrons, jnp.array(init_width))
+    state = trainer.init(params, electrons, jnp.array(init_width))
 
     pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol, basis), optax.adam(1e-3))
     state = pretrainer.init(state)
 
-    key, *subkeys = jax.random.split(key, jax.device_count() + 1)
-    shared_key = broadcast(jnp.stack(subkeys))
-
     logging.info("Pretraining")
     with tqdm.trange(pretrain_steps) as pbar:
         for _ in pbar:
-            shared_key, subkey = p_split(shared_key)
+            local_device_keys, subkey = p_split(local_device_keys)
             static = wf.input_constructor.get_static_input(state.electrons)
             state, aux_data = pretrainer.step(subkey, state, static)
             aux_data = to_log_data(aux_data)
@@ -113,7 +128,7 @@ def main(
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:
         for opt_step in pbar:
-            shared_key, subkey = p_split(shared_key)
+            local_device_keys, subkey = p_split(local_device_keys)
             static = wf.input_constructor.get_static_input(state.electrons)
             # assert static.n_neighbours == (3, 1, 4)  # TODO: remove
             state, _, aux_data = trainer.step(subkey, state, static)
