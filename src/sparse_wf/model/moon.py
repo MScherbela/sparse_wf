@@ -241,6 +241,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
     lin_h0: nn.Dense
     lin_orbitals: nn.Dense
     envelopes: IsotropicEnvelope
+    model_name: str
 
     @property
     def n_dn(self):
