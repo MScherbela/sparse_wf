@@ -70,8 +70,15 @@ def main(
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
-    wf = SparseMoonWavefunction.create(mol, **model_args)
-    # wf = DenseFermiNet.create(mol)
+    if model_args["model_name"] == "moon":
+        logging.info("Use Moon model.")
+        wf = SparseMoonWavefunction.create(mol, **model_args)
+    elif model_args["model_name"] == "ferminet":
+        logging.info("Use FermiNet model.")
+        wf = DenseFermiNet.create(mol)
+    else:
+        raise ValueError(f"Model {model_args['model_name']} doesn't exist!")
+
     key, subkey = jax.random.split(key)
     params = wf.init(subkey)
     logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jax.tree_leaves(params))}")

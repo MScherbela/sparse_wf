@@ -2,6 +2,7 @@ molecule: "Li 0 0 0"
 spin: 1
 
 model_args:
+  model_name: "moon"
   cutoff: 10.0
   feature_dim: 256
   nuc_mlp_depth: 3
@@ -16,6 +17,7 @@ logging_args:
     use: true
     project: sparse_wf
     entity: tum_daml_nicholas
+    name: experiment_name
   file:
     use: false
     path: "log.txt"
