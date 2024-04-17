@@ -18,8 +18,8 @@ class FileLogger(Logger):
 
 
 class WandBLogger(Logger):
-    def __init__(self, project: str, entity: str) -> None:
-        wandb.init(project=project, entity=entity)
+    def __init__(self, project: str, entity: str, name: str = None) -> None:
+        wandb.init(project=project, entity=entity, name=name)
         atexit.register(wandb.finish)
 
     def log(self, data: dict) -> None:

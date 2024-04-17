@@ -9,7 +9,7 @@ optimization:
   # learning_rate: 0.001
   # grad_norm_constraint: 0.1
   preconditioner_args:
-    preconditioner: spring
+    preconditioner: cg
     spring_args:
       damping: 5.e-3
 
@@ -22,6 +22,7 @@ logging_args:
     use: True
     entity: leongerard
     project: debug
+    name: run
 
 batch_size: 512
 pretrain_steps: 700
