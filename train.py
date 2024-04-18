@@ -79,12 +79,10 @@ def main(
     main_key = jax.random.PRNGKey(seed)
     # the proc_key will be unique per process.
     main_key, subkey = jax.random.split(main_key)
-    proc_key = jax.random.split(main_key, jax.process_count())[jax.process_index()]
-    # This key is (n_dev, 2) and intended for pmapped functions. It differs per device.
-    main_key, subkey = jax.random.split(main_key)
-    local_device_keys = jax.random.split(subkey, jax.device_count()).reshape(
-        jax.process_count(), jax.local_device_count(), 2
-    )[jax.process_index()]
+    proc_key = jax.random.split(subkey, jax.process_count())[jax.process_index()]
+    # local_device_keys will be unique per device.
+    proc_key, subkey = jax.random.split(proc_key)
+    local_device_keys = jax.random.split(subkey, jax.local_device_count())
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
