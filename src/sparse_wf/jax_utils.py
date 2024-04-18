@@ -1,4 +1,6 @@
 import functools
+import os
+import sys
 from typing import Callable, TypeVar, cast, ParamSpec, overload
 import folx
 
@@ -134,3 +136,51 @@ def fwd_lap(f, argnums=None, sparsity_threshold=0.6):
 
 def copy_from_main(x: T) -> T:
     return pmap(lambda x: pgather(x, axis=0)[0])(x)
+
+
+def is_main_process():
+    return int(os.environ.get("SLURM_PROCID", 0)) == 0
+
+
+class ChildProcessSkip(Exception): ...
+
+
+class MainProcessExecuteContext:
+    def __enter__(self):
+        if not is_main_process():
+            sys.settrace(lambda *args, **keys: None)
+            frame = sys._getframe(1)
+            frame.f_trace = self.trace
+
+    def trace(self, frame, event, arg):
+        raise ChildProcessSkip()
+
+    def __exit__(self, type, value, traceback):
+        if type is None:
+            return  # No exception
+        if issubclass(type, ChildProcessSkip):
+            return True  # Suppress special SkipWithBlock exception
+
+
+@overload
+def only_on_main_process(func: Callable[P, R]) -> Callable[P, R | None]: ...
+
+
+@overload
+def only_on_main_process(func: None = None) -> MainProcessExecuteContext: ...
+
+
+def only_on_main_process(
+    func: Callable[P, R] | None = None,
+) -> Callable[P, R | None] | MainProcessExecuteContext:
+    if callable(func):
+
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs):
+            if is_main_process():
+                return func(*args, **kwargs)
+            return None
+
+        return wrapper
+    else:
+        return MainProcessExecuteContext()

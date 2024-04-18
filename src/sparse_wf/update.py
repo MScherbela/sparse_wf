@@ -67,12 +67,14 @@ def make_trainer(
     clipping_args: ClippingArgs,
 ) -> Trainer:
     def init(
+        key: PRNGKeyArray,
         params: Parameters,
         electrons: Electrons,
         init_width: Width,
     ) -> TrainingState:
         params = replicate(params)
         return TrainingState(
+            key=key,
             params=params,
             opt_state=OptState(
                 opt=pmap(optimizer.init)(params),
@@ -82,13 +84,12 @@ def make_trainer(
             width_state=replicate(width_scheduler.init(init_width)),
         )
 
-    @pmap(static_broadcasted_argnums=2)
+    @pmap(static_broadcasted_argnums=1)
     def step(
-        key: PRNGKeyArray,
         state: TrainingState,
         static: StaticInput,
     ) -> tuple[TrainingState, LocalEnergy, AuxData]:
-        key, subkey = jax.random.split(key)
+        key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
         energy = energy_function(state.params, electrons, static)
@@ -112,6 +113,7 @@ def make_trainer(
 
         return (
             TrainingState(
+                key=key,
                 params=params,
                 electrons=electrons,
                 opt_state=OptState(opt, natgrad),

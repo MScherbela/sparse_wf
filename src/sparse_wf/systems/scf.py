@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pyscf
 from sparse_wf.api import Electrons, HFOrbitalFn, HFOrbitals
-from sparse_wf.jax_utils import replicate, copy_from_main
+from sparse_wf.jax_utils import replicate, copy_from_main, only_on_main_process
 from sparse_wf.systems.molecule import Molecule
 
 
@@ -16,7 +16,7 @@ def make_hf_orbitals(molecule: Molecule | pyscf.gto.Mole, basis: str) -> HFOrbit
         mol.build()
 
     coeffs = jnp.zeros((mol.nao, mol.nao))
-    if jax.process_index() == 0:
+    with only_on_main_process():
         mf = mol.RHF()
         mf.kernel()
         coeffs = jnp.asarray(mf.mo_coeff)

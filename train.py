@@ -18,7 +18,6 @@ from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.systems.scf import make_hf_orbitals
 from sparse_wf.update import make_trainer
-from sparse_wf.jax_utils import p_split
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -80,9 +79,9 @@ def main(
     # the proc_key will be unique per process.
     main_key, subkey = jax.random.split(main_key)
     proc_key = jax.random.split(subkey, jax.process_count())[jax.process_index()]
-    # local_device_keys will be unique per device.
+    # device_keys will be unique per device.
     proc_key, subkey = jax.random.split(proc_key)
-    local_device_keys = jax.random.split(subkey, jax.local_device_count())
+    device_keys = jax.random.split(subkey, jax.local_device_count())
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
@@ -104,7 +103,8 @@ def main(
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
     )
-    state = trainer.init(params, electrons, jnp.array(init_width))
+    # The state will only be fed into pmapped functions, i.e., we need a per device key
+    state = trainer.init(device_keys, params, electrons, jnp.array(init_width))
 
     pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol, basis), optax.adam(1e-3))
     state = pretrainer.init(state)
@@ -112,9 +112,8 @@ def main(
     logging.info("Pretraining")
     with tqdm.trange(pretrain_steps) as pbar:
         for _ in pbar:
-            local_device_keys, subkey = p_split(local_device_keys)
             static = wf.input_constructor.get_static_input(state.electrons)
-            state, aux_data = pretrainer.step(subkey, state, static)
+            state, aux_data = pretrainer.step(state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(aux_data)
             if np.isnan(aux_data["loss"]):
@@ -126,10 +125,9 @@ def main(
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:
         for opt_step in pbar:
-            local_device_keys, subkey = p_split(local_device_keys)
             static = wf.input_constructor.get_static_input(state.electrons)
             # assert static.n_neighbours == (3, 1, 4)  # TODO: remove
-            state, _, aux_data = trainer.step(subkey, state, static)
+            state, _, aux_data = trainer.step(state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(dict(opt_step=opt_step, **aux_data))
             if np.isnan(aux_data["opt/E"]):

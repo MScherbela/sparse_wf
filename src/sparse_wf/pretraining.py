@@ -7,7 +7,6 @@ from sparse_wf.api import (
     Parameters,
     Pretrainer,
     PretrainState,
-    PRNGKeyArray,
     StaticInput,
     Trainer,
     TrainingState,
@@ -21,6 +20,7 @@ def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: opta
 
     def init(training_state: TrainingState):
         return PretrainState(
+            training_state.key,
             training_state.params,
             training_state.electrons,
             training_state.opt_state,
@@ -29,7 +29,7 @@ def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: opta
         )
 
     @pmap(static_broadcasted_argnums=2)
-    def step(key: PRNGKeyArray, state: PretrainState, static: StaticInput) -> tuple[PretrainState, AuxData]:
+    def step(state: PretrainState, static: StaticInput) -> tuple[PretrainState, AuxData]:
         targets = trainer.wave_function.hf_transformation(batch_src_orbitals(state.electrons))
 
         @jax.value_and_grad
@@ -43,10 +43,12 @@ def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: opta
         params = optax.apply_updates(state.params, updates)
 
         # MCMC
-        electrons, pmove = trainer.mcmc(key, params, state.electrons, static, state.width_state.width)
+        key, subkey = jax.random.split(state.key)
+        electrons, pmove = trainer.mcmc(subkey, params, state.electrons, static, state.width_state.width)
         width_state = trainer.width_scheduler.update(state.width_state, pmove)
 
         return state.replace(
+            key=key,
             params=params,
             electrons=electrons,
             pre_opt_state=opt_state,
