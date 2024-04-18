@@ -168,6 +168,42 @@ def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, n_deps_out, d
     return FwdLaplArray(h_neighbour, FwdJacobian(data=jac_neighbour), lap_neighbour)
 
 
+def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, deps: Integer[Array, "el ndeps"]):
+    n_el, n_orb = orbitals.x.shape[-2:]
+    n_deps = deps.shape[-1]
+    assert n_el == n_orb
+    sign, logdet = jnp.linalg.slogdet(orbitals.x)  # IDEA: re-use LU decomposition of orbitals to accelerate this
+    orb_inv = jnp.linalg.inv(orbitals.x)  # TODO: replace this with LU decomposition and subsequent LU solve
+    jacobian_in = einops.rearrange(
+        orbitals.jacobian.data, "(deps dim) el orb -> el deps dim orb", deps=n_deps, dim=3, el=n_el, orb=n_orb
+    )
+
+    # Get reverse dependency map D_tilde
+    @jax.vmap  # vmap over centers
+    @functools.partial(jax.vmap, in_axes=(None, 0))  # vmap over neighbours
+    def get_reverse_dep(idx_center: Int, idx_nb: Int):
+        return jnp.nonzero(deps[idx_nb, :] == idx_center, size=1, fill_value=NO_NEIGHBOUR)[0][0]
+
+    reverse_deps = get_reverse_dep(jnp.arange(n_el), deps)
+
+    jacobian = jnp.zeros([n_el, n_deps, 3, n_orb])
+    jacobian = jacobian.at[deps, reverse_deps, :, :].set(jacobian_in)
+
+    M = einops.einsum(
+        jacobian,
+        orb_inv,
+        "inputs dependants dim orb, orb el -> inputs dim dependants el",
+    )
+    M_hat = jax.vmap(lambda m, idx: m[..., idx])(M, deps)
+
+    tr_JHJ = einops.einsum(M_hat, M_hat, "inputs dim dependant1 dependant2, inputs dim dependant2 dependant1->")
+    jvp_jac = einops.reduce(M, "inputs dim el orb -> inputs dim", "sum")
+    jvp_lap = einops.einsum(orb_inv, orbitals.laplacian, "orb el, el orb->")
+
+    # TODO: properly pass on the sign
+    return sign, FwdLaplArray(logdet, FwdJacobian(data=jvp_jac), tr_JHJ + jvp_lap)
+
+
 def densify_jacobian_by_zero_padding(h: FwdLaplArray, n_deps_out):
     jac = h.jacobian.data
     n_deps_sparse = jac.shape[0]

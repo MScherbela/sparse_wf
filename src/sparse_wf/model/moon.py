@@ -44,7 +44,7 @@ from sparse_wf.model.graph_utils import (
 import flax.linen as nn
 from flax.struct import PyTreeNode, field
 import functools
-from folx.api import FwdLaplArray, FwdJacobian
+from folx.api import FwdLaplArray
 import pyscf
 import einops
 import jax.tree_util as jtu
@@ -410,11 +410,11 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
 
     def orbitals_with_fwd_lap(
         self, params: Parameters, electrons: Electrons, static: StaticInput
-    ) -> tuple[FwdLaplArray, ...]:
+    ) -> tuple[FwdLaplArray, Dependencies]:
         n_deps = cast(NrOfDependenciesMoon, static.n_deps)
         params = cast(SparseMoonParams, params)
 
-        h = self._embedding_with_fwd_lap(params, electrons, static)
+        h, dependencies = self._embedding_with_fwd_lap(params, electrons, static)
         # vmaps over electrons
         orbitals = jax.vmap(
             fwd_lap(lambda h_: self.lin_orbitals.apply(params.lin_orbitals, h_)), in_axes=-2, out_axes=-2
@@ -425,49 +425,15 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
             orbitals, envelopes
         )
         orbitals = jtu.tree_map(lambda o: swap_bottom_blocks(o, self.n_up), orbitals)
-        return (orbitals,)
-
-    def _slogdet_with_sparse_fwd_lap(self, orbitals: FwdLaplArray, deps: Integer[Array, "el ndeps"]):
-        n_el, n_orb = orbitals.x.shape[-2:]
-        n_deps = deps.shape[-1]
-        assert n_el == n_orb
-        logdet, sign = jnp.linalg.slogdet(orbitals.x)  # IDEA: re-use LU decomposition of orbitals to accelerate this
-        orb_inv = jnp.linalg.inv(orbitals.x)  # TODO: replace this with LU decomposition and subsequent LU solve
-        jacobian_in = einops.rearrange(
-            orbitals.jacobian.data, "(deps dim) el orb -> el deps dim orb", deps=n_deps, dim=3, el=n_el, orb=n_orb
-        )
-
-        # Get reverse dependency map D_tilde
-        @jax.vmap  # vmap over centers
-        @functools.partial(jax.vmap, in_axes=(None, 0))  # vmap over neighbours
-        def get_reverse_dep(idx_center: Int, idx_nb: Int):
-            return jnp.nonzero(deps[idx_nb, :] == idx_center, size=1, fill_value=NO_NEIGHBOUR)[0]
-
-        reverse_deps = get_reverse_dep(jnp.arange(n_el), deps)
-
-        jacobian = jnp.zeros([n_el, n_deps, 3, n_orb])
-        jacobian[deps, :, reverse_deps, :] = jacobian_in
-
-        M = einops.einsum(
-            jacobian,
-            orb_inv,
-            "inputs dependants dim orb, orb el -> inputs dim dependents el",
-        )
-        M_hat = jax.vmap(lambda m, idx: m[..., idx])(M, deps)
-
-        tr_JHJ = einops.einsum(M_hat, M_hat, "inputs dim dependant1 dependant2, inputs dim dependant2 dependant1")
-        jvp_jac = einops.reduce(M, "inputs dim el orb -> inputs dim", "sum")
-        jvp_lap = einops.einsum(orb_inv, orbitals.laplacian, "orb el, el orb")
-
-        # TODO: properly pass on the sign
-        return sign, FwdLaplArray(logdet, FwdJacobian(data=jvp_jac), tr_JHJ + jvp_lap)
+        return orbitals, dependencies
 
     def _embedding_with_fwd_lap(
         self, params: SparseMoonParams, electrons: Electrons, static_input: StaticInput
-    ) -> FwdLaplArray:
+    ) -> tuple[FwdLaplArray, Dependencies]:
         r, idx_nb, deps, dep_maps = self.input_constructor.get_dynamic_input_with_dependencies(electrons, static_input)
         n_deps = cast(NrOfDependenciesMoon, static_input.n_deps)
         dep_maps = cast(DependencyMapsMoon, dep_maps)
+        deps = cast(DependenciesMoon, deps)
 
         # Step 0: Get neighbours
         spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(r, idx_nb)
@@ -516,4 +482,4 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         h_out = jax.vmap(fwd_lap(contract), in_axes=(-3, -3, -2), out_axes=-2)(
             H_nb_en, Gamma_en, h0
         )  # vmap over centers (electrons)
-        return h_out
+        return h_out, deps.h_el_out
