@@ -28,7 +28,7 @@ def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: opta
             pre_opt_state=pmap(optimizer.init)(training_state.params),
         )
 
-    @pmap(static_broadcasted_argnums=2)
+    @pmap(static_broadcasted_argnums=1)
     def step(state: PretrainState, static: StaticInput) -> tuple[PretrainState, AuxData]:
         targets = trainer.wave_function.hf_transformation(batch_src_orbitals(state.electrons))
 
