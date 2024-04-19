@@ -23,6 +23,7 @@ from sparse_wf.api import (
     WidthScheduler,
 )
 from sparse_wf.jax_utils import pgather, pmap, pmean, replicate
+from sparse_wf.tree_utils import tree_dot
 
 
 class ClipStatistic(Enum):
@@ -74,22 +75,22 @@ def make_trainer(
     ) -> TrainingState:
         params = replicate(params)
         return TrainingState(
+            key=key,
             params=params,
             opt_state=OptState(
                 opt=pmap(optimizer.init)(params),
                 natgrad=pmap(preconditioner.init)(params),
             ),
-            electrons=electrons.reshape(jax.device_count(), -1, *electrons.shape[1:]),
+            electrons=electrons.reshape(jax.local_device_count(), -1, *electrons.shape[1:]),
             width_state=replicate(width_scheduler.init(init_width)),
         )
 
-    @pmap(static_broadcasted_argnums=2)
+    @pmap(static_broadcasted_argnums=1)
     def step(
-        key: PRNGKeyArray,
         state: TrainingState,
         static: StaticInput,
     ) -> tuple[TrainingState, LocalEnergy, AuxData]:
-        key, subkey = jax.random.split(key)
+        key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
         energy = energy_function(state.params, electrons, static)
@@ -107,12 +108,14 @@ def make_trainer(
             state.opt_state.natgrad,  # type: ignore
         )
         aux_data.update(preconditioner_aux)
+        aux_data["update_norm"] = tree_dot(gradient, gradient) ** 0.5
 
         updates, opt = optimizer.update(gradient, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)
 
         return (
             TrainingState(
+                key=key,
                 params=params,
                 electrons=electrons,
                 opt_state=OptState(opt, natgrad),
