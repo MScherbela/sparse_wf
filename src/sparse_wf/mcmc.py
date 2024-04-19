@@ -13,11 +13,15 @@ from sparse_wf.api import (
     ParameterizedLogPsi,
     StaticInput,
     Width,
+    Nuclei,
+    Charges,
     PRNGKeyArray,
     WidthScheduler,
     WidthSchedulerState,
 )
 from sparse_wf.jax_utils import jit, psum
+import numpy as np
+import pyscf
 
 
 def mh_update(
@@ -101,3 +105,65 @@ def make_width_scheduler(
         return WidthSchedulerState(width=width, pmoves=pmoves, i=i)
 
     return WidthScheduler(init, update)
+
+
+def assign_spins_to_atoms(R: Nuclei, Z: Charges):
+    n_el = np.sum(Z)
+
+    # Assign equal nr of up and down spins to all atoms.
+    # If the nuclear charge is odd, we'll redistribute the reamining spins below
+    n_up_per_atom = Z // 2
+    n_el_remaining = n_el - 2 * np.sum(n_up_per_atom)
+
+    if n_el_remaining > 0:
+        # Get the indices of the atoms with "open shells"
+        ind_open_shell = np.where(Z % 2)[0]
+        R_open = R[ind_open_shell]
+        dist = np.linalg.norm(R_open[:, None, :] - R_open[None, :, :], axis=-1)
+        kernel = np.exp(-dist * 0.5)
+
+        # Loop over all remaining electrons
+        spins = np.zeros(n_el_remaining)
+        n_dn_left = n_el_remaining // 2
+        n_up_left = n_el_remaining - n_dn_left
+        for _ in range(n_el_remaining):
+            is_free = spins == 0
+            spin_per_site = kernel[is_free, :] @ spins
+
+            # Compute the loss loss_i = sum_j kernel_ij * spin_j
+            # and add another spin such that the loss is minimal (ie. as much anti-parallel as possible)
+            ind_atom = np.arange(n_el_remaining)[is_free]
+            loss_up = spin_per_site
+            loss_dn = -spin_per_site
+            if (n_up_left > 0) and (np.min(loss_up) < np.min(loss_dn)):
+                ind = ind_atom[np.argmin(loss_up)]
+                spins[ind] = 1
+                n_up_left -= 1
+            else:
+                ind = ind_atom[np.argmin(loss_dn)]
+                spins[ind] = -1
+                n_dn_left -= 1
+
+        # Add spins to the atoms with open shells
+        n_up_per_atom[ind_open_shell] += spins == 1
+
+    n_dn_per_atom = Z - n_up_per_atom
+    # Collect a list of atom indices: first all up spins, then all down spins
+    ind_atom = []
+    for i, n_up in enumerate(n_up_per_atom):
+        ind_atom += [i] * n_up
+    for i, n_dn in enumerate(n_dn_per_atom):
+        ind_atom += [i] * n_dn
+    return np.array(ind_atom)
+
+
+def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> Electrons:
+    batch_size = batch_size - (batch_size % jax.device_count())
+    electrons = jax.random.normal(key, (batch_size, mol.nelectron, 3))
+
+    R = mol.atom_coords()
+    assert mol.charge == 0, "Only neutral molecules are supported"
+    assert abs(mol.spin) < 2, "Only singlet and doublet molecules are supported"  # type: ignore
+    ind_atom = assign_spins_to_atoms(R, mol.atom_charges())
+    electrons += R[ind_atom]
+    return electrons
