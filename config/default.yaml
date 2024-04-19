@@ -19,6 +19,7 @@ logging_args:
   file:
     use: true
     file_name: log.txt
+  name_keys: []
 
 optimization:
   steps: 100_000

@@ -2,6 +2,7 @@ import logging
 import os
 import random
 from collections import Counter
+from typing import Sequence
 
 import jax
 import jax.numpy as jnp
@@ -12,6 +13,7 @@ import pyscf
 import tqdm
 import wonderwords
 from seml.experiment import Experiment
+from seml.utils import flatten
 from sparse_wf.api import AuxData, Electrons, LoggingArgs, ModelArgs, OptimizationArgs, PRNGKeyArray
 from sparse_wf.jax_utils import assert_identical_copies
 from sparse_wf.loggers import MultiLogger
@@ -47,20 +49,29 @@ def set_postfix(pbar: tqdm.tqdm, aux_data: dict[str, float]):
     pbar.set_postfix(jtu.tree_map(lambda x: f"{x:.4f}", aux_data))
 
 
-def get_run_name(mol: pyscf.gto.Mole) -> str:
+def get_run_name(mol: pyscf.gto.Mole, name_keys: Sequence[str] | None, config):
     adjective = wonderwords.RandomWord().word(include_parts_of_speech=["adjectives"])
     rand_num = random.randint(0, 100)
     atoms = Counter([mol.atom_symbol(i) for i in range(mol.natm)])
     mol_name = "".join([f"{k}{v}" for k, v in atoms.items()])
-    return f"{adjective}-{mol_name}-{rand_num}"
+
+    result = f"{adjective}-{mol_name}"
+    if name_keys:
+        flat_config = flatten(config)
+        config_name = "-".join([str(flat_config[k]) for k in name_keys])
+        result += f"-{config_name}"
+    result += f"-{rand_num}"
+    return result
 
 
-def update_logging_configuration(mol: pyscf.gto.Mole, db_collection: str, logging_args: LoggingArgs) -> LoggingArgs:
+def update_logging_configuration(
+    mol: pyscf.gto.Mole, db_collection: str, logging_args: LoggingArgs, config
+) -> LoggingArgs:
     updates = {}
     if logging_args.get("collection", None) is None:
         updates["collection"] = db_collection
     if logging_args.get("name", None) is None:
-        updates["name"] = get_run_name(mol)
+        updates["name"] = get_run_name(mol, logging_args["name_keys"], config)
     return dict(logging_args) | updates  # type: ignore
 
 
@@ -84,7 +95,7 @@ def main(
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
-    loggers = MultiLogger(update_logging_configuration(mol, db_collection, logging_args))
+    loggers = MultiLogger(update_logging_configuration(mol, db_collection, logging_args, config))
     loggers.log_config(config)
     # initialize distributed training
     if int(os.environ.get("SLURM_NTASKS", 1)) > 1:

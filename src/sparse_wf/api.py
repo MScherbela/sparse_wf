@@ -367,6 +367,7 @@ class LoggingArgs(TypedDict):
     wandb: WandBArgs
     file: FileLoggingArgs
     name: str
+    name_keys: Sequence[str] | None
     out_directory: str
     collection: str
 
