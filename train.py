@@ -1,6 +1,7 @@
 import logging
-import os
 
+# chex.fake_pmap_and_jit().start()
+import pathlib
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -9,31 +10,25 @@ import optax
 import pyscf
 import tqdm
 from seml.experiment import Experiment
-from sparse_wf.api import AuxData, Electrons, LoggingArgs, ModelArgs, OptimizationArgs, PRNGKeyArray
-from sparse_wf.jax_utils import assert_identical_copies
+from sparse_wf.api import AuxData, ModelArgs, LoggingArgs, OptimizationArgs
+from sparse_wf.mcmc import make_mcmc, make_width_scheduler, init_electrons
 from sparse_wf.loggers import MultiLogger
-from sparse_wf.mcmc import make_mcmc, make_width_scheduler
-from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
+
 from sparse_wf.model.moon import SparseMoonWavefunction  # noqa: F401
+from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.systems.scf import make_hf_orbitals
 from sparse_wf.update import make_trainer
+from sparse_wf.jax_utils import broadcast, p_split
+
 
 jax.config.update("jax_default_matmul_precision", "float32")
 jax.config.update("jax_enable_x64", False)
 ex = Experiment()
 
 
-ex.add_config("config/default.yaml")
-
-
-def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> Electrons:
-    # TODO: center around nuclei, choose reasonable initial spin assignment
-    batch_size = batch_size // jax.process_count()
-    batch_size = batch_size - (batch_size % jax.local_device_count())
-    electrons = jax.random.normal(key, (batch_size, mol.nelectron, 3))
-    return electrons
+ex.add_config(str(pathlib.Path(__file__).parent / "config/default.yaml"))
 
 
 def to_log_data(aux_data: AuxData) -> dict[str, float]:
@@ -62,34 +57,17 @@ def main(
     # TODO : add entity and make project configurable
     loggers = MultiLogger(logging_args)
     loggers.log_config(config)
-    # initialize distributed training
-    if int(os.environ.get("SLURM_NTASKS", 1)) > 1:
-        jax.distributed.initialize()
-    logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
+    key = jax.random.PRNGKey(seed)
 
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
     # wf = SparseMoonWavefunction.create(mol, **model_args)
     wf = DenseFermiNet.create(mol)
-
-    # Setup random keys
-    # the main key will always be identitcal on all processes
-    main_key = jax.random.PRNGKey(seed)
-    # the proc_key will be unique per process.
-    main_key, subkey = jax.random.split(main_key)
-    proc_key = jax.random.split(subkey, jax.process_count())[jax.process_index()]
-    # device_keys will be unique per device.
-    proc_key, subkey = jax.random.split(proc_key)
-    device_keys = jax.random.split(subkey, jax.local_device_count())
-
-    # We want the parameters to be identical so we use the main_key here
-    main_key, subkey = jax.random.split(main_key)
+    key, subkey = jax.random.split(key)
     params = wf.init(subkey)
-    logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jtu.tree_leaves(params))}")
-
-    # We want to initialize differently per process so we use the proc_key here
-    proc_key, subkey = jax.random.split(proc_key)
+    logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jax.tree_leaves(params))}")
+    key, subkey = jax.random.split(key)
     electrons = init_electrons(subkey, mol, batch_size)
 
     trainer = make_trainer(
@@ -103,16 +81,18 @@ def main(
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
     )
-    # The state will only be fed into pmapped functions, i.e., we need a per device key
-    state = trainer.init(device_keys, params, electrons, jnp.array(init_width))
-    assert_identical_copies(state.params)
+    state = trainer.init(key, params, electrons, jnp.array(init_width))
 
     pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol, basis), optax.adam(1e-3))
     state = pretrainer.init(state)
 
+    key, *subkeys = jax.random.split(key, jax.device_count() + 1)
+    shared_key = broadcast(jnp.stack(subkeys))
+
     logging.info("Pretraining")
     with tqdm.trange(pretrain_steps) as pbar:
         for _ in pbar:
+            shared_key, subkey = p_split(shared_key)
             static = wf.input_constructor.get_static_input(state.electrons)
             state, aux_data = pretrainer.step(state, static)
             aux_data = to_log_data(aux_data)
@@ -122,17 +102,15 @@ def main(
             set_postfix(pbar, aux_data)
 
     state = state.to_train_state()
-    assert_identical_copies(state.params)
 
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:
         for opt_step in pbar:
+            shared_key, subkey = p_split(shared_key)
             static = wf.input_constructor.get_static_input(state.electrons)
-            # assert static.n_neighbours == (3, 1, 4)  # TODO: remove
             state, _, aux_data = trainer.step(state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(dict(opt_step=opt_step, **aux_data))
             if np.isnan(aux_data["opt/E"]):
                 raise ValueError("NaN in energy")
             set_postfix(pbar, aux_data)
-    assert_identical_copies(state.params)
