@@ -168,40 +168,35 @@ def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, n_deps_out, d
     return FwdLaplArray(h_neighbour, FwdJacobian(data=jac_neighbour), lap_neighbour)
 
 
-def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, deps: Integer[Array, "el ndeps"]):
+def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Array, "el ndeps"]):
     n_el, n_orb = orbitals.x.shape[-2:]
-    n_deps = deps.shape[-1]
+    n_deps = dependencies.shape[-1]
     assert n_el == n_orb
     sign, logdet = jnp.linalg.slogdet(orbitals.x)  # IDEA: re-use LU decomposition of orbitals to accelerate this
-    orb_inv = jnp.linalg.inv(orbitals.x)  # TODO: replace this with LU decomposition and subsequent LU solve
-    jacobian_in = einops.rearrange(
-        orbitals.jacobian.data, "(deps dim) el orb -> el deps dim orb", deps=n_deps, dim=3, el=n_el, orb=n_orb
-    )
+
+    # solve to contract over orbital dim of jacobian; vmap over dependencies (incl. dim=3) and over electrons
+    M = jax.vmap(jax.vmap(lambda J: jnp.linalg.solve(orbitals.x.T, J)))(orbitals.jacobian.data)
+    M = M.reshape([n_deps, 3, n_el, n_el])  # split (deps * dim) into (deps, dim)
 
     # Get reverse dependency map D_tilde
     @jax.vmap  # vmap over centers
     @functools.partial(jax.vmap, in_axes=(None, 0))  # vmap over neighbours
     def get_reverse_dep(idx_center: Int, idx_nb: Int):
-        return jnp.nonzero(deps[idx_nb, :] == idx_center, size=1, fill_value=NO_NEIGHBOUR)[0][0]
+        return jnp.nonzero(dependencies[idx_nb, :] == idx_center, size=1, fill_value=NO_NEIGHBOUR)[0][0]
 
-    reverse_deps = get_reverse_dep(jnp.arange(n_el), deps)
+    reverse_deps = get_reverse_dep(jnp.arange(n_el), dependencies)
 
-    jacobian = jnp.zeros([n_el, n_deps, 3, n_orb])
-    jacobian = jacobian.at[deps, reverse_deps, :, :].set(jacobian_in)
-
-    M = einops.einsum(
-        jacobian,
-        orb_inv,
-        "inputs dependants dim orb, orb el -> inputs dim dependants el",
+    M_hat = M.at[reverse_deps[:, :, None], :, dependencies[:, :, None], dependencies[:, None, :]].get(
+        mode="fill", fill_value=0.0
     )
-    M_hat = jax.vmap(lambda m, idx: m[..., idx])(M, deps)
+    assert M_hat.shape == (n_el, n_deps, n_deps, 3)
 
-    tr_JHJ = einops.einsum(M_hat, M_hat, "inputs dim dependant1 dependant2, inputs dim dependant2 dependant1->")
-    jvp_jac = einops.reduce(M, "inputs dim el orb -> inputs dim", "sum")
-    jvp_lap = einops.einsum(orb_inv, orbitals.laplacian, "orb el, el orb->")
+    jvp_lap = jnp.trace(jnp.linalg.solve(orbitals.x, orbitals.laplacian))
+    jvp_jac = jnp.einsum("naad->nd", M_hat)
+    tr_JHJ = -jnp.einsum("nabd,nbad", M_hat, M_hat)
 
     # TODO: properly pass on the sign
-    return sign, FwdLaplArray(logdet, FwdJacobian(data=jvp_jac), tr_JHJ + jvp_lap)
+    return sign, FwdLaplArray(logdet, FwdJacobian(data=jvp_jac), jvp_lap + tr_JHJ)
 
 
 def densify_jacobian_by_zero_padding(h: FwdLaplArray, n_deps_out):
