@@ -359,13 +359,16 @@ class WandBArgs(TypedDict):
 
 class FileLoggingArgs(TypedDict):
     use: bool
-    path: str
+    file_name: str
 
 
 class LoggingArgs(TypedDict):
     smoothing: int
     wandb: WandBArgs
     file: FileLoggingArgs
+    name: str
+    out_directory: str
+    collection: str
 
 
 class OptimizationArgs(TypedDict):

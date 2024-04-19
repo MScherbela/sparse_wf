@@ -1,15 +1,21 @@
-from sparse_wf.api import LoggingArgs, Logger
 import atexit
-import wandb
+import os
+
 import numpy as np
+
+import wandb
+from sparse_wf.api import Logger, LoggingArgs
 from sparse_wf.jax_utils import only_on_main_process
 
 
 class FileLogger(Logger):
     @only_on_main_process
-    def __init__(self, path: str) -> None:
-        self.path = path
-        self.file = open(path, "w")
+    def __init__(self, file_name: str, collection: str, out_directory: str, name: str, **_) -> None:
+        if collection:
+            self.path = os.path.join(out_directory, collection, name, file_name)
+        else:
+            self.path = os.path.join(out_directory, name, file_name)
+        self.file = open(self.path, "w")
         atexit.register(self.file.close)
 
     @only_on_main_process
@@ -23,8 +29,8 @@ class FileLogger(Logger):
 
 class WandBLogger(Logger):
     @only_on_main_process
-    def __init__(self, project: str, entity: str) -> None:
-        wandb.init(project=project, entity=entity)
+    def __init__(self, project: str, entity: str, collection: str, name: str, **_) -> None:
+        wandb.init(project=project, entity=entity, name=f"{collection}/{name}")
         atexit.register(wandb.finish)
 
     @only_on_main_process
@@ -40,16 +46,24 @@ class MultiLogger(Logger):
     METRICS_TO_SMOOTH = ["opt/E"]
 
     def __init__(self, logging_args: LoggingArgs) -> None:
-        self.loggers = []
+        self.loggers: list[Logger] = []
         self.smoothing_history: dict[str, np.ndarray] = {}
         self.smoothing_length = logging_args["smoothing"]
+        self.args = logging_args
+
+        with only_on_main_process():
+            os.makedirs(self.run_directory, exist_ok=False)
 
         if ("wandb" in logging_args) and (logging_args["wandb"]["use"]):
-            wandb_args = {k: v for k, v in logging_args["wandb"].items() if k != "use"}
-            self.loggers.append(WandBLogger(**wandb_args))  # type: ignore
+            self.loggers.append(WandBLogger(**(logging_args | logging_args["wandb"])))  # type: ignore
         if ("file" in logging_args) and (logging_args["file"]["use"]):
-            file_args = {k: v for k, v in logging_args["file"].items() if k != "use"}
-            self.loggers.append(FileLogger(**file_args))  # type: ignore
+            self.loggers.append(FileLogger(**(logging_args | logging_args["file"])))  # type: ignore
+
+    @property
+    def run_directory(self):
+        if self.args.get("collection", None):
+            return os.path.join(self.args["out_directory"], self.args["collection"], self.args["name"])
+        return os.path.join(self.args["out_directory"], self.args["name"])
 
     def smoothen_data(self, data: dict) -> dict:
         # This implementation is a bit ugly, but does the job for now
@@ -73,3 +87,7 @@ class MultiLogger(Logger):
     def log_config(self, config: dict) -> None:
         for logger in self.loggers:
             logger.log_config(config)
+
+    def store_blob(self, data: bytes, file_name: str):
+        with open(os.path.join(self.run_directory, file_name), "wb") as f:
+            f.write(data)

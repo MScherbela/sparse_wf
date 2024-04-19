@@ -11,13 +11,14 @@ model_args:
 
 logging_args:
   smoothing: 500
+  out_directory: logs
   wandb:
     use: true
     project: sparse_wf
     entity: tum_daml_nicholas
   file:
-    use: false
-    path: "log.txt"
+    use: true
+    file_name: log.txt
 
 optimization:
   steps: 100_000
