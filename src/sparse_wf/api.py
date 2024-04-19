@@ -231,6 +231,7 @@ class OptState(NamedTuple):
 
 
 class TrainingState(struct.PyTreeNode):
+    key: PRNGKeyArray
     params: Parameters
     electrons: Electrons
     opt_state: OptState
@@ -240,7 +241,6 @@ class TrainingState(struct.PyTreeNode):
 class VMCStepFn(Protocol):
     def __call__(
         self,
-        key: PRNGKeyArray,
         state: TrainingState,
         static: StaticInput,
     ) -> tuple[TrainingState, LocalEnergy, AuxData]: ...
@@ -276,6 +276,7 @@ class PretrainState(TrainingState):
 
     def to_train_state(self):
         return TrainingState(
+            key=self.key,
             params=self.params,
             electrons=self.electrons,
             opt_state=self.opt_state,
@@ -294,9 +295,7 @@ class InitPretrainState(Protocol):
 
 
 class UpdatePretrainFn(Protocol):
-    def __call__(
-        self, key: PRNGKeyArray, state: PretrainState, static: StaticInput
-    ) -> tuple[PretrainState, AuxData]: ...
+    def __call__(self, state: PretrainState, static: StaticInput) -> tuple[PretrainState, AuxData]: ...
 
 
 class Pretrainer(NamedTuple):
