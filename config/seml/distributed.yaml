@@ -19,3 +19,4 @@ fixed:
   batch_size: 512
   pretrain_steps: 1000
   optimization.steps: 10000
+  optimization.preconditioner_args.preconditioner: cg

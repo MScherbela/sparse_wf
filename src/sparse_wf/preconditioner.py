@@ -61,20 +61,20 @@ def make_cg_preconditioner(
         N = dE_dlogpsi.size * jax.device_count()
 
         def log_p_closure(p: Parameters):
-            return jax.vmap(wave_function, in_axes=(None, 0, None))(p, electrons, static)
+            return jax.vmap(wave_function, in_axes=(None, 0, None))(p, electrons, static) / jnp.sqrt(N)
 
         _, vjp = jax.vjp(log_p_closure, params)
-        _, jvp = jax.linearize(vjp, params)
+        _, jvp = jax.linearize(log_p_closure, params)
 
-        grad = psum(vjp(dE_dlogpsi)[0])
+        grad = psum(vjp(dE_dlogpsi / jnp.sqrt(N))[0])
 
         def Fisher_matmul(v):
-            w = jvp(v) / N
+            w = jvp(v)
             undamped = vjp(w)[0]
             result = tree_add(undamped, tree_mul(v, damping))
             return psum(result)
 
-        natgrad = cg(A=Fisher_matmul, b=grad, x0=natgrad_state.last_grad, tol=0, atol=0, maxiter=maxiter)
+        natgrad, _ = cg(A=Fisher_matmul, b=grad, x0=natgrad_state.last_grad, tol=0, atol=0, maxiter=maxiter)
         return natgrad, PreconditionerState(last_grad=natgrad), {}
 
     return Preconditioner(init, precondition)

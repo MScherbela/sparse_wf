@@ -23,6 +23,7 @@ from sparse_wf.api import (
     WidthScheduler,
 )
 from sparse_wf.jax_utils import pgather, pmap, pmean, replicate
+from sparse_wf.tree_utils import tree_dot
 
 
 class ClipStatistic(Enum):
@@ -107,6 +108,7 @@ def make_trainer(
             state.opt_state.natgrad,  # type: ignore
         )
         aux_data.update(preconditioner_aux)
+        aux_data["update_norm"] = tree_dot(gradient, gradient) ** 0.5
 
         updates, opt = optimizer.update(gradient, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)

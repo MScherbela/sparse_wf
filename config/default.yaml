@@ -1,5 +1,5 @@
-molecule: "Li 0 0 0"
-spin: 1
+molecule: "Be 0 0 0"
+spin: 0
 
 model_args:
   cutoff: 10.0
@@ -8,7 +8,6 @@ model_args:
   pair_mlp_widths: [16, 8]
   pair_n_envelopes: 32
   n_determinants: 4
-
 
 logging_args:
   smoothing: 500
@@ -31,7 +30,7 @@ optimization:
       decay_factor: 0.99
     cg_args:
       damping: 1.e-3
-      max_iter: 100
+      maxiter: 100
   clipping:
     clip_local_energy: 5.0
     stat: median
