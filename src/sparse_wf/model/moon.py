@@ -30,7 +30,7 @@ from sparse_wf.model.utils import (
     hf_orbitals_to_fulldet_orbitals,
     swap_bottom_blocks,
 )
-from sparse_wf.hamiltonian import make_local_energy
+from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import jit, fwd_lap
 from sparse_wf.model.graph_utils import (
     densify_jacobian_by_zero_padding,
@@ -40,6 +40,7 @@ from sparse_wf.model.graph_utils import (
     NO_NEIGHBOUR,
     GenericInputConstructor,
     get_with_fill,
+    slogdet_with_sparse_fwd_lap,
 )
 import flax.linen as nn
 from flax.struct import PyTreeNode, field
@@ -294,12 +295,14 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
 
     @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
-        # log_psi = fwd_lap(lambda r: self(params, r, static))(electrons)
-        # # log_psi = self.log_psi_with_fwd_lap(params, electrons, static)
-        # E_kin = -0.5 * (log_psi.laplacian + jnp.vdot(log_psi.jacobian.data, log_psi.jacobian.data))
-        # E_pot = potential_energy(electrons, self.R, self.Z)
-        # return E_pot + E_kin
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
+
+    @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
+    def local_energy_sparse(self, params: Parameters, electrons: Electrons, static: StaticInput):
+        log_psi = self._logpsi_with_fwd_lap(params, electrons, static)
+        E_kin = -0.5 * (log_psi.laplacian + jnp.vdot(log_psi.jacobian.data, log_psi.jacobian.data))
+        E_pot = potential_energy(electrons, self.R, self.Z)
+        return E_pot + E_kin
 
     def init(self, rng: PRNGKeyArray):
         rngs = jax.random.split(rng, 7)
@@ -408,7 +411,16 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         orbitals = swap_bottom_blocks(orbitals, self.n_up)
         return (orbitals,)
 
-    def orbitals_with_fwd_lap(
+    def _logpsi_with_fwd_lap(self, params, electrons, static):
+        orbitals, dependencies = self._orbitals_with_fwd_lap(params, electrons, static)
+        signs, logdets = jax.vmap(lambda o: slogdet_with_sparse_fwd_lap(o, dependencies), in_axes=-3, out_axes=-1)(
+            orbitals
+        )
+        # We set return_sign=True and then ignore the sign (by only taking return value 0),
+        # because otherwise logsumexp cannot deal with negative signs
+        return fwd_lap(lambda logdets_: jax.nn.logsumexp(logdets_, b=signs, return_sign=True)[0])(logdets)
+
+    def _orbitals_with_fwd_lap(
         self, params: Parameters, electrons: Electrons, static: StaticInput
     ) -> tuple[FwdLaplArray, Dependencies]:
         n_deps = cast(NrOfDependenciesMoon, static.n_deps)

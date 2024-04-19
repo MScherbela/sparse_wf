@@ -132,6 +132,7 @@ def merge_dependencies(
 def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, n_deps_out, dep_map):
     n_neighbour = ind_neighbour.shape[-1]
     n_features = h.shape[-1]
+    dtype = h.dtype
 
     # Get neighbour data by indexing into the input data and padding with 0 any out of bounds indices
     h_neighbour, jac_neighbour, lap_neighbour = jtu.tree_map(
@@ -151,7 +152,7 @@ def get_neighbour_with_FwdLapArray(h: FwdLaplArray, ind_neighbour, n_deps_out, d
     # 2) Combine the jacobians into a larger jacobian, that depends on the joint dependencies
     @functools.partial(jax.vmap, in_axes=(-2, -2), out_axes=-2)  # vmap over neighbours
     def _jac_for_neighbour(J, dep_map_):
-        jac_out = jnp.zeros([n_deps_out, 3, n_features])
+        jac_out = jnp.zeros([n_deps_out, 3, n_features], dtype)
         jac_out = jac_out.at[dep_map_].set(J, mode="drop")
         return jac_out
 
@@ -192,10 +193,9 @@ def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Ar
     assert M_hat.shape == (n_el, n_deps, n_deps, 3)
 
     jvp_lap = jnp.trace(jnp.linalg.solve(orbitals.x, orbitals.laplacian))
-    jvp_jac = jnp.einsum("naad->nd", M_hat)
+    jvp_jac = jnp.einsum("naad->nd", M_hat).reshape([n_el * 3])
     tr_JHJ = -jnp.einsum("nabd,nbad", M_hat, M_hat)
 
-    # TODO: properly pass on the sign
     return sign, FwdLaplArray(logdet, FwdJacobian(data=jvp_jac), jvp_lap + tr_JHJ)
 
 
