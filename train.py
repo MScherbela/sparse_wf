@@ -1,5 +1,6 @@
 import logging
 import os
+
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -8,17 +9,16 @@ import optax
 import pyscf
 import tqdm
 from seml.experiment import Experiment
-from sparse_wf.api import AuxData, Electrons, ModelArgs, PRNGKeyArray, LoggingArgs, OptimizationArgs
-from sparse_wf.mcmc import make_mcmc, make_width_scheduler
+from sparse_wf.api import AuxData, Electrons, LoggingArgs, ModelArgs, OptimizationArgs, PRNGKeyArray
+from sparse_wf.jax_utils import assert_identical_copies
 from sparse_wf.loggers import MultiLogger
-
-from sparse_wf.model.moon import SparseMoonWavefunction  # noqa: F401
+from sparse_wf.mcmc import make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
+from sparse_wf.model.moon import SparseMoonWavefunction  # noqa: F401
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.systems.scf import make_hf_orbitals
 from sparse_wf.update import make_trainer
-
 
 jax.config.update("jax_default_matmul_precision", "float32")
 jax.config.update("jax_enable_x64", False)
@@ -86,7 +86,7 @@ def main(
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
     params = wf.init(subkey)
-    logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jax.tree_leaves(params))}")
+    logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jtu.tree_leaves(params))}")
 
     # We want to initialize differently per process so we use the proc_key here
     proc_key, subkey = jax.random.split(proc_key)
@@ -105,6 +105,7 @@ def main(
     )
     # The state will only be fed into pmapped functions, i.e., we need a per device key
     state = trainer.init(device_keys, params, electrons, jnp.array(init_width))
+    assert_identical_copies(state.params)
 
     pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol, basis), optax.adam(1e-3))
     state = pretrainer.init(state)
@@ -121,6 +122,7 @@ def main(
             set_postfix(pbar, aux_data)
 
     state = state.to_train_state()
+    assert_identical_copies(state.params)
 
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:
@@ -133,3 +135,4 @@ def main(
             if np.isnan(aux_data["opt/E"]):
                 raise ValueError("NaN in energy")
             set_postfix(pbar, aux_data)
+    assert_identical_copies(state.params)

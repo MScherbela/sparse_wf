@@ -17,5 +17,5 @@ slurm:
 
 fixed:
   batch_size: 512
-  pretrain_steps: 100
-  optimization.steps: 100
+  pretrain_steps: 1000
+  optimization.steps: 10000
