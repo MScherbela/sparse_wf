@@ -24,6 +24,7 @@ from sparse_wf.api import (
 )
 from sparse_wf.jax_utils import pgather, pmap, pmean, replicate
 from sparse_wf.tree_utils import tree_dot
+from folx import batched_vmap
 
 
 class ClipStatistic(Enum):
@@ -93,12 +94,15 @@ def make_trainer(
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
-        energy = energy_function(state.params, electrons, static)
+        energy_dense = batched_vmap(lambda r: energy_function(state.params, r, static), max_batch_size=64)(electrons)
+        energy = wave_function.local_energy_sparse(state.params, electrons, static)  # type: ignore
         energy_diff = local_energy_diff(energy, **clipping_args)
 
         E_mean = pmean(energy.mean())
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
         aux_data = {"opt/E": E_mean, "opt/E_std": E_std, "mcmc/pmove": pmove, "mcmc/stepsize": state.width_state.width}
+        aux_data["opt/E_sparse"] = pmean(energy.mean())
+        aux_data["opt/E_dense"] = pmean(energy_dense.mean())
         natgrad = state.opt_state.natgrad
         gradient, natgrad, preconditioner_aux = preconditioner.precondition(
             state.params,

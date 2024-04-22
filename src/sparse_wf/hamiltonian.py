@@ -29,7 +29,8 @@ def make_local_energy(wf: ParameterizedWaveFunction, R: Nuclei, Z: Charges) -> E
         def closed_wf(electrons):
             return wf(params, electrons, static)
 
-        laplacian, jacobian = folx.ForwardLaplacianOperator(0.6)(closed_wf)(electrons)
+        # laplacian, jacobian = folx.ForwardLaplacianOperator(0.6)(closed_wf)(electrons)
+        laplacian, jacobian = folx.LoopLaplacianOperator.__call__(closed_wf)(electrons)
         kinetic_energy = -0.5 * (laplacian.sum() + jnp.vdot(jacobian, jacobian))
         potential = potential_energy(electrons, R, Z)
         return kinetic_energy + potential

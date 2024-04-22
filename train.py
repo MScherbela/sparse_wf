@@ -61,8 +61,8 @@ def main(
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
-    # wf = SparseMoonWavefunction.create(mol, **model_args)
-    wf = DenseFermiNet.create(mol)
+    wf = SparseMoonWavefunction.create(mol, **model_args)
+    # wf = DenseFermiNet.create(mol)
 
     # Setup random keys
     # the main key will always be identitcal on all processes

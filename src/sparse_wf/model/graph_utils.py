@@ -2,6 +2,7 @@ from jaxtyping import Shaped, Integer, Array
 from sparse_wf.api import (
     Dependencies,
     DependencyMap,
+    Dependants,
     InputConstructor,
     Nuclei,
     Charges,
@@ -26,9 +27,12 @@ NO_NEIGHBOUR = 1_000_000
 
 
 class GenericInputConstructor(InputConstructor):
-    def __init__(self, R: Nuclei, Z: Charges, cutoff: float, padding_factor: float = 1.0, n_neighbours_min: int = 0):
+    def __init__(
+        self, R: Nuclei, Z: Charges, n_el: int, cutoff: float, padding_factor: float = 1.0, n_neighbours_min: int = 0
+    ):
         self.R = R
         self.Z = Z
+        self.n_el = n_el
         self.cutoff = cutoff
         self.padding_factor = padding_factor
         self.n_neighbours_min = n_neighbours_min
@@ -93,7 +97,7 @@ class GenericInputConstructor(InputConstructor):
         else:
             power_padded = jnp.log(n) / jnp.log(self.padding_factor)
             n_padded = jnp.maximum(self.n_neighbours_min, self.padding_factor ** jnp.ceil(power_padded))
-        return int(n_padded)
+        return min(int(n_padded), self.n_el)
 
 
 def get_with_fill(
@@ -125,6 +129,15 @@ def merge_dependencies(
 
     dep_map = get_dep_map(deps)
     return deps_out, dep_map
+
+
+def get_dependants(dependencies: Dependencies, n_dependants_max: int) -> Dependants:
+    n_el = dependencies.shape[0]
+    idx_dependency = jnp.arange(n_el)
+    dependants = jax.vmap(lambda n: jnp.where(dependencies == n, size=n_dependants_max, fill_value=NO_NEIGHBOUR)[0])(
+        idx_dependency
+    )
+    return dependants
 
 
 # vmap over center particle
@@ -179,15 +192,19 @@ def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Ar
     M = jax.vmap(jax.vmap(lambda J: jnp.linalg.solve(orbitals.x.T, J)))(orbitals.jacobian.data)
     M = M.reshape([n_deps, 3, n_el, n_el])  # split (deps * dim) into (deps, dim)
 
+    # TODO: n_deps_max != n_dependants_max in general
+    dependants = get_dependants(dependencies, n_dependants_max=n_deps)
+
     # Get reverse dependency map D_tilde
     @jax.vmap  # vmap over centers
-    @functools.partial(jax.vmap, in_axes=(None, 0))  # vmap over neighbours
-    def get_reverse_dep(idx_center: Int, idx_nb: Int):
-        return jnp.nonzero(dependencies[idx_nb, :] == idx_center, size=1, fill_value=NO_NEIGHBOUR)[0][0]
+    @functools.partial(jax.vmap, in_axes=(0, None))  # vmap over neighbours
+    def get_reverse_dep(idx_dependant: Int, idx_dependency: Int):
+        deps_of_dependant = dependencies.at[idx_dependant, :].get(mode="fill", fill_value=NO_NEIGHBOUR)
+        return jnp.nonzero(deps_of_dependant == idx_dependency, size=1, fill_value=NO_NEIGHBOUR)[0][0]
 
-    reverse_deps = get_reverse_dep(jnp.arange(n_el), dependencies)
+    cycle_map = get_reverse_dep(dependants, jnp.arange(n_el))
 
-    M_hat = M.at[reverse_deps[:, :, None], :, dependencies[:, :, None], dependencies[:, None, :]].get(
+    M_hat = M.at[cycle_map[:, :, None], :, dependants[:, :, None], dependants[:, None, :]].get(
         mode="fill", fill_value=0.0
     )
     assert M_hat.shape == (n_el, n_deps, n_deps, 3)
@@ -195,6 +212,16 @@ def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Ar
     jvp_lap = jnp.trace(jnp.linalg.solve(orbitals.x, orbitals.laplacian))
     jvp_jac = jnp.einsum("naad->nd", M_hat).reshape([n_el * 3])
     tr_JHJ = -jnp.einsum("nabd,nbad", M_hat, M_hat)
+
+    # # For verification purposes only: Materialize full jacobian
+    # M_full = jnp.zeros([n_el, 3, n_el, n_el])
+    # for i in range(n_el):
+    #     M_full = M_full.at[dependencies[i, :], :, i, :].set(M[:, :, i, :], mode="drop")
+
+    # jvp_jac_full = jnp.einsum("ndii->nd", M_full).reshape([n_el * 3])
+    # tr_JHJ_full = -jnp.einsum("ndik,ndki", M_full, M_full)
+    # error_jvp_jac = jnp.linalg.norm(jvp_jac_full - jvp_jac)
+    # error_tr_JHJ = jnp.abs(tr_JHJ_full - tr_JHJ)
 
     return sign, FwdLaplArray(logdet, FwdJacobian(data=jvp_jac), jvp_lap + tr_JHJ)
 

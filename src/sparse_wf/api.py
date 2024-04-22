@@ -73,8 +73,10 @@ class StaticInput(NamedTuple):
     n_deps: NrOfDependencies
 
 
+Dependant = Integer[Array, "n_dependants"]
 Dependency = Integer[Array, "n_deps"]
 Dependencies = Integer[Dependency, "*batch_dims"]
+Dependants = Integer[Dependant, "*batch_dims"]
 DependencyMap = Integer[Array, "*batch_dims n_center n_neighbour n_deps"]
 
 

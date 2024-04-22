@@ -74,11 +74,11 @@ class InputConstructorMoon(GenericInputConstructor):
         dist_ee, dist_ne = self.get_full_distance_matrices(electrons)
         n_neighbours = self.get_nr_of_neighbours(dist_ee, dist_ne)
         n_deps_h0, n_deps_H, n_deps_hout = self._get_max_nr_of_dependencies(dist_ee, dist_ne)
-        n_deps = NrOfDependenciesMoon(
-            h_el_initial=self._round_to_next_step(n_deps_h0),
-            H_nuc=self._round_to_next_step(n_deps_H),
-            h_el_out=self._round_to_next_step(n_deps_hout),
-        )
+
+        n_deps_h0_padded = self._round_to_next_step(n_deps_h0)
+        n_deps_H_padded = self._round_to_next_step(n_deps_H) + int(n_deps_h0_padded - n_deps_h0)
+        n_deps_hout_padded = self._round_to_next_step(n_deps_hout) + int(n_deps_H_padded - n_deps_H)
+        n_deps = NrOfDependenciesMoon(n_deps_h0_padded, n_deps_H_padded, n_deps_hout_padded)
         return StaticInput(n_neighbours=n_neighbours, n_deps=n_deps)
 
     @jit(static_argnames=("self", "static"))
@@ -273,7 +273,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
             n_up=int(n_up),
             n_determinants=n_determinants,
             cutoff=cutoff,
-            input_constructor=InputConstructorMoon(R, Z, cutoff),
+            input_constructor=InputConstructorMoon(R, Z, n_el, cutoff, padding_factor=1.2),
             ee_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ee"),
             ne_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ne"),
             en_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_en"),
