@@ -44,8 +44,27 @@ optimization:
     clip_local_energy: 5.0
     stat: median
 
+pretraining:
+  steps: 1_000
+  optimizer_args:
+    lr_schedule: hyperbolic
+    lr_schedule_args:
+      hyperbolic:
+        init_value: 0.001
+        decay: 1.0
+        delay: 1000
+    transformations:
+      - name: clip_by_global_norm
+        args: []
+        kwargs: { max_norm: 1.0 }
+      - name: scale_by_adam
+        args: []
+        kwargs: {}
+      - name: scale_by_trust_ratio
+        args: []
+        kwargs: {}
+
 batch_size: 512
-pretrain_steps: 1_000
 mcmc_steps: 20
 init_width: 0.1
 basis: sto-6g
