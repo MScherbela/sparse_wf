@@ -30,7 +30,9 @@ class FileLogger(Logger):
 class WandBLogger(Logger):
     @only_on_main_process
     def __init__(self, project: str, entity: str, collection: str, name: str, **_) -> None:
-        wandb.init(project=project, entity=entity, name=f"{collection}/{name}")
+        if collection:
+            name = f"{collection}/{name}"
+        wandb.init(project=project, entity=entity, name=name)
         atexit.register(wandb.finish)
 
     @only_on_main_process
