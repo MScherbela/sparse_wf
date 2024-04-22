@@ -34,9 +34,9 @@ from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import jit, fwd_lap
 from sparse_wf.model.graph_utils import (
     densify_jacobian_by_zero_padding,
-    densify_jacobian_diagonally,
-    get_neighbour_with_FwdLapArray,
+    pad_jacobian_to_output_deps,
     merge_dependencies,
+    get_dependency_map,
     NO_NEIGHBOUR,
     GenericInputConstructor,
     get_with_fill,
@@ -64,8 +64,10 @@ class NrOfDependenciesMoon(NamedTuple):
 
 
 class DependencyMapsMoon(NamedTuple):
-    h_el_initial_to_H_nuc: DependencyMap
-    H_nuc_to_h_el_out: DependencyMap
+    h0_to_Hnuc: DependencyMap
+    Gamma_ne_to_Hnuc: DependencyMap
+    Hnuc_to_hout: DependencyMap
+    h0_to_hout: DependencyMap
 
 
 class InputConstructorMoon(GenericInputConstructor):
@@ -81,10 +83,11 @@ class InputConstructorMoon(GenericInputConstructor):
         n_deps = NrOfDependenciesMoon(n_deps_h0_padded, n_deps_H_padded, n_deps_hout_padded)
         return StaticInput(n_neighbours=n_neighbours, n_deps=n_deps)
 
-    @jit(static_argnames=("self", "static"))
+    # @jit(static_argnames=("self", "static")) # TODO: re-add jit
     def get_dynamic_input_with_dependencies(
         self, electrons: Electrons, static: StaticInput
     ) -> DynamicInputWithDependencies:
+        assert electrons.ndim == 2  # TODO: add vectorization for batch dim
         # Indices of neighbours
         dist_ee, dist_ne = self.get_full_distance_matrices(electrons)
         idx_nb = self.get_neighbour_indices(dist_ee, dist_ne, static.n_neighbours)
@@ -137,18 +140,26 @@ class InputConstructorMoon(GenericInputConstructor):
         def get_deps_nb(deps, idx_nb):
             return get_with_fill(deps, idx_nb, NO_NEIGHBOUR)
 
+        get_dep_map_for_all_centers = jax.vmap(jax.vmap(get_dependency_map, in_axes=(0, None)))
+
         # Step 1: Initial electron embeddings depend on themselves and their neighbours
         deps_h0: Dependencies = jnp.concatenate([self_dependency, idx_nb.ee], axis=-1)
 
         # Step 2: Nuclear embeddings depend on all dependencies of their neighbouring electrons
         deps_neighbours = get_deps_nb(deps_h0, idx_nb.ne)
-        deps_H, dep_map_h0_to_H = merge_dependencies(deps_neighbours, idx_nb.ne, n_deps_max.H_nuc)
+        deps_H = merge_dependencies(deps_neighbours, idx_nb.ne, None, n_deps_max.H_nuc)
+        dep_map_h0_to_H = get_dep_map_for_all_centers(deps_neighbours, deps_H)
+        dep_map_Gamma_ne_to_H = get_dep_map_for_all_centers(idx_nb.ne[..., None], deps_H)
 
         # Step 3: Output electron embeddings depend on themselves, their neighbouring electrons and all dependencies of their neighbouring nuclei
         deps_neighbours = get_deps_nb(deps_H, idx_nb.en)
-        deps_hout, dep_map_H_to_hout = merge_dependencies(deps_neighbours, deps_h0, n_deps_max.h_el_out)
+        deps_hout = merge_dependencies(deps_neighbours, deps_h0, jnp.arange(n_el)[:, None], n_deps_max.h_el_out)
+        dep_map_H_to_hout = get_dep_map_for_all_centers(deps_neighbours, deps_hout)
+        dep_map_h0_to_hout = jax.vmap(get_dependency_map)(deps_h0, deps_hout)
 
-        return DependenciesMoon(deps_h0, deps_H, deps_hout), DependencyMapsMoon(dep_map_h0_to_H, dep_map_H_to_hout)
+        return DependenciesMoon(deps_h0, deps_H, deps_hout), DependencyMapsMoon(
+            dep_map_h0_to_H, dep_map_Gamma_ne_to_H, dep_map_H_to_hout, dep_map_h0_to_hout
+        )
 
 
 def get_diff_features(
@@ -200,21 +211,10 @@ class PairwiseFilter(nn.Module):
         return nn.Dense(self.out_dim, use_bias=False)(beta)
 
 
-# class SlaterOrbitalsWithFwdLap(nn.Module):
-#     n_determinants: int
-#     spins: tuple[int, int]
-
-#     @nn.compact
-#     def __call__(self, h_one: FwdLaplArray, dists: DistanceMatrix) -> tuple[FwdLaplArray, ]:
-#         n = h_one.shape[0]
-#         spins = np.array(self.spins)
-#         orbitals = nn.Dense(self.n_determinants * n)(h_one)
-#         orbitals *= IsotropicEnvelope(self.n_determinants * n)(dists)
-#         orbitals = orbitals.reshape(n, self.n_determinants, n)
-#         orbitals = jnp.transpose(orbitals, (1, 0, 2))
-#         # reverse bottom two blocks
-#         orbitals = swap_bottom_blocks(orbitals, spins[0])
-#         return (orbitals,)
+def _vmap_over_centers_and_neighbours(f):
+    f_out = jax.vmap(f, in_axes=(None, None, 0), out_axes=-2)  # vmap over neighbours
+    f_out = jax.vmap(f_out, in_axes=(None, 0, 0), out_axes=-3)  # vmap over centers
+    return f_out
 
 
 class SparseMoonParams(PyTreeNode):
@@ -273,7 +273,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
             n_up=int(n_up),
             n_determinants=n_determinants,
             cutoff=cutoff,
-            input_constructor=InputConstructorMoon(R, Z, n_el, cutoff, padding_factor=1.2),
+            input_constructor=InputConstructorMoon(R, Z, n_el, cutoff, padding_factor=1.0),
             ee_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ee"),
             ne_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ne"),
             en_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_en"),
@@ -459,19 +459,19 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         # Step 2: Contract to nuclei + MLP on nuclei => nuclear embedding H
         # 2a: Get the spatial filter between nuclei and neighbouring electrons
         get_Gamma_ne = fwd_lap(self._get_Gamma_ne, argnums=(2,))
-        get_Gamma_ne = jax.vmap(get_Gamma_ne, in_axes=(None, None, 0), out_axes=-2)  # vmap over neighbours
-        get_Gamma_ne = jax.vmap(get_Gamma_ne, in_axes=(None, 0, 0), out_axes=-3)  # vmap over centers
-        # Gamma_ne: [n_nuc x n_neighbour x feature_dim]; Gamma_ne.jac: [3 x n_nuc x n_neighbour x feature_dim] (sparse)
-        Gamma_ne = get_Gamma_ne(params, self.R, r_nb_ne)
-
-        # TODO: check axes from here on down
-        Gamma_ne = densify_jacobian_diagonally(Gamma_ne)  # deps: 3 --> 3*n_neighbours
-        Gamma_ne = densify_jacobian_by_zero_padding(Gamma_ne, 3 * n_deps.H_nuc)  # deps: 3*n_neighbours --> 3*n_deps2
+        Gamma_ne = _vmap_over_centers_and_neighbours(get_Gamma_ne)(params, self.R, r_nb_ne)
+        # Gamma_ne: [n_nuc x n_neighbour x feature_dim]; Gamma_ne.jac: [3 x n_nuc x n_neighbour x feature_dim]
 
         # 2b: Get the neighbouring electron embeddings
-        h0_nb_ne = get_neighbour_with_FwdLapArray(h0, idx_nb.ne, n_deps.H_nuc, dep_maps.h_el_initial_to_H_nuc)
+        h0_nb_ne = jtu.tree_map(lambda x: x.at[..., idx_nb.ne, :].get(mode="drop", fill_value=0.0), h0)
 
-        # 2c: Contract and apply the MLP
+        # 2c: Pad/align all jacobians with the output dependencies
+        _pad_jacobian = jax.vmap(pad_jacobian_to_output_deps, in_axes=(-2, -2, None), out_axes=-2)
+        _pad_jacobian = jax.vmap(_pad_jacobian, in_axes=(-3, -3, None), out_axes=-3)
+        h0_nb_ne = _pad_jacobian(h0_nb_ne, dep_maps.h0_to_Hnuc, n_deps.H_nuc)
+        Gamma_ne = _pad_jacobian(Gamma_ne, dep_maps.Gamma_ne_to_Hnuc, n_deps.H_nuc)
+
+        # 2d: Contract and apply the MLP
         @functools.partial(jax.vmap, in_axes=(-3, -3), out_axes=-2)  # vmap over centers (nuclei)
         @fwd_lap
         def contract_and_mlp(h0_nb_ne, Gamma_ne):
@@ -483,15 +483,21 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         # Step 3: Contract back to electrons => Final electron embeddings h_out
         # 3a: Get Filters
         get_Gamma_en = fwd_lap(self._get_Gamma_en, argnums=(1,))
-        get_Gamma_en = jax.vmap(get_Gamma_en, in_axes=(None, None, 0), out_axes=-2)  # vmap over neighbours
-        get_Gamma_en = jax.vmap(get_Gamma_en, in_axes=(None, 0, 0), out_axes=-3)  # vmap over centers
-        # Shapes: Gamma_en: [n_el x n_neighbouring_nuc x feature_dim]; Gamma_en.jac: [3 x n_el x n_neighbouring_nuc x feature_dim] (dense)
-        Gamma_en = get_Gamma_en(params, r, R_nb_en)
-        Gamma_en = densify_jacobian_by_zero_padding(Gamma_en, 3 * n_deps.h_el_out)  # deps: 3 --> 3*n_deps3
+        Gamma_en = _vmap_over_centers_and_neighbours(get_Gamma_en)(params, r, R_nb_en)
+        # Gamma_en: [n_el x n_neighbouring_nuc x feature_dim]; Gamma_en.jac: [3 x n_el x n_neighbouring_nuc x feature_dim]
 
-        H_nb_en = get_neighbour_with_FwdLapArray(H, idx_nb.en, n_deps.h_el_out, dep_maps.H_nuc_to_h_el_out)
-        h0 = densify_jacobian_by_zero_padding(h0, 3 * n_deps.h_el_out)  # deps: 3*n_deps1 --> 3*n_deps3
-        h_out = jax.vmap(fwd_lap(contract), in_axes=(-3, -3, -2), out_axes=-2)(
-            H_nb_en, Gamma_en, h0
-        )  # vmap over centers (electrons)
+        # 3b: Get the neighbouring nuclear embeddings
+        H_nb_en = jtu.tree_map(lambda x: x.at[..., idx_nb.en, :].get(mode="drop", fill_value=0.0), H)
+
+        # 3c: Pad/align all jacobians with the output dependencies
+        H_nb_en = _pad_jacobian(H_nb_en, dep_maps.Hnuc_to_hout, n_deps.h_el_out)
+        h0_residual = jax.vmap(pad_jacobian_to_output_deps, in_axes=(-2, -2, None), out_axes=-2)(
+            h0, dep_maps.h0_to_hout, n_deps.h_el_out
+        )
+        Gamma_en = densify_jacobian_by_zero_padding(Gamma_en, 3 * n_deps.h_el_out)
+
+        # 3d: Contract
+        # vmap over centers (electrons)
+        h_out = jax.vmap(fwd_lap(contract), in_axes=(-3, -3, -2), out_axes=-2)(H_nb_en, Gamma_en, h0_residual)
+
         return h_out, deps.h_el_out

@@ -38,9 +38,10 @@ def print_delta(x1: FwdLaplArray, x2: FwdLaplArray, dependencies, name):
 
 
 def to_zero_padded(jac, dependencies):
+    n_centers = jac.shape[-2]
     jac = jac.reshape([-1, 3, *jac.shape[1:]])
     jac_out = jnp.zeros([n_el, 3, *jac.shape[2:]])
-    for i in range(n_el):
+    for i in range(n_centers):
         jac_out = jac_out.at[dependencies[i], ..., i, :].set(jac[:, ..., i, :], mode="drop")
     jac_out = jac_out.reshape([n_el * 3, *jac.shape[2:]])
     return jac_out

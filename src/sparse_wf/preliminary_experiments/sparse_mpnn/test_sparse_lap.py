@@ -35,7 +35,7 @@ def print_delta(x1, x2, name):
 
 
 batch_size = 1
-n_determinants = 1
+n_determinants = 3
 rng_r, rng_model = jax.random.split(jax.random.PRNGKey(0))
 electrons, mol = build_atom_chain(rng_r, n_nuc=25, n_el_per_nuc=2, batch_size=batch_size)
 n_el = electrons.shape[-2]
