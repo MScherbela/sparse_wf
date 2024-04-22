@@ -2,29 +2,36 @@ from sparse_wf.api import LoggingArgs, Logger
 import atexit
 import wandb
 import numpy as np
+from sparse_wf.jax_utils import only_on_main_process
 
 
 class FileLogger(Logger):
+    @only_on_main_process
     def __init__(self, path: str) -> None:
         self.path = path
         self.file = open(path, "w")
         atexit.register(self.file.close)
 
+    @only_on_main_process
     def log(self, data: dict) -> None:
         self.file.write(str(data) + "\n")
 
+    @only_on_main_process
     def log_config(self, config: dict) -> None:
         self.file.write(str(config) + "\n")
 
 
 class WandBLogger(Logger):
+    @only_on_main_process
     def __init__(self, project: str, entity: str, name: str = None) -> None:
         wandb.init(project=project, entity=entity, name=name)
         atexit.register(wandb.finish)
 
+    @only_on_main_process
     def log(self, data: dict) -> None:
         wandb.log(data)
 
+    @only_on_main_process
     def log_config(self, config: dict) -> None:
         wandb.config.update(config)
 

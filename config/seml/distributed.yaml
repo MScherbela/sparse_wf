@@ -1,0 +1,22 @@
+seml:
+  executable: train.py
+  project_root_dir: ../../
+  output_dir: logs
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    gres: gpu:2
+    mem: 4G
+    cpus-per-task: 1
+    time: 0-00:20
+    partition: gpu_limited
+    qos: phd
+    nodes: 1
+    tasks-per-node: 2
+
+fixed:
+  batch_size: 512
+  pretrain_steps: 1000
+  optimization.steps: 10000
+  optimization.preconditioner_args.preconditioner: cg
