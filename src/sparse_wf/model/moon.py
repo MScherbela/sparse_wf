@@ -1,3 +1,4 @@
+import logging
 from sparse_wf.api import (
     Dependencies,
     DependencyMap,
@@ -78,16 +79,19 @@ class InputConstructorMoon(GenericInputConstructor):
         n_deps_h0, n_deps_H, n_deps_hout = self._get_max_nr_of_dependencies(dist_ee, dist_ne)
 
         n_deps_h0_padded = self._round_to_next_step(n_deps_h0)
-        n_deps_H_padded = self._round_to_next_step(n_deps_H) + int(n_deps_h0_padded - n_deps_h0)
-        n_deps_hout_padded = self._round_to_next_step(n_deps_hout) + int(n_deps_H_padded - n_deps_H)
+        n_deps_H_padded = self._round_to_next_step(n_deps_H)
+        n_deps_hout_padded = self._round_to_next_step(n_deps_hout)
         n_deps = NrOfDependenciesMoon(n_deps_h0_padded, n_deps_H_padded, n_deps_hout_padded)
         return StaticInput(n_neighbours=n_neighbours, n_deps=n_deps)
 
-    # @jit(static_argnames=("self", "static")) # TODO: re-add jit
+    @jit(static_argnames=("self", "static"))
     def get_dynamic_input_with_dependencies(
         self, electrons: Electrons, static: StaticInput
     ) -> DynamicInputWithDependencies:
-        assert electrons.ndim == 2  # TODO: add vectorization for batch dim
+        assert electrons.ndim == 2, "Use vmap to vectorize this function"
+
+        logging.info(f"Compiling model for static: {static}")
+
         # Indices of neighbours
         dist_ee, dist_ne = self.get_full_distance_matrices(electrons)
         idx_nb = self.get_neighbour_indices(dist_ee, dist_ne, static.n_neighbours)
@@ -273,7 +277,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
             n_up=int(n_up),
             n_determinants=n_determinants,
             cutoff=cutoff,
-            input_constructor=InputConstructorMoon(R, Z, n_el, cutoff, padding_factor=1.0),
+            input_constructor=InputConstructorMoon(R, Z, n_el, cutoff, padding_factor=1.2),
             ee_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ee"),
             ne_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ne"),
             en_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_en"),
@@ -295,14 +299,14 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
 
     @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
-        return make_local_energy(self, self.R, self.Z)(params, electrons, static)
-
-    @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
-    def local_energy_sparse(self, params: Parameters, electrons: Electrons, static: StaticInput):
         log_psi = self._logpsi_with_fwd_lap(params, electrons, static)
         E_kin = -0.5 * (log_psi.laplacian + jnp.vdot(log_psi.jacobian.data, log_psi.jacobian.data))
         E_pot = potential_energy(electrons, self.R, self.Z)
         return E_pot + E_kin
+
+    @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
+    def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput):
+        return make_local_energy(self, self.R, self.Z)(params, electrons, static)
 
     def init(self, rng: PRNGKeyArray):
         rngs = jax.random.split(rng, 7)

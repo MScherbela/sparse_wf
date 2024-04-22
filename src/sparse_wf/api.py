@@ -6,7 +6,6 @@ import optax
 from flax import struct
 from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree
 from pyscf.scf.hf import SCF
-from folx.api import FwdLaplArray
 
 AnyArray = Array | list | np.ndarray
 Int = Integer[Array, ""]
@@ -148,7 +147,7 @@ class ParameterizedLogPsi(Protocol):
 
 
 class ParameterizedLocalEnergy(Protocol):
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> FwdLaplArray: ...
+    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy: ...
 
 
 class ParameterizedWaveFunction(Protocol):
@@ -159,10 +158,6 @@ class ParameterizedWaveFunction(Protocol):
     signed: ParameterizedSLogPsi
     __call__: ParameterizedLogPsi
     local_energy: ParameterizedLocalEnergy
-
-
-class EnergyFn(Protocol):
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy: ...
 
 
 ############################################################################
@@ -265,7 +260,6 @@ class Trainer:
     wave_function: ParameterizedWaveFunction
     mcmc: MCStep
     width_scheduler: WidthScheduler
-    energy_fn: EnergyFn
     optimizer: optax.GradientTransformation
     preconditioner: Preconditioner
 

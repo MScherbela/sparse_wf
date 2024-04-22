@@ -85,7 +85,6 @@ def main(
 
     trainer = make_trainer(
         wf,
-        wf.local_energy,
         make_mcmc(wf, mcmc_steps),
         make_width_scheduler(),
         optax.chain(
