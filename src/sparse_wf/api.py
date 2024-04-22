@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import NamedTuple, Protocol, Sequence, TypeAlias, Callable, TypedDict, Optional
+from enum import Enum
+from typing import Any, NamedTuple, Protocol, Sequence, TypeAlias, Callable, TypedDict, Optional
 
 import jax
 import numpy as np
@@ -403,9 +404,28 @@ class LoggingArgs(TypedDict):
     collection: str
 
 
+class Schedule(Enum):
+    CONSTANT = "constant"
+    LINEAR = "linear"
+    EXPONENTIAL = "exponential"
+    COSINE = "cosine"
+    HYPERBOLIC = "hyperbolic"
+
+
+class TransformationArgs(TypedDict):
+    name: str
+    args: tuple
+    kwargs: dict[str, Any]
+
+
+class OptimizerArgs(TypedDict):
+    lr_schedule: Schedule | str
+    lr_schedule_args: dict[str, dict[str, Any]]
+    transformations: Sequence[TransformationArgs]
+
+
 class OptimizationArgs(TypedDict):
     steps: int
-    learning_rate: float
-    grad_norm_constraint: float
+    optimizer_args: OptimizerArgs
     preconditioner_args: PreconditionerArgs
     clipping: ClippingArgs
