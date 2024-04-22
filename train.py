@@ -7,13 +7,12 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-import optax
 import pyscf
 import tqdm
 import wonderwords
 from seml.experiment import Experiment
 from seml.utils import flatten, merge_dicts
-from sparse_wf.api import AuxData, Electrons, LoggingArgs, ModelArgs, OptimizationArgs, PRNGKeyArray
+from sparse_wf.api import AuxData, Electrons, LoggingArgs, ModelArgs, OptimizationArgs, PRNGKeyArray, PretrainingArgs
 from sparse_wf.jax_utils import assert_identical_copies
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import make_mcmc, make_width_scheduler
@@ -96,8 +95,8 @@ def main(
     spin: int,
     model_args: ModelArgs,
     optimization: OptimizationArgs,
+    pretraining: PretrainingArgs,
     batch_size: int,
-    pretrain_steps: int,
     mcmc_steps: int,
     init_width: float,
     basis: str,
@@ -153,17 +152,19 @@ def main(
     state = trainer.init(device_keys, params, electrons, jnp.array(init_width))
     assert_identical_copies(state.params)
 
-    pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol, basis), optax.adam(1e-3))
+    pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol, basis), make_optimizer(**pretraining["optimizer_args"]))
     state = pretrainer.init(state)
 
     logging.info("Pretraining")
-    for _ in tqdm.trange(pretrain_steps):
-        static = wf.input_constructor.get_static_input(state.electrons)
-        state, aux_data = pretrainer.step(state, static)
-        aux_data = to_log_data(aux_data)
-        loggers.log(aux_data)
-        if np.isnan(aux_data["loss"]):
-            raise ValueError("NaN in pretraining loss")
+    with tqdm.trange(pretraining["steps"]) as pbar:
+        for _ in pbar:
+            static = wf.input_constructor.get_static_input(state.electrons)
+            state, aux_data = pretrainer.step(state, static)
+            aux_data = to_log_data(aux_data)
+            loggers.log(aux_data)
+            if np.isnan(aux_data["loss"]):
+                raise ValueError("NaN in pretraining loss")
+            set_postfix(pbar, aux_data)
 
     state = state.to_train_state()
     assert_identical_copies(state.params)

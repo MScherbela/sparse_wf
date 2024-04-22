@@ -429,3 +429,8 @@ class OptimizationArgs(TypedDict):
     optimizer_args: OptimizerArgs
     preconditioner_args: PreconditionerArgs
     clipping: ClippingArgs
+
+
+class PretrainingArgs(TypedDict):
+    steps: int
+    optimizer_args: OptimizerArgs
