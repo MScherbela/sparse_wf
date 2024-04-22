@@ -165,3 +165,4 @@ def main(
         if np.isnan(aux_data["opt/E"]):
             raise ValueError("NaN in energy")
     assert_identical_copies(state.params)
+    loggers.store_blob(state.serialize(), "chkpt_final.msgpk")

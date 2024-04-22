@@ -4,6 +4,7 @@ from typing import NamedTuple, Protocol, Sequence, TypeAlias, Callable, TypedDic
 import numpy as np
 import optax
 from flax import struct
+from flax.serialization import to_bytes, from_bytes
 from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree
 from pyscf.scf.hf import SCF
 from folx.api import FwdLaplArray
@@ -236,6 +237,13 @@ class TrainingState(struct.PyTreeNode):
     electrons: Electrons
     opt_state: OptState
     width_state: WidthSchedulerState
+
+    def serialize(self):
+        return to_bytes(self)
+
+    @classmethod
+    def deserialize(cls, data):
+        return from_bytes(cls, data)
 
 
 class VMCStepFn(Protocol):

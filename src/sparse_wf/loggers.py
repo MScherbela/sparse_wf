@@ -88,6 +88,7 @@ class MultiLogger(Logger):
         for logger in self.loggers:
             logger.log_config(config)
 
+    @only_on_main_process
     def store_blob(self, data: bytes, file_name: str):
         with open(os.path.join(self.run_directory, file_name), "wb") as f:
             f.write(data)
