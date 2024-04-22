@@ -19,14 +19,14 @@ from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.systems.scf import make_hf_orbitals
 from sparse_wf.update import make_trainer
+import pathlib
 
 jax.config.update("jax_default_matmul_precision", "float32")
 jax.config.update("jax_enable_x64", False)
 ex = Experiment()
 
 
-ex.add_config("config/default.yaml")
-
+ex.add_config(str(pathlib.Path(__file__).parent / "config/default.yaml"))
 
 def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> Electrons:
     # TODO: center around nuclei, choose reasonable initial spin assignment
