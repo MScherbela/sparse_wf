@@ -306,7 +306,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         feature_dim = self.lin_h0.features
         n_atoms = self.R.shape[0]
         params = SparseMoonParams(
-            ee_filter=self.ee_filter.init(rngs[0], np.zeros([4])),  # dist + 3 * diff + spin # TODO: change back to 5
+            ee_filter=self.ee_filter.init(rngs[0], np.zeros([5])),  # dist + 3 * diff + spin
             ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
             en_filter=self.en_filter.init(rngs[2], np.zeros([4])),  # dist + 3 * diff
             lin_h0=self.lin_h0.init(rngs[3], np.zeros([feature_dim])),
@@ -366,9 +366,9 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(electrons, idx_nb)
 
         # Step 1: Get h0
-        # h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0, 0, 0))(params, electrons, r_nb_ee, self.spins, spin_nb_ee) # TODO: restore original
+        h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0, 0, 0))(params, electrons, r_nb_ee, self.spins, spin_nb_ee)
         # h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0))(params, electrons, r_nb_ee)
-        h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0))(params, electrons, R_nb_en)
+        # h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0))(params, electrons, R_nb_en)
 
         # # Step 2: Contract to nuclei + MLP
         Gamma_ne = self._get_Gamma_ne_vmapped(params, self.R, r_nb_ne)
@@ -381,8 +381,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         H_nb_en = get_with_fill(H, idx_nb.en, 0.0)
         h_out = contract(H_nb_en, Gamma_en, h0)
         return h_out
-        # return h0
-        # return jnp.zeros([electrons.shape[-2], self.ee_filter.out_dim])
+
 
     @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(el,dim)->(det,el,orb)")
     def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
