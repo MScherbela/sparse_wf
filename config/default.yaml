@@ -21,8 +21,17 @@ logging_args:
 
 optimization:
   steps: 100_000
-  learning_rate: 0.1
-  grad_norm_constraint: 1.0
+  optimizer_args:
+    lr_schedule: hyperbolic
+    lr_schedule_args:
+      hyperbolic:
+        init_value: 0.1
+        decay: 1.0
+        delay: 1000
+    transformations:
+      - name: clip_by_global_norm
+        args: []
+        kwargs: { max_norm: 1.0 }
   preconditioner_args:
     preconditioner: spring
     spring_args:

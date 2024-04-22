@@ -18,6 +18,7 @@ from sparse_wf.model.moon import SparseMoonWavefunction  # noqa: F401
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.systems.scf import make_hf_orbitals
+from sparse_wf.optim import make_optimizer
 from sparse_wf.update import make_trainer
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -97,9 +98,7 @@ def main(
         wf.local_energy,
         make_mcmc(wf, mcmc_steps),
         make_width_scheduler(),
-        optax.chain(
-            optax.clip_by_global_norm(optimization["grad_norm_constraint"]), optax.scale(-optimization["learning_rate"])
-        ),
+        make_optimizer(**optimization["optimizer_args"]),
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
     )
