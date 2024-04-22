@@ -1,6 +1,5 @@
 import logging
 import os
-import random
 from collections import Counter
 from typing import Sequence
 
@@ -50,17 +49,27 @@ def set_postfix(pbar: tqdm.tqdm, aux_data: dict[str, float]):
 
 
 def get_run_name(mol: pyscf.gto.Mole, name_keys: Sequence[str] | None, config):
-    adjective = wonderwords.RandomWord().word(include_parts_of_speech=["adjectives"])
-    rand_num = random.randint(0, 100)
     atoms = Counter([mol.atom_symbol(i) for i in range(mol.natm)])
     mol_name = "".join([f"{k}{v}" for k, v in atoms.items()])
 
-    result = f"{adjective}-{mol_name}"
     if name_keys:
         flat_config = flatten(config)
         config_name = "-".join([str(flat_config[k]) for k in name_keys])
-        result += f"-{config_name}"
-    result += f"-{rand_num}"
+        key_string = f"-{config_name}"
+    else:
+        key_string = ""
+
+    array_id = os.environ.get("SLURM_ARRAY_JOB_ID", None)
+    if array_id is not None:
+        # We are running in slurm - here we get unique IDs via SLURM and seml
+        exp_id = ex.current_run._id
+        return f"{mol_name}{key_string}-{exp_id}-{array_id}"
+
+    # If we are not running slurm let's just draw a random adjective and word
+    adjective = wonderwords.RandomWord().word(include_parts_of_speech=["adjectives"], word_max_length=8)
+    noun = wonderwords.RandomWord().word(include_parts_of_speech=["noun"], word_max_length=8)
+
+    result = f"{mol_name}{key_string}-{adjective}-{noun}"
     return result
 
 
