@@ -382,7 +382,6 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         h_out = contract(H_nb_en, Gamma_en, h0)
         return h_out
 
-
     @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(el,dim)->(det,el,orb)")
     def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
         n_el = electrons.shape[-2]
