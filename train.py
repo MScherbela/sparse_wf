@@ -1,5 +1,7 @@
 import logging
 import os
+from collections import Counter
+from typing import Any, Sequence, cast
 
 import jax
 import jax.numpy as jnp
@@ -7,7 +9,9 @@ import jax.tree_util as jtu
 import numpy as np
 import pyscf
 import tqdm
+import wonderwords
 from seml.experiment import Experiment
+from seml.utils import flatten, merge_dicts
 from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, OptimizationArgs, PretrainingArgs
 from sparse_wf.jax_utils import assert_identical_copies
 from sparse_wf.loggers import MultiLogger
@@ -36,6 +40,47 @@ def set_postfix(pbar: tqdm.tqdm, aux_data: dict[str, float]):
     pbar.set_postfix(jtu.tree_map(lambda x: f"{x:.4f}", aux_data))
 
 
+def get_run_name(mol: pyscf.gto.Mole, name_keys: Sequence[str] | None, config):
+    atoms = Counter([mol.atom_symbol(i) for i in range(mol.natm)])
+    mol_name = "".join([f"{k}{v}" for k, v in atoms.items()])
+
+    if name_keys:
+        flat_config = flatten(config)
+        config_name = "-".join([str(flat_config[k]) for k in name_keys])
+        key_string = f"-{config_name}"
+    else:
+        key_string = ""
+
+    array_id = os.environ.get("SLURM_ARRAY_JOB_ID", None)
+    if array_id is not None:
+        # We are running in slurm - here we get unique IDs via SLURM and seml
+        exp_id = ex.current_run._id
+        return f"{mol_name}{key_string}-{exp_id}-{array_id}"
+
+    # If we are not running slurm let's just draw a random adjective and word
+    adjective = wonderwords.RandomWord().word(include_parts_of_speech=["adjectives"], word_max_length=8)
+    noun = wonderwords.RandomWord().word(include_parts_of_speech=["noun"], word_max_length=8)
+
+    result = f"{mol_name}{key_string}-{adjective}-{noun}"
+    return result
+
+
+def update_logging_configuration(
+    mol: pyscf.gto.Mole, db_collection: str, logging_args: LoggingArgs, config
+) -> LoggingArgs:
+    folder_name = db_collection if db_collection else os.environ.get("USER", "default")
+    updates: dict[str, Any] = {}
+    if logging_args.get("collection", None) is None:
+        updates["collection"] = folder_name
+    if logging_args["wandb"].get("project", None) is None:
+        updates["wandb"] = dict(project=folder_name)
+    if logging_args.get("name", None) is None:
+        updates["name"] = get_run_name(mol, logging_args["name_keys"], config)
+    if logging_args.get("comment", None) is None:
+        updates["comment"] = None
+    return cast(LoggingArgs, merge_dicts(logging_args, updates))
+
+
 @ex.automain
 def main(
     molecule: str,
@@ -48,18 +93,21 @@ def main(
     init_width: float,
     basis: str,
     seed: int,
+    db_collection: str,
     logging_args: LoggingArgs,
 ):
     config = locals()
-    loggers = MultiLogger(logging_args)
+
+    mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
+    mol.build()
+
+    loggers = MultiLogger(update_logging_configuration(mol, db_collection, logging_args, config))
     loggers.log_config(config)
     # initialize distributed training
     if int(os.environ.get("SLURM_NTASKS", 1)) > 1:
         jax.distributed.initialize()
+    logging.info(f'Run name: {loggers.args["name"]}')
     logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
-
-    mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
-    mol.build()
 
     # wf = SparseMoonWavefunction.create(mol, **model_args)
     wf = DenseFermiNet.create(mol)
@@ -124,3 +172,4 @@ def main(
                 raise ValueError("NaN in energy")
             set_postfix(pbar, aux_data)
     assert_identical_copies(state.params)
+    loggers.store_blob(state.serialize(), "chkpt_final.msgpk")
