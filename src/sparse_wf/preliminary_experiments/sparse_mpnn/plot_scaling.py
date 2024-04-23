@@ -5,7 +5,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-fname = "timings_batchsize_8.txt"
+fname = "timings_batchsize_8_new.txt"
 data = []
 with open(fname, "r") as f:
     for line in f:
@@ -40,10 +40,15 @@ for p, o, x0 in zip(powers, offsets, xmin):
     x_plot = np.array([x0, 512])
     ax_t.plot(x_plot, t_factor * o * (x_plot / 126)**p, label=f"$O(N^{{{p}}})$", linestyle="--", color="k", alpha=p/2 - 0.2)
 
+
+GPU_DAYS_PER_SEC = (50e3 * 2048 / batch_size_plot) / (3600 * 24)
+
 ax_t.set_xlabel("Nr of electrons")
 ax_t.set_ylabel("Time for local energy (s)")
 ax_t.set_yscale("log")
 ax_t.set_xscale("log")
+secax = ax_t.secondary_yaxis("right", functions=(lambda x: x * GPU_DAYS_PER_SEC, lambda x: x / GPU_DAYS_PER_SEC))
+secax.set_ylabel("GPU-days for 50k energy steps (batchsize 2048)")
 x_tick_values = df.n_el.unique()
 ax_t.set_xticks(x_tick_values, minor=False)
 ax_t.set_xticks([], minor=True)
