@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import NamedTuple, Protocol, Sequence, TypeAlias, Callable, TypedDict, Optional
 
+import jax
 import numpy as np
 import optax
 from flax import struct
@@ -239,11 +240,32 @@ class TrainingState(struct.PyTreeNode):
     width_state: WidthSchedulerState
 
     def serialize(self):
-        return to_bytes(self)
+        from sparse_wf.jax_utils import instance, pmap, pgather
 
-    @classmethod
-    def deserialize(cls, data):
-        return from_bytes(cls, data)
+        @pmap
+        def gather_electrons(electrons):
+            return pgather(electrons, axis=0, tiled=True)
+
+        result = instance(self)  # only return a single copy of parameters, opt_state, etc.
+        # include electrons from all devices
+        result = result.replace(electrons=gather_electrons(self.electrons)[0])
+        return to_bytes(result)
+
+    def deserialize(self, data: bytes):
+        from sparse_wf.jax_utils import replicate
+
+        state_with_all_electrons = from_bytes(self, data)
+        # Distribute electrons to devices
+        electrons = state_with_all_electrons.electrons
+        electrons = electrons.reshape(jax.process_count(), jax.local_device_count(), -1, *electrons.shape[1:])
+        electrons = electrons[jax.process_index()]
+        # We have to create new keys for all devices
+        key = jax.random.split(state_with_all_electrons.key, (jax.process_count(), jax.local_device_count()))
+        key = key[jax.process_index()]
+        # Replicate the state to all devices
+        result = replicate(state_with_all_electrons)
+        result = result.replace(key=key, electrons=electrons)
+        return result
 
 
 class VMCStepFn(Protocol):
