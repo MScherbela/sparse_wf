@@ -12,7 +12,7 @@ import tqdm
 import wonderwords
 from seml.experiment import Experiment
 from seml.utils import flatten, merge_dicts
-from sparse_wf.api import AuxData, Electrons, LoggingArgs, ModelArgs, OptimizationArgs, PRNGKeyArray, PretrainingArgs
+from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, OptimizationArgs, PretrainingArgs
 from sparse_wf.jax_utils import assert_identical_copies
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import make_mcmc, make_width_scheduler, init_electrons
