@@ -424,6 +424,26 @@ class OptimizerArgs(TypedDict):
     transformations: Sequence[TransformationArgs]
 
 
+class Schedule(Enum):
+    CONSTANT = "constant"
+    LINEAR = "linear"
+    EXPONENTIAL = "exponential"
+    COSINE = "cosine"
+    HYPERBOLIC = "hyperbolic"
+
+
+class TransformationArgs(TypedDict):
+    name: str
+    args: tuple
+    kwargs: dict[str, Any]
+
+
+class OptimizerArgs(TypedDict):
+    lr_schedule: Schedule | str
+    lr_schedule_args: dict[str, dict[str, Any]]
+    transformations: Sequence[TransformationArgs]
+
+
 class OptimizationArgs(TypedDict):
     steps: int
     optimizer_args: OptimizerArgs
