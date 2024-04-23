@@ -8,10 +8,10 @@ import numpy as np
 import pyscf
 import tqdm
 from seml.experiment import Experiment
-from sparse_wf.api import AuxData, Electrons, LoggingArgs, ModelArgs, OptimizationArgs, PRNGKeyArray, PretrainingArgs
+from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, OptimizationArgs, PretrainingArgs
 from sparse_wf.jax_utils import assert_identical_copies
 from sparse_wf.loggers import MultiLogger
-from sparse_wf.mcmc import make_mcmc, make_width_scheduler
+from sparse_wf.mcmc import make_mcmc, make_width_scheduler, init_electrons
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 from sparse_wf.model.moon import SparseMoonWavefunction  # noqa: F401
 from sparse_wf.preconditioner import make_preconditioner
@@ -26,14 +26,6 @@ ex = Experiment()
 
 
 ex.add_config("config/default.yaml")
-
-
-def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> Electrons:
-    # TODO: center around nuclei, choose reasonable initial spin assignment
-    batch_size = batch_size // jax.process_count()
-    batch_size = batch_size - (batch_size % jax.local_device_count())
-    electrons = jax.random.normal(key, (batch_size, mol.nelectron, 3))
-    return electrons
 
 
 def to_log_data(aux_data: AuxData) -> dict[str, float]:
@@ -59,7 +51,6 @@ def main(
     logging_args: LoggingArgs,
 ):
     config = locals()
-    # TODO : add entity and make project configurable
     loggers = MultiLogger(logging_args)
     loggers.log_config(config)
     # initialize distributed training
@@ -126,7 +117,6 @@ def main(
     with tqdm.trange(optimization["steps"]) as pbar:
         for opt_step in pbar:
             static = wf.input_constructor.get_static_input(state.electrons)
-            # assert static.n_neighbours == (3, 1, 4)  # TODO: remove
             state, _, aux_data = trainer.step(state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(dict(opt_step=opt_step, **aux_data))
