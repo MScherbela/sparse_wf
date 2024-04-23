@@ -32,7 +32,7 @@ n_iterations = 5
 n_el_per_nuc = 1
 n_determinants = 4
 
-n_el_values = [2*(int(n)//2) for n in np.geomspace(32, 512, 9)]
+n_el_values = [2*(int(np.round(n))//2) for n in np.geomspace(32, 512, 9)][::-1]
 cutoff_values = np.array([3.0, 5.0, 7.0, 9.0])
 for n_el in n_el_values:
     for cutoff in cutoff_values:

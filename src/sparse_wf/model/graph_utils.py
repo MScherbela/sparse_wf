@@ -160,14 +160,34 @@ def pad_jacobian_to_output_deps(x: FwdLaplArray, dep_map: Integer[Array, " deps"
     return FwdLaplArray(x=x.x, jacobian=FwdJacobian(jac_out), laplacian=x.laplacian)
 
 
+def solve_A_transpose(lu, permutation, b):
+    x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=False, transpose_a=True)
+    x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=True, unit_diagonal=True, transpose_a=True)
+    x = x[jnp.argsort(permutation)]
+    return x
+
+
+def slogdet_from_lu(lu, pivot):
+    assert (lu.ndim == 2) and (lu.shape[0] == lu.shape[1])
+    n = lu.shape[0]
+    diag = jnp.diag(lu)
+    logdet = jnp.sum(jnp.log(jnp.abs(diag)))
+    parity = jnp.count_nonzero(pivot != jnp.arange(n))  # sign flip for each permutation
+    parity += jnp.count_nonzero(diag < 0)  # sign flip for each negative diagonal element
+    sign = jnp.where(parity % 2 == 0, 1.0, -1.0)
+    return sign, logdet
+
+
 def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Array, "el ndeps"]):
     n_el, n_orb = orbitals.x.shape[-2:]
     n_deps = dependencies.shape[-1]
     assert n_el == n_orb
-    sign, logdet = jnp.linalg.slogdet(orbitals.x)  # IDEA: re-use LU decomposition of orbitals to accelerate this
 
-    # solve to contract over orbital dim of jacobian; vmap over dependencies (incl. dim=3) and over electrons
-    M = jax.vmap(jax.vmap(lambda J: jnp.linalg.solve(orbitals.x.T, J)))(orbitals.jacobian.data)
+    orbitals_lu, orbitals_pivot, orbitals_permutation = jax.lax.linalg.lu(orbitals.x)
+    orbitals_trans_inv = solve_A_transpose(orbitals_lu, orbitals_permutation, jnp.eye(n_el))
+    sign, logdet = slogdet_from_lu(orbitals_lu, orbitals_pivot)
+
+    M = orbitals.jacobian.data @ orbitals_trans_inv
     M = M.reshape([n_deps, 3, n_el, n_el])  # split (deps * dim) into (deps, dim)
 
     # TODO: n_deps_max != n_dependants_max in general
@@ -187,19 +207,9 @@ def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Ar
     )
     assert M_hat.shape == (n_el, n_deps, n_deps, 3)
 
-    jvp_lap = jnp.trace(jnp.linalg.solve(orbitals.x, orbitals.laplacian))
+    jvp_lap = jnp.trace(orbitals_trans_inv @ orbitals.laplacian)
     jvp_jac = jnp.einsum("naad->nd", M_hat).reshape([n_el * 3])
     tr_JHJ = -jnp.einsum("nabd,nbad", M_hat, M_hat)
-
-    # # For verification purposes only: Materialize full jacobian
-    # M_full = jnp.zeros([n_el, 3, n_el, n_el])
-    # for i in range(n_el):
-    #     M_full = M_full.at[dependencies[i, :], :, i, :].set(M[:, :, i, :], mode="drop")
-
-    # jvp_jac_full = jnp.einsum("ndii->nd", M_full).reshape([n_el * 3])
-    # tr_JHJ_full = -jnp.einsum("ndik,ndki", M_full, M_full)
-    # error_jvp_jac = jnp.linalg.norm(jvp_jac_full - jvp_jac)
-    # error_tr_JHJ = jnp.abs(tr_JHJ_full - tr_JHJ)
 
     return sign, FwdLaplArray(logdet, FwdJacobian(data=jvp_jac), jvp_lap + tr_JHJ)
 
