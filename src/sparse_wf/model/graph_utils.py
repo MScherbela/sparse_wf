@@ -83,7 +83,7 @@ class GenericInputConstructor(InputConstructor):
     @jit(static_argnames="self")
     def _get_max_n_neighbours(self, dist_ee: DistanceMatrix, dist_ne: DistanceMatrix):
         n_el = dist_ee.shape[-1]
-        dist_ee += jnp.diag(jnp.inf * jnp.ones(n_el))
+        dist_ee += jnp.diag(jnp.ones(n_el) * jnp.inf)
         n_ee = jnp.max(jnp.sum(dist_ee < self.cutoff, axis=-1))
         n_ne = jnp.max(jnp.sum(dist_ne < self.cutoff, axis=-1))
         n_en = jnp.max(jnp.sum(dist_ne < self.cutoff, axis=-2))
