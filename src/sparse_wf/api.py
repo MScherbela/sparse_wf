@@ -398,6 +398,7 @@ class LoggingArgs(TypedDict):
     file: FileLoggingArgs
     name: str
     name_keys: Sequence[str] | None
+    comment: str | None
     out_directory: str
     collection: str
 

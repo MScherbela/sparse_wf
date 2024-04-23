@@ -1,7 +1,7 @@
 import logging
 import os
 from collections import Counter
-from typing import Sequence
+from typing import Any, Sequence, cast
 
 import jax
 import jax.numpy as jnp
@@ -12,7 +12,7 @@ import pyscf
 import tqdm
 import wonderwords
 from seml.experiment import Experiment
-from seml.utils import flatten
+from seml.utils import flatten, merge_dicts
 from sparse_wf.api import AuxData, Electrons, LoggingArgs, ModelArgs, OptimizationArgs, PRNGKeyArray
 from sparse_wf.jax_utils import assert_identical_copies
 from sparse_wf.loggers import MultiLogger
@@ -76,12 +76,17 @@ def get_run_name(mol: pyscf.gto.Mole, name_keys: Sequence[str] | None, config):
 def update_logging_configuration(
     mol: pyscf.gto.Mole, db_collection: str, logging_args: LoggingArgs, config
 ) -> LoggingArgs:
-    updates = {}
+    folder_name = db_collection if db_collection else os.environ.get("USER", "default")
+    updates: dict[str, Any] = {}
     if logging_args.get("collection", None) is None:
-        updates["collection"] = db_collection
+        updates["collection"] = folder_name
+    if logging_args["wandb"].get("project", None) is None:
+        updates["wandb"] = dict(project=folder_name)
     if logging_args.get("name", None) is None:
         updates["name"] = get_run_name(mol, logging_args["name_keys"], config)
-    return dict(logging_args) | updates  # type: ignore
+    if logging_args.get("comment", None) is None:
+        updates["comment"] = None
+    return cast(LoggingArgs, merge_dicts(logging_args, updates))
 
 
 @ex.automain

@@ -1,5 +1,6 @@
 import atexit
 import os
+from typing import Any
 
 import numpy as np
 
@@ -10,16 +11,18 @@ from sparse_wf.jax_utils import only_on_main_process
 
 class FileLogger(Logger):
     @only_on_main_process
-    def __init__(self, file_name: str, collection: str, out_directory: str, name: str, **_) -> None:
+    def __init__(self, file_name: str, collection: str, out_directory: str, name: str, comment: str, **_) -> None:
         if collection:
             self.path = os.path.join(out_directory, collection, name, file_name)
         else:
             self.path = os.path.join(out_directory, name, file_name)
         self.file = open(self.path, "w")
         atexit.register(self.file.close)
+        if comment:
+            self.log(comment)
 
     @only_on_main_process
-    def log(self, data: dict) -> None:
+    def log(self, data: Any) -> None:
         self.file.write(str(data) + "\n")
 
     @only_on_main_process
@@ -29,10 +32,8 @@ class FileLogger(Logger):
 
 class WandBLogger(Logger):
     @only_on_main_process
-    def __init__(self, project: str, entity: str, collection: str, name: str, **_) -> None:
-        if collection:
-            name = f"{collection}/{name}"
-        wandb.init(project=project, entity=entity, name=name)
+    def __init__(self, project: str, entity: str, name: str, comment: str, **_) -> None:
+        wandb.init(project=project, entity=entity, name=name, notes=comment)
         atexit.register(wandb.finish)
 
     @only_on_main_process

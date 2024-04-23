@@ -14,12 +14,12 @@ logging_args:
   out_directory: logs
   wandb:
     use: true
-    project: sparse_wf
     entity: tum_daml_nicholas
   file:
     use: true
     file_name: log.txt
   name_keys: []
+  comment: null
 
 optimization:
   steps: 100_000
