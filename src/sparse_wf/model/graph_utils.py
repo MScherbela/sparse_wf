@@ -160,10 +160,11 @@ def pad_jacobian_to_output_deps(x: FwdLaplArray, dep_map: Integer[Array, " deps"
     return FwdLaplArray(x=x.x, jacobian=FwdJacobian(jac_out), laplacian=x.laplacian)
 
 
-def solve_A_transpose(lu, permutation, b):
-    x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=False, transpose_a=True)
-    x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=True, unit_diagonal=True, transpose_a=True)
-    x = x[jnp.argsort(permutation)]
+def get_inverse_from_lu(lu, permutation):
+    n = lu.shape[0]
+    b = jnp.eye(n)[permutation]
+    x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=True, unit_diagonal=True)
+    x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=False)
     return x
 
 
@@ -182,12 +183,13 @@ def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Ar
     n_el, n_orb = orbitals.x.shape[-2:]
     n_deps = dependencies.shape[-1]
     assert n_el == n_orb
+    jnp.linalg.solve
 
     orbitals_lu, orbitals_pivot, orbitals_permutation = jax.lax.linalg.lu(orbitals.x)
-    orbitals_trans_inv = solve_A_transpose(orbitals_lu, orbitals_permutation, jnp.eye(n_el))
+    orbitals_inv = get_inverse_from_lu(orbitals_lu, orbitals_permutation)
     sign, logdet = slogdet_from_lu(orbitals_lu, orbitals_pivot)
 
-    M = orbitals.jacobian.data @ orbitals_trans_inv
+    M = orbitals.jacobian.data @ orbitals_inv
     M = M.reshape([n_deps, 3, n_el, n_el])  # split (deps * dim) into (deps, dim)
 
     # TODO: n_deps_max != n_dependants_max in general
@@ -207,7 +209,7 @@ def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Ar
     )
     assert M_hat.shape == (n_el, n_deps, n_deps, 3)
 
-    jvp_lap = jnp.trace(orbitals_trans_inv @ orbitals.laplacian)
+    jvp_lap = jnp.trace(orbitals.laplacian @ orbitals_inv)
     jvp_jac = jnp.einsum("naad->nd", M_hat).reshape([n_el * 3])
     tr_JHJ = -jnp.einsum("nabd,nbad", M_hat, M_hat)
 

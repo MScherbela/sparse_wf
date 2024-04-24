@@ -9,6 +9,7 @@ import numpy as np
 from jax import config as jax_config
 import jax.tree_util as jtu
 
+print(jax.devices())
 dtype = jnp.float64
 jax_config.update("jax_enable_x64", dtype is jnp.float64)
 jax_config.update("jax_default_matmul_precision", "highest")
