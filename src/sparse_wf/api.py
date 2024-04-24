@@ -434,3 +434,9 @@ class OptimizationArgs(TypedDict):
 class PretrainingArgs(TypedDict):
     steps: int
     optimizer_args: OptimizerArgs
+
+
+class MoleculeArgs(TypedDict):
+    method: str
+    args: dict[str, Any]
+    basis: str
