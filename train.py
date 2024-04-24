@@ -14,14 +14,14 @@ from seml.experiment import Experiment
 from seml.utils import flatten, merge_dicts
 from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, OptimizationArgs, PretrainingArgs
 from sparse_wf.jax_utils import assert_identical_copies
-from sparse_wf.loggers import MultiLogger
-from sparse_wf.mcmc import make_mcmc, make_width_scheduler, init_electrons
+from sparse_wf.loggers import MultiLogger, copy_from_main, replicate
+from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 from sparse_wf.model.moon import SparseMoonWavefunction  # noqa: F401
+from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.systems.scf import make_hf_orbitals
-from sparse_wf.optim import make_optimizer
 from sparse_wf.update import make_trainer
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -115,6 +115,7 @@ def main(
     # Setup random keys
     # the main key will always be identitcal on all processes
     main_key = jax.random.PRNGKey(seed)
+    main_key = copy_from_main(replicate(main_key))[0]
     # the proc_key will be unique per process.
     main_key, subkey = jax.random.split(main_key)
     proc_key = jax.random.split(subkey, jax.process_count())[jax.process_index()]
