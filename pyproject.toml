@@ -20,7 +20,8 @@ dependencies = [
     "pyscf",
     "seml[ssh_forward]",
     "tqdm",
-    "wandb"
+    "wandb",
+    "wonderwords"
 ]
 
 [project.optional-dependencies]
