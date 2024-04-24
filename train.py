@@ -112,8 +112,12 @@ def main(
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
-    wf = SparseMoonWavefunction.create(mol, **model_args)
-    # wf = DenseFermiNet.create(mol)
+    if model_args["model_name"] == "moon":
+        logging.info("Using Moon wavefunction")
+        wf = SparseMoonWavefunction.create(mol, **model_args)
+    else:
+        logging.info("Using FermiNet wavefunction")
+        wf = DenseFermiNet.create(mol)
 
     # Setup random keys
     # the main key will always be identitcal on all processes
