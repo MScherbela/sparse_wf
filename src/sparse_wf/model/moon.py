@@ -408,24 +408,20 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
 
     @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(el,dim)->(det,el,orb)")
     def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
-        with jax.named_scope("Embedding"):
-            h = self._embedding(params, electrons, static)
-
-        with jax.named_scope("Orbitals"):
-            orbitals = cast(jax.Array, self.lin_orbitals.apply(params.lin_orbitals, h))
-            envelopes = jax.vmap(lambda r: self._envelopes(params, r))(electrons)
-            orbitals = jax.vmap(self._merge_orbitals_with_envelopes, in_axes=0, out_axes=-2)(
-                orbitals, envelopes
-            )  # vmap over electrons
-            orbitals = swap_bottom_blocks(orbitals, self.n_up)
+        h = self._embedding(params, electrons, static)
+        orbitals = cast(jax.Array, self.lin_orbitals.apply(params.lin_orbitals, h))
+        envelopes = jax.vmap(lambda r: self._envelopes(params, r))(electrons)
+        orbitals = jax.vmap(self._merge_orbitals_with_envelopes, in_axes=0, out_axes=-2)(
+            orbitals, envelopes
+        )  # vmap over electrons
+        orbitals = swap_bottom_blocks(orbitals, self.n_up)
         return (orbitals,)
 
     def _logpsi_with_fwd_lap(self, params, electrons, static):
         orbitals, dependencies = self._orbitals_with_fwd_lap(params, electrons, static)
-        with jax.named_scope("LogPsi"):
-            signs, logdets = jax.vmap(lambda o: slogdet_with_sparse_fwd_lap(o, dependencies), in_axes=-3, out_axes=-1)(
-                orbitals
-            )
+        signs, logdets = jax.vmap(lambda o: slogdet_with_sparse_fwd_lap(o, dependencies), in_axes=-3, out_axes=-1)(
+            orbitals
+        )
         # We set return_sign=True and then ignore the sign (by only taking return value 0),
         # because otherwise logsumexp cannot deal with negative signs
         return fwd_lap(lambda logdets_: jax.nn.logsumexp(logdets_, b=signs, return_sign=True)[0])(logdets)

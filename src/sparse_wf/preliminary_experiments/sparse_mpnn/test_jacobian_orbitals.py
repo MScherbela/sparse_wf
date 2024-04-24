@@ -4,11 +4,9 @@ import jax
 import jax.numpy as jnp
 from pyscf.gto import Mole
 from sparse_wf.jax_utils import fwd_lap
-from sparse_wf.model.graph_utils import slogdet_with_sparse_fwd_lap
 import numpy as np
 from jax import config as jax_config
 import jax.tree_util as jtu
-import einops
 from folx.api import FwdLaplArray
 
 dtype = jnp.float64
