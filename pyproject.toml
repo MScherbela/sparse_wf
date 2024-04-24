@@ -20,7 +20,8 @@ dependencies = [
     "pyscf",
     "seml[ssh_forward]",
     "tqdm",
-    "wandb"
+    "wandb",
+    "pytest"
 ]
 
 [project.optional-dependencies]
