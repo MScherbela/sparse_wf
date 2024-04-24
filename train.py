@@ -13,7 +13,7 @@ import wonderwords
 from seml.experiment import Experiment
 from seml.utils import flatten, merge_dicts
 from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, OptimizationArgs, PretrainingArgs
-from sparse_wf.jax_utils import assert_identical_copies
+from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import make_mcmc, make_width_scheduler, init_electrons
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
@@ -115,6 +115,7 @@ def main(
     # Setup random keys
     # the main key will always be identitcal on all processes
     main_key = jax.random.PRNGKey(seed)
+    main_key = copy_from_main(replicate(main_key))[0]  # make sure that the main key is the same on all processes
     # the proc_key will be unique per process.
     main_key, subkey = jax.random.split(main_key)
     proc_key = jax.random.split(subkey, jax.process_count())[jax.process_index()]
