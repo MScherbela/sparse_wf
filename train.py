@@ -1,9 +1,10 @@
-import os
-os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
-
 import logging
 from collections import Counter
 from typing import Any, Sequence, cast
+import os
+os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+
+# ruff: noqa: E402
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -17,6 +18,7 @@ from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, OptimizationArgs, Pre
 from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
+
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 from sparse_wf.model.moon import SparseMoonWavefunction  # noqa: F401
 from sparse_wf.optim import make_optimizer
@@ -24,6 +26,7 @@ from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.systems.scf import make_hf_orbitals
 from sparse_wf.update import make_trainer
+
 
 jax.config.update("jax_default_matmul_precision", "float32")
 jax.config.update("jax_enable_x64", False)
