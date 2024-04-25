@@ -325,10 +325,14 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         return params
 
     def get_neighbour_coordinates(self, electrons: Electrons, idx_nb: NeighbourIndices):
+        # [n_el  x n_neighbouring_electrons] - spin of each adjacent electron for each electron
         spin_nb_ee = get_with_fill(self.spins, idx_nb.ee, 0.0)
-        r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)  # [n_el  x n_neighbouring_electrons x 3]
-        r_nb_ne = get_with_fill(electrons, idx_nb.ne, NO_NEIGHBOUR)  # [n_nuc x n_neighbouring_electrons x 3]
-        R_nb_en = get_with_fill(self.R, idx_nb.en, NO_NEIGHBOUR)  # [n_el  x n_neighbouring_nuclei    x 3]
+        # [n_el  x n_neighbouring_electrons x 3] - position of each adjacent electron for each electron
+        r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)
+        # [n_nuc x n_neighbouring_electrons x 3] - position of each adjacent electron for each nuclei
+        r_nb_ne = get_with_fill(electrons, idx_nb.ne, NO_NEIGHBOUR)
+        # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron
+        R_nb_en = get_with_fill(self.R, idx_nb.en, NO_NEIGHBOUR)
         return spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en
 
     def _get_h0(

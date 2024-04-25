@@ -1,18 +1,19 @@
 # %%
 # ruff: noqa: E402 # Allow setting environment variables before importing jax
+import functools
 import os
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-from sparse_wf.model import SparseMoonWavefunction
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
+import numpy as np
+from folx.api import FwdJacobian, FwdLaplArray
+from jax import config as jax_config
 from pyscf.gto import Mole
 from sparse_wf.jax_utils import fwd_lap
-import numpy as np
-from jax import config as jax_config
-from folx.api import FwdLaplArray, FwdJacobian
-import jax.tree_util as jtu
 from sparse_wf.mcmc import init_electrons
+from sparse_wf.model import SparseMoonWavefunction
 
 jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
@@ -37,6 +38,7 @@ def build_model(mol):
     )
 
 
+@functools.lru_cache()
 def setup_inputs():
     rng = jax.random.PRNGKey(0)
     rng_r, rng_params = jax.random.split(rng)

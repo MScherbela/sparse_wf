@@ -42,5 +42,5 @@ disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 
 [tool.pytest.ini_options]
 testpaths = [
-    "src/tests"
+    "tests"
 ]
