@@ -188,9 +188,9 @@ class PairwiseFilter(nn.Module):
     n_envelopes: int
     out_dim: int
 
-    def scale_initializer(self, rng, shape):
-        relative_noise = 0.1 * jax.random.normal(rng, shape)
-        mean_scale = 0.5 * self.cutoff
+    def scale_initializer(self, rng, shape, dtype):
+        relative_noise = 0.1 * jax.random.normal(rng, shape, dtype)
+        mean_scale = 0.5 * jnp.array(self.cutoff, dtype)
         return mean_scale * (1 + relative_noise)
 
     @nn.compact
@@ -207,7 +207,7 @@ class PairwiseFilter(nn.Module):
 
         # Distance-dependenet radial filters
         dist = dist_diff[..., 0]
-        scales = self.param("scales", self.scale_initializer, (self.n_envelopes,))
+        scales = self.param("scales", self.scale_initializer, (self.n_envelopes,), jnp.float32)
         scales = jax.nn.softplus(scales)
         envelopes = jnp.exp(-((dist[..., None] / scales) ** 2))
         envelopes = nn.Dense(directional_features.shape[-1], use_bias=False)(envelopes)
@@ -254,7 +254,8 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
 
     @property
     def spins(self):
-        return jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_dn)])
+        dtype = self.R.dtype
+        return jnp.concatenate([jnp.ones(self.n_up, dtype), -jnp.ones(self.n_dn, dtype)])
 
     @classmethod
     def create(

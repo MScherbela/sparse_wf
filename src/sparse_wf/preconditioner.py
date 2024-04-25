@@ -95,6 +95,7 @@ def make_spring_preconditioner(
         dE_dlogpsi: EnergyCotangent,
         natgrad_state: PreconditionerState,
     ):
+        dtype = dE_dlogpsi.dtype
         n_dev = jax.device_count()
         local_batch_size = dE_dlogpsi.size
         N = local_batch_size * n_dev
@@ -109,13 +110,13 @@ def make_spring_preconditioner(
         jacobians = jtu.tree_map(lambda x: x.reshape(local_batch_size, -1), jacobians)
 
         # Compute T
-        T = jnp.zeros((N, N))
+        T = jnp.zeros((N, N), dtype)
         for jac in jacobians:
             if jac.shape[-1] % n_dev != 0:
                 jac = jnp.concatenate(
                     [
                         jac,
-                        jnp.zeros((jac.shape[0], n_dev - jac.shape[-1] % n_dev)),
+                        jnp.zeros((jac.shape[0], n_dev - jac.shape[-1] % n_dev), dtype),
                     ],
                     axis=-1,
                 )
@@ -146,7 +147,7 @@ def make_spring_preconditioner(
         cotangent -= centered_jvp(decayed_last_grad).reshape(-1)
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
-        T = T + damping * jnp.eye(T.shape[-1]) + 1 / N
+        T = T + damping * jnp.eye(T.shape[-1], dtype=T.dtype) + 1 / N
 
         natgrad = centered_vjp(jnp.linalg.solve(T, cotangent).reshape(n_dev, -1)[pidx()])
         natgrad = tree_add(natgrad, decayed_last_grad)

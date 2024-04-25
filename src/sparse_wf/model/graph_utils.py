@@ -49,7 +49,7 @@ class GenericInputConstructor(InputConstructor):
         def _get_ind_neighbour(dist, max_n_neighbours: int, exclude_diagonal=False):
             if exclude_diagonal:
                 n_particles = dist.shape[-1]
-                dist += jnp.diag(jnp.inf * jnp.ones(n_particles))
+                dist += jnp.diag(jnp.inf * jnp.ones(n_particles, dist.dtype))
             in_cutoff = dist < self.cutoff
 
             # TODO: dynamically assert that n_neighbours <= max_n_neighbours
@@ -83,7 +83,7 @@ class GenericInputConstructor(InputConstructor):
     @jit(static_argnames="self")
     def _get_max_n_neighbours(self, dist_ee: DistanceMatrix, dist_ne: DistanceMatrix):
         n_el = dist_ee.shape[-1]
-        dist_ee += jnp.diag(jnp.ones(n_el) * jnp.inf)
+        dist_ee += jnp.diag(jnp.ones(n_el, dist_ee.dtype) * jnp.inf)
         n_ee = jnp.max(jnp.sum(dist_ee < self.cutoff, axis=-1))
         n_ne = jnp.max(jnp.sum(dist_ne < self.cutoff, axis=-1))
         n_en = jnp.max(jnp.sum(dist_ne < self.cutoff, axis=-2))
@@ -162,7 +162,7 @@ def pad_jacobian_to_output_deps(x: FwdLaplArray, dep_map: Integer[Array, " deps"
 
 def get_inverse_from_lu(lu, permutation):
     n = lu.shape[0]
-    b = jnp.eye(n)[permutation]
+    b = jnp.eye(n, dtype=lu.dtype)[permutation]
     x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=True, unit_diagonal=True)
     x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=False)
     return x
@@ -183,7 +183,6 @@ def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Ar
     n_el, n_orb = orbitals.x.shape[-2:]
     n_deps = dependencies.shape[-1]
     assert n_el == n_orb
-    jnp.linalg.solve
 
     orbitals_lu, orbitals_pivot, orbitals_permutation = jax.lax.linalg.lu(orbitals.x)
     orbitals_inv = get_inverse_from_lu(orbitals_lu, orbitals_permutation)
@@ -219,5 +218,5 @@ def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Ar
 def densify_jacobian_by_zero_padding(h: FwdLaplArray, n_deps_out):
     jac = h.jacobian.data
     n_deps_sparse = jac.shape[0]
-    padding = jnp.zeros([n_deps_out - n_deps_sparse, *jac.shape[1:]])
+    padding = jnp.zeros([n_deps_out - n_deps_sparse, *jac.shape[1:]], jac.dtype)
     return FwdLaplArray(x=h.x, jacobian=FwdJacobian(jnp.concatenate([jac, padding], axis=0)), laplacian=h.laplacian)

@@ -95,8 +95,8 @@ class IsotropicEnvelope(nn.Module):
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (n_nuc, self.out_dim), dists.dtype))
-        pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.out_dim), dists.dtype)
+        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (n_nuc, self.out_dim), jnp.float32))
+        pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.out_dim), jnp.float32)
         scaled_dists = dists[..., None] * sigma
         env = jnp.exp(-scaled_dists)
         if self.cutoff is not None:
@@ -123,6 +123,7 @@ class SlaterOrbitals(nn.Module):
 
 
 def hf_orbitals_to_fulldet_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
+    dtype = hf_orbitals[0].dtype
     leading_shape = hf_orbitals[0].shape[:-2]
     n_up = hf_orbitals[0].shape[-1]
     n_down = hf_orbitals[1].shape[-1]
@@ -131,13 +132,13 @@ def hf_orbitals_to_fulldet_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
             jnp.concatenate(
                 [
                     hf_orbitals[0],
-                    jnp.zeros((*leading_shape, n_up, n_down)),
+                    jnp.zeros((*leading_shape, n_up, n_down), dtype),
                 ],
                 axis=-1,
             ),
             jnp.concatenate(
                 [
-                    jnp.zeros((*leading_shape, n_down, n_up)),
+                    jnp.zeros((*leading_shape, n_down, n_up), dtype),
                     hf_orbitals[1],
                 ],
                 axis=-1,

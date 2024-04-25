@@ -12,7 +12,7 @@ jax.config.update("jax_enable_x64", True)
 
 def to_zero_padded(jac: Float[Array, "3 el orb"]) -> Float[Array, "3*el el orb"]:
     n_el = jac.shape[-2]
-    jac_out = jnp.zeros([n_el, 3, n_el, n_el])
+    jac_out = jnp.zeros([n_el, 3, n_el, n_el], jac.dtype)
     i = jnp.arange(n_el)
     jac_out = jac_out.at[i, :, i, :].set(jnp.swapaxes(jac, 0, 1))
     jac_out = jac_out.reshape([3 * n_el, n_el, n_el])

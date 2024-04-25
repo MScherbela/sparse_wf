@@ -36,7 +36,7 @@ def make_hf_orbitals(molecule: Molecule | pyscf.gto.Mole, basis: str) -> HFOrbit
             electrons,
             vectorized=True,
         )
-        mo_values = ao_orbitals @ coeffs
+        mo_values = jnp.array(ao_orbitals @ coeffs, electrons.dtype)
 
         up_orbitals = mo_values[..., :n_up, :n_up]
         down_orbitals = mo_values[..., n_up:, :n_down]
