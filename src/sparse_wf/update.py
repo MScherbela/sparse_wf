@@ -91,7 +91,7 @@ def make_trainer(
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
-        energy = wave_function.local_energy(state.params, electrons, static)
+        energy = wave_function.local_energy_dense(state.params, electrons, static)  # type: ignore
         energy_diff = local_energy_diff(energy, **clipping_args)
 
         E_mean = pmean(energy.mean())
