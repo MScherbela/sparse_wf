@@ -1,8 +1,9 @@
-import logging
 import os
+os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+
+import logging
 from collections import Counter
 from typing import Any, Sequence, cast
-
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
