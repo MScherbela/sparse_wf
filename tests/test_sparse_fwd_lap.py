@@ -16,6 +16,7 @@ from jax import config as jax_config
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.mcmc import init_electrons
 from sparse_wf.model import SparseMoonWavefunction
+import itertools
 
 jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
@@ -33,10 +34,10 @@ def build_model(mol):
         mol,
         n_determinants=2,
         cutoff=2.0,
-        feature_dim=32,
+        feature_dim=256,
         nuc_mlp_depth=2,
         pair_mlp_widths=(16, 8),
-        pair_n_envelopes=16,
+        pair_n_envelopes=32,
     )
 
 
@@ -74,7 +75,7 @@ def to_zero_padded(x, dependencies):
 
 
 def get_relative_tolerance(dtype):
-    return 1e-11 if (dtype == jnp.float64) else 1e-5
+    return 1e-12 if (dtype == jnp.float64) else 1e-6
 
 
 def assert_close(x, y, rtol=None):
@@ -115,16 +116,25 @@ def test_orbitals(dtype):
 
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
 def test_energy(dtype):
+    # Use higher tolerance for energy due to possibly ill-conditioned orbital matrx
+    # TODO: find a way to get samples/parameters which don't lead to ill-conditioned matrices and allow better testing
+    rtol = get_relative_tolerance(dtype) * 1e3
     model, electrons, params, static_args = setup_inputs(dtype)
-    energy_sparse = model.local_energy(params, electrons, static_args)
-    energy_dense = model.local_energy_dense(params, electrons, static_args)
-    assert energy_sparse.dtype == dtype
-    assert energy_dense.dtype == dtype
-    energy_sparse, energy_dense = float(energy_sparse), float(energy_dense)
-    assert np.isfinite(energy_sparse) and np.isfinite(energy_dense)
-    assert jnp.abs(energy_sparse - energy_dense) / jnp.abs(energy_dense) < get_relative_tolerance(
-        dtype
-    ), f"Energy sparse: {energy_sparse:.6f}, Energy dense: {energy_dense:.6f}"
+
+    energies = {}
+    energies["sparse"] = model.local_energy(params, electrons, static_args)
+    energies["dense"] = model.local_energy_dense(params, electrons, static_args)
+    energies["loop"] = model.local_energy_dense_looped(params, electrons, static_args)
+    for k, E in energies.items():
+        assert E.dtype == dtype, f"{k}: {E.dtype}"
+        assert np.isfinite(E), f"{k}: {E}"
+
+    def rel_error(a, b):
+        return jnp.abs(a - b) / jnp.abs(b)
+
+    rel_errors = {f"{k1}-{k2}": rel_error(E1, E2) for (k1, E1), (k2, E2) in itertools.combinations(energies.items(), 2)}
+
+    assert all([err < rtol for err in rel_errors.values()]), f"Energies: {energies}, Rel. errors: {rel_errors}"
 
 
 if __name__ == "__main__":

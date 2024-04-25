@@ -310,6 +310,10 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
     def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput):
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
 
+    @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
+    def local_energy_dense_looped(self, params: Parameters, electrons: Electrons, static: StaticInput):
+        return make_local_energy(self, self.R, self.Z, use_fwd_lap=False)(params, electrons, static)
+
     def init(self, rng: PRNGKeyArray):
         rngs = jax.random.split(rng, 7)
         feature_dim = self.lin_h0.features

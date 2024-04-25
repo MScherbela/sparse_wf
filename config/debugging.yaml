@@ -2,15 +2,19 @@ molecule: "Be 0 0 0"
 spin: 0
 
 model_args:
-  cutoff: 3.0
+  cutoff: 10.0
+
+pretraining:
+  steps: 1000
 
 optimization:
+  steps: 50_000
   preconditioner_args:
     preconditioner: cg
 
 logging_args:
   wandb:
     entity: tum_daml_nicholas
-    project: compare_energies
+    project: debug
 
-pretrain_steps: 200
+batch_size: 2048

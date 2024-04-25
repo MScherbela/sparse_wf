@@ -97,6 +97,12 @@ def make_trainer(
         E_mean = pmean(energy.mean())
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
         aux_data = {"opt/E": E_mean, "opt/E_std": E_std, "mcmc/pmove": pmove, "mcmc/stepsize": state.width_state.width}
+
+        # # TODO: for debugging only; remove
+        # energy_dense = wave_function.local_energy_dense(state.params, electrons, static) # type: ignore
+        # E_mean_dense = pmean(energy_dense.mean())
+        # aux_data["opt/E_dense"] = E_mean_dense
+
         natgrad = state.opt_state.natgrad
         gradient, natgrad, preconditioner_aux = preconditioner.precondition(
             state.params,
