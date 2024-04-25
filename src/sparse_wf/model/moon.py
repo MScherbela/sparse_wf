@@ -267,6 +267,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         nuc_mlp_depth: int,
         pair_mlp_widths: Sequence[int],
         pair_n_envelopes: int,
+        model_name: str
     ):
         n_up, n_dn = mol.nelec
         n_el = n_up + n_dn
@@ -300,14 +301,14 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         return self.signed(params, electrons, static)[1]
 
     @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
-    def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
+    def local_energy_sparse(self, params: Parameters, electrons: Electrons, static: StaticInput):
         log_psi = self._logpsi_with_fwd_lap(params, electrons, static)
         E_kin = -0.5 * (log_psi.laplacian + jnp.vdot(log_psi.jacobian.data, log_psi.jacobian.data))
         E_pot = potential_energy(electrons, self.R, self.Z)
         return E_pot + E_kin
 
     @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
-    def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput):
+    def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
 
     @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")

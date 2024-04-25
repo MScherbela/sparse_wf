@@ -1,6 +1,9 @@
 import logging
 import os
 
+os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+
+# ruff: noqa: E402
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -61,8 +64,10 @@ def main(
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
-    wf = SparseMoonWavefunction.create(mol, **model_args)
-    # wf = DenseFermiNet.create(mol)
+    if model_args["model_name"] == "moon":
+        wf = SparseMoonWavefunction.create(mol, **model_args)
+    else:
+        wf = DenseFermiNet.create(mol)
 
     # Setup random keys
     # the main key will always be identitcal on all processes

@@ -2,6 +2,7 @@ molecule: "Be 0 0 0"
 spin: 0
 
 model_args:
+  model_name: moon
   cutoff: 10.0
   feature_dim: 256
   nuc_mlp_depth: 3
