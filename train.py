@@ -25,7 +25,7 @@ from sparse_wf.optim import make_optimizer
 from sparse_wf.update import make_trainer
 
 jax.config.update("jax_default_matmul_precision", "highest")
-jax.config.update("jax_enable_x64", True)
+jax.config.update("jax_enable_x64", False)
 ex = Experiment()
 
 
@@ -133,7 +133,6 @@ def main(
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
     params = wf.init(subkey)
-    params = jtu.tree_map(lambda x: jnp.array(x, jnp.float64), params)
 
     logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jtu.tree_leaves(params))}")
 

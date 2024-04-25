@@ -9,7 +9,7 @@ from jax import config as jax_config
 import jax.tree_util as jtu
 from folx.api import FwdLaplArray
 
-dtype = jnp.float64
+dtype = jnp.float32
 jax_config.update("jax_enable_x64", dtype is jnp.float64)
 jax_config.update("jax_default_matmul_precision", "highest")
 
@@ -58,6 +58,7 @@ model = SparseMoonWavefunction.create(
     nuc_mlp_depth=2,
     pair_mlp_widths=(16, 8),
     pair_n_envelopes=16,
+    model_name="moon"
 )
 params = model.init(rng_model)
 params = jtu.tree_map(lambda x: jnp.array(x, dtype), params)

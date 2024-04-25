@@ -8,9 +8,10 @@ from pyscf.gto import Mole
 import numpy as np
 from jax import config as jax_config
 import jax.tree_util as jtu
+import functools
 
 print(jax.devices())
-dtype = jnp.float64
+dtype = jnp.float32
 jax_config.update("jax_enable_x64", dtype is jnp.float64)
 jax_config.update("jax_default_matmul_precision", "highest")
 
@@ -44,7 +45,7 @@ n_el = electrons.shape[-2]
 model = SparseMoonWavefunction.create(
     mol,
     n_determinants=n_determinants,
-    cutoff=3.0,
+    cutoff=10.0,
     feature_dim=32,
     nuc_mlp_depth=2,
     pair_mlp_widths=(16, 8),
@@ -54,6 +55,13 @@ model = SparseMoonWavefunction.create(
 params = model.init(rng_model)
 params = jtu.tree_map(lambda x: jnp.array(x, dtype), params)
 static_args = model.input_constructor.get_static_input(electrons)
+
+N = batch_size
+
+from sparse_wf.preconditioner import make_identity_preconditioner
+
+sparse_psi = model._logpsi_with_fwd_lap()
+
 
 Eloc_ext = model.local_energy_dense(params, electrons[0], static_args)
 Eloc_int = model.local_energy(params, electrons[0], static_args)

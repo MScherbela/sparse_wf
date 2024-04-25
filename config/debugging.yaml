@@ -2,7 +2,7 @@ molecule: "Be 0 0 0"
 spin: 0
 
 model_args:
-  cutoff: 3.0
+  cutoff: 100.0
 
 optimization:
   preconditioner_args:
@@ -10,7 +10,6 @@ optimization:
 
 logging_args:
   wandb:
-    entity: tum_daml_nicholas
-    project: compare_energies
+    use: False
 
-pretrain_steps: 200
+pretrain_steps: 0
