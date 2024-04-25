@@ -109,8 +109,8 @@ def main(
     logging.info(f'Run name: {loggers.args["name"]}')
     logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
 
-    # wf = SparseMoonWavefunction.create(mol, **model_args)
-    wf = DenseFermiNet.create(mol)
+    wf = SparseMoonWavefunction.create(mol, **model_args)
+    # wf = DenseFermiNet.create(mol)
 
     # Setup random keys
     # the main key will always be identitcal on all processes
