@@ -3,6 +3,8 @@ import os
 from collections import Counter
 from typing import Any, Sequence, cast
 
+os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
