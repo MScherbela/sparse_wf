@@ -56,13 +56,6 @@ params = model.init(rng_model)
 params = jtu.tree_map(lambda x: jnp.array(x, dtype), params)
 static_args = model.input_constructor.get_static_input(electrons)
 
-N = batch_size
-
-from sparse_wf.preconditioner import make_identity_preconditioner
-
-sparse_psi = model._logpsi_with_fwd_lap()
-
-
 Eloc_ext = model.local_energy_dense(params, electrons[0], static_args)
 Eloc_int = model.local_energy(params, electrons[0], static_args)
 print(f"Eloc with full lap  : {Eloc_ext: 10.4f}")

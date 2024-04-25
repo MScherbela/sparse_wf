@@ -12,4 +12,5 @@ logging_args:
   wandb:
     use: False
 
-pretrain_steps: 0
+pretraining:
+  steps: 0
