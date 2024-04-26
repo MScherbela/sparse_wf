@@ -119,8 +119,7 @@ def make_trainer(
         # E_mean_dense = pmean(energy_dense.mean())
         # aux_data["opt/E_dense"] = E_mean_dense
 
-        natgrad = state.opt_state.natgrad
-        gradient, natgrad, preconditioner_aux = preconditioner.precondition(
+        natgrad, precond_state, preconditioner_aux = preconditioner.precondition(
             state.params,
             electrons,
             static,
@@ -128,9 +127,9 @@ def make_trainer(
             state.opt_state.natgrad,  # type: ignore
         )
         aux_data.update(preconditioner_aux)
-        aux_data["update_norm"] = tree_dot(gradient, gradient) ** 0.5
+        aux_data["update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
 
-        updates, opt = optimizer.update(gradient, state.opt_state.opt, state.params)
+        updates, opt = optimizer.update(natgrad, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)
 
         return (
@@ -138,7 +137,7 @@ def make_trainer(
                 key=key,
                 params=params,
                 electrons=electrons,
-                opt_state=OptState(opt, natgrad),
+                opt_state=OptState(opt, precond_state),
                 width_state=width_state,
             ),
             energy,
