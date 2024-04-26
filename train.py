@@ -101,7 +101,7 @@ def main(
     logging.info("Pretraining")
     with tqdm.trange(pretraining["steps"]) as pbar:
         for _ in pbar:
-            static = wf.input_constructor.get_static_input(state.electrons)
+            static = wf.get_static_input(state.electrons)
             state, aux_data = pretrainer.step(state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(aux_data)
@@ -115,7 +115,7 @@ def main(
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:
         for opt_step in pbar:
-            static = wf.input_constructor.get_static_input(state.electrons)
+            static = wf.get_static_input(state.electrons)
             state, _, aux_data = trainer.step(state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(dict(opt_step=opt_step, **aux_data))

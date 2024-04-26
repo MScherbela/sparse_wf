@@ -1,24 +1,30 @@
+from typing import TypeVar
+
 import jax
 import optax
 
 from sparse_wf.api import (
-    HFOrbitalFn,
     AuxData,
-    Parameters,
+    HFOrbitalFn,
     Pretrainer,
     PretrainState,
-    StaticInput,
     Trainer,
     TrainingState,
 )
 from sparse_wf.jax_utils import pmap, pmean
 
+P, S = TypeVar("P"), TypeVar("S")
 
-def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: optax.GradientTransformation) -> Pretrainer:
+
+def make_pretrainer(
+    trainer: Trainer[P, S],
+    source_model: HFOrbitalFn,
+    optimizer: optax.GradientTransformation,
+) -> Pretrainer[P, S]:
     batch_orbitals = jax.vmap(trainer.wave_function.orbitals, in_axes=(None, 0, None))
     batch_src_orbitals = jax.vmap(source_model, in_axes=(0,))
 
-    def init(training_state: TrainingState):
+    def init(training_state: TrainingState[P]):
         return PretrainState(
             training_state.key,
             training_state.params,
@@ -29,11 +35,11 @@ def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: opta
         )
 
     @pmap(static_broadcasted_argnums=1)
-    def step(state: PretrainState, static: StaticInput) -> tuple[PretrainState, AuxData]:
+    def step(state: PretrainState[P], static: S) -> tuple[PretrainState[P], AuxData]:
         targets = trainer.wave_function.hf_transformation(batch_src_orbitals(state.electrons))
 
         @jax.value_and_grad
-        def loss_and_grad(params: Parameters):
+        def loss_and_grad(params):
             predicted_orbitals = batch_orbitals(params, state.electrons, static)
             return sum(((o - p_o) ** 2).mean() for o, p_o in zip(targets, predicted_orbitals))
 

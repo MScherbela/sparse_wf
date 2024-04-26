@@ -1,27 +1,27 @@
+from typing import TypeVar
+
 import jax
 import jax.numpy as jnp
+import numpy as np
+import pyscf
 from jax import lax
 
 from sparse_wf.api import (
-    Int,
-    ClosedLogLikelihood,
-    LogAmplitude,
-    Electrons,
-    MCStep,
-    Parameters,
-    PMove,
-    ParameterizedLogPsi,
-    StaticInput,
-    Width,
-    Nuclei,
     Charges,
+    ClosedLogLikelihood,
+    Electrons,
+    Int,
+    LogAmplitude,
+    MCStep,
+    Nuclei,
+    ParameterizedWaveFunction,
+    PMove,
     PRNGKeyArray,
+    Width,
     WidthScheduler,
     WidthSchedulerState,
 )
 from sparse_wf.jax_utils import jit, psum
-import numpy as np
-import pyscf
 
 
 def mh_update(
@@ -48,15 +48,18 @@ def mh_update(
     return key, new_electrons, new_log_prob, num_accepts
 
 
+P, S = TypeVar("P"), TypeVar("S")
+
+
 def make_mcmc(
-    network: ParameterizedLogPsi,
+    network: ParameterizedWaveFunction[P, S],
     steps: int = 10,
-) -> MCStep:
+) -> MCStep[P, S]:
     batch_network = jax.vmap(network, in_axes=(None, 0, None))
 
     @jit(static_argnames="static")
     def mcmc_step(
-        key: PRNGKeyArray, params: Parameters, electrons: Electrons, static: StaticInput, width: Width
+        key: PRNGKeyArray, params: P, electrons: Electrons, static: S, width: Width
     ) -> tuple[Electrons, PMove]:
         def log_prob_fn(electrons: Electrons) -> LogAmplitude:
             return 2 * batch_network(params, electrons, static)

@@ -1,170 +1,148 @@
-import logging
-from sparse_wf.api import (
-    Dependencies,
-    DependencyMap,
-    Parameters,
-    Electrons,
-    Charges,
-    Nuclei,
-    StaticInput,
-    DynamicInputWithDependencies,
-    NeighbourIndices,
-    DistanceMatrix,
-    ParameterizedWaveFunction,
-    SignedLogAmplitude,
-    Int,
-    SlaterMatrices,
-)
-import jax.numpy as jnp
-from typing import NamedTuple, cast, Sequence, Optional
-from jaxtyping import Float, Array, PRNGKeyArray, Integer
+import functools
+from typing import NamedTuple, Optional, Sequence, cast
+
+import einops
+import flax.linen as nn
 import jax
+import jax.numpy as jnp
+import jax.tree_util as jtu
 import numpy as np
-from sparse_wf.model.utils import (
-    cutoff_function,
-    Embedding,
-    FilterKernel,
-    contract,
-    MLP,
-    signed_logpsi_from_orbitals,
-    IsotropicEnvelope,
-    hf_orbitals_to_fulldet_orbitals,
-    swap_bottom_blocks,
+import pyscf
+from flax.struct import PyTreeNode, field
+from folx.api import FwdLaplArray
+from jaxtyping import Array, Float, Integer, PRNGKeyArray
+
+from sparse_wf.api import (
+    Charges,
+    Electrons,
+    Int,
+    Nuclei,
+    ParameterizedWaveFunction,
+    Parameters,
+    SlaterMatrices,
+    Spins,
 )
 from sparse_wf.hamiltonian import make_local_energy, potential_energy
-from sparse_wf.jax_utils import jit, fwd_lap
+from sparse_wf.jax_utils import fwd_lap, jit, vectorize
 from sparse_wf.model.graph_utils import (
-    densify_jacobian_by_zero_padding,
-    pad_jacobian_to_output_deps,
-    merge_dependencies,
-    get_dependency_map,
     NO_NEIGHBOUR,
-    GenericInputConstructor,
+    Dependency,
+    DependencyMap,
+    DistanceMatrix,
+    NeighbourIndices,
+    NrOfNeighbours,
+    densify_jacobian_by_zero_padding,
+    get_dependency_map,
+    get_full_distance_matrices,
+    get_neighbour_indices,
+    get_nr_of_neighbours,
     get_with_fill,
+    merge_dependencies,
+    pad_jacobian_to_output_deps,
+    round_to_next_step,
     slogdet_with_sparse_fwd_lap,
 )
-import flax.linen as nn
-from flax.struct import PyTreeNode, field
-import functools
-from folx.api import FwdLaplArray
-import pyscf
-import einops
-import jax.tree_util as jtu
+from sparse_wf.model.utils import (
+    MLP,
+    Embedding,
+    FilterKernel,
+    IsotropicEnvelope,
+    contract,
+    cutoff_function,
+    hf_orbitals_to_fulldet_orbitals,
+    signed_logpsi_from_orbitals,
+    swap_bottom_blocks,
+)
 
 
 class DependenciesMoon(NamedTuple):
-    h_el_initial: Dependencies
-    H_nuc: Dependencies
-    h_el_out: Dependencies
+    h_el_initial: Dependency
+    H_nuc: Dependency
+    h_el_out: Dependency
 
 
-class NrOfDependenciesMoon(NamedTuple):
+class NrOfDependencies(NamedTuple):
     h_el_initial: int
     H_nuc: int
     h_el_out: int
 
 
-class DependencyMapsMoon(NamedTuple):
+class DependencyMaps(NamedTuple):
     h0_to_Hnuc: DependencyMap
     Gamma_ne_to_Hnuc: DependencyMap
     Hnuc_to_hout: DependencyMap
     h0_to_hout: DependencyMap
 
 
-class InputConstructorMoon(GenericInputConstructor):
-    # This function cannot be jitted, because it returns a static tuple of integers
-    def get_static_input(self, electrons: Electrons) -> StaticInput:
-        dist_ee, dist_ne = self.get_full_distance_matrices(electrons)
-        n_neighbours = self.get_nr_of_neighbours(dist_ee, dist_ne)
-        n_deps_h0, n_deps_H, n_deps_hout = self._get_max_nr_of_dependencies(dist_ee, dist_ne)
+class StaticInput(NamedTuple):
+    n_neighbours: NrOfNeighbours
+    n_deps: NrOfDependencies
 
-        n_deps_h0_padded = self._round_to_next_step(n_deps_h0)
-        n_deps_H_padded = self._round_to_next_step(n_deps_H)
-        n_deps_hout_padded = self._round_to_next_step(n_deps_hout)
-        n_deps = NrOfDependenciesMoon(n_deps_h0_padded, n_deps_H_padded, n_deps_hout_padded)
-        return StaticInput(n_neighbours=n_neighbours, n_deps=n_deps)
 
-    # @jit(static_argnames=("self", "static"))
+@jit
+def _get_max_nr_of_dependencies(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix, cutoff: float):
+    # Thest first electron message passing step can depend at most on electrons within 1 * cutoff
+    n_deps_max_h0 = jnp.max(jnp.sum(dist_ee < cutoff, axis=-1))
 
-    def get_dynamic_input_with_dependencies(
-        self, electrons: Electrons, static: StaticInput
-    ) -> DynamicInputWithDependencies:
-        assert electrons.ndim == 2, "Use vmap to vectorize this function"
+    # The nuclear embeddings are computed with 2 message passing steps and can therefore depend at most on electrons within 2 * cutoff
+    n_deps_max_H = jnp.max(jnp.sum(dist_ne < cutoff * 2, axis=-1))
 
-        logging.info(f"Compiling model for static: {static}")
+    # The output electron embeddings are computed with 3 message passing step and can therefore depend at most on electrons within 3 * cutoff
+    n_deps_max_h_out = jnp.max(jnp.sum(dist_ee < cutoff * 3, axis=-1))
+    return n_deps_max_h0, n_deps_max_H, n_deps_max_h_out
 
-        # Indices of neighbours
-        dist_ee, dist_ne = self.get_full_distance_matrices(electrons)
-        idx_nb = self.get_neighbour_indices(dist_ee, dist_ne, static.n_neighbours)
 
-        # Dependencies of embedddings
-        deps, dep_maps = self._get_all_dependencies(idx_nb, cast(NrOfDependenciesMoon, static.n_deps))
-        return DynamicInputWithDependencies(
-            electrons=electrons, neighbours=idx_nb, dependencies=deps, dep_maps=dep_maps
-        )
+@jit(static_argnames=("n_deps_max",))
+def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies):
+    """Get the indices of electrons on which each embedding will depend on.
 
-    @jit(static_argnames="self")
-    def _get_max_nr_of_dependencies(self, dist_ee: DistanceMatrix, dist_ne: DistanceMatrix):
-        # Thest first electron message passing step can depend at most on electrons within 1 * cutoff
-        n_deps_max_h0 = jnp.max(jnp.sum(dist_ee < self.cutoff, axis=-1))
+    Args:
+        idx_nb: NeighbourIndices, named tuple containing the indices of the neighbours of each electron and nucleus.
+        n_deps_max: maximum_nr_of electrons that each embedding can depend on.
+            - n_deps_max[0]: maximum number of dependencies for the electron embeddings at the first step.
+            - n_deps_max[1]: maximum number of dependencies for the nuclear embeddings.
+            - n_deps_max[2]: maximum number of dependencies for the output electron embeddings.
 
-        # The nuclear embeddings are computed with 2 message passing steps and can therefore depend at most on electrons within 2 * cutoff
-        n_deps_max_H = jnp.max(jnp.sum(dist_ne < self.cutoff * 2, axis=-1))
+    Returns:
+        deps: tuple of jnp.ndarray, dependencies for the electron embeddings at each step.
+            deps_h0: [n_el  x nr_of_deps_level_1]
+            deps_H:  [n_nuc x nr_of deps_level_2]
+            deps_hout: [n_el x nr_of_deps_level_3]
+        dep_maps: tuple of jnp.ndarray, maps the dependencies between the levels:
+            h0_to_Hnuc: [n_nuc x n_neighbouring_el x nr_of_deps_level_1]; values are in [0 ... deps_level_2]
+            Gamma_ne_to_Hnuc: [n_nuc x n_neighbouring_el x 1]; values are in [0 ... deps_level_2]
+            Hnuc_to_hout: [n_el x n_neighbouring_nuc x nr_of_deps_level_2]; values are in [0 ... deps_level_3]
+            h0_to_hout: [n_el x n_neighbouring_el x nr_of_deps_level_1]; values are in [0 ... deps_level_3]
+    """
+    n_el = idx_nb.ee.shape[-2]
+    batch_dims = idx_nb.ee.shape[:-2]
+    self_dependency = jnp.arange(n_el)[:, None]
+    self_dependency = jnp.tile(self_dependency, batch_dims + (1, 1))
 
-        # The output electron embeddings are computed with 3 message passing step and can therefore depend at most on electrons within 3 * cutoff
-        n_deps_max_h_out = jnp.max(jnp.sum(dist_ee < self.cutoff * 3, axis=-1))
-        return n_deps_max_h0, n_deps_max_H, n_deps_max_h_out
+    @functools.partial(jnp.vectorize, signature="(center1,deps),(center2,neigbours)->(center2,neigbours,deps)")
+    def get_deps_nb(deps, idx_nb):
+        return get_with_fill(deps, idx_nb, NO_NEIGHBOUR)
 
-    def _get_all_dependencies(
-        self, idx_nb: NeighbourIndices, n_deps_max: NrOfDependenciesMoon
-    ) -> tuple[tuple[Dependencies, ...], tuple[DependencyMap, ...]]:
-        """Get the indices of electrons on which each embedding will depend on.
+    get_dep_map_for_all_centers = jax.vmap(jax.vmap(get_dependency_map, in_axes=(0, None)))
 
-        Args:
-            idx_nb: NeighbourIndices, named tuple containing the indices of the neighbours of each electron and nucleus.
-            n_deps_max: maximum_nr_of electrons that each embedding can depend on.
-                - n_deps_max[0]: maximum number of dependencies for the electron embeddings at the first step.
-                - n_deps_max[1]: maximum number of dependencies for the nuclear embeddings.
-                - n_deps_max[2]: maximum number of dependencies for the output electron embeddings.
+    # Step 1: Initial electron embeddings depend on themselves and their neighbours
+    deps_h0: Dependency = jnp.concatenate([self_dependency, idx_nb.ee], axis=-1)
 
-        Returns:
-            deps: tuple of jnp.ndarray, dependencies for the electron embeddings at each step.
-                deps_h0: [batch_size x n_el  x nr_of_deps_level_1]
-                deps_H:  [batch_size x n_nuc x nr_of deps_level_2]
-                deps_hout: [batch_size x n_el x nr_of_deps_level_3]
-            dep_maps: tuple of jnp.ndarray, maps the dependencies between the levels:
-                dep_map_h0_to_H: [batch_size x n_nuc x n_neighbouring_el x nr_of_deps_level_1]; values are in [0 ... deps_level_2]
-                dep_map_H_to_hout: [batch_size x n_el x n_neighbouring_nuc x nr_of_deps_level_2]; values are in [0 ... deps_level_3]
-        """
-        n_el = idx_nb.ee.shape[-2]
-        batch_dims = idx_nb.ee.shape[:-2]
-        self_dependency = jnp.arange(n_el)[:, None]
-        self_dependency = jnp.tile(self_dependency, batch_dims + (1, 1))
+    # Step 2: Nuclear embeddings depend on all dependencies of their neighbouring electrons
+    deps_neighbours = get_deps_nb(deps_h0, idx_nb.ne)
+    deps_H = merge_dependencies(deps_neighbours, idx_nb.ne, None, n_deps_max.H_nuc)
+    dep_map_h0_to_H = get_dep_map_for_all_centers(deps_neighbours, deps_H)
+    dep_map_Gamma_ne_to_H = get_dep_map_for_all_centers(idx_nb.ne[..., None], deps_H)
 
-        @functools.partial(jnp.vectorize, signature="(center1,deps),(center2,neigbours)->(center2,neigbours,deps)")
-        def get_deps_nb(deps, idx_nb):
-            return get_with_fill(deps, idx_nb, NO_NEIGHBOUR)
+    # Step 3: Output electron embeddings depend on themselves, their neighbouring electrons and all dependencies of their neighbouring nuclei
+    deps_neighbours = get_deps_nb(deps_H, idx_nb.en)
+    deps_hout = merge_dependencies(deps_neighbours, deps_h0, jnp.arange(n_el)[:, None], n_deps_max.h_el_out)
+    dep_map_H_to_hout = get_dep_map_for_all_centers(deps_neighbours, deps_hout)
+    dep_map_h0_to_hout = jax.vmap(get_dependency_map)(deps_h0, deps_hout)
 
-        get_dep_map_for_all_centers = jax.vmap(jax.vmap(get_dependency_map, in_axes=(0, None)))
-
-        # Step 1: Initial electron embeddings depend on themselves and their neighbours
-        deps_h0: Dependencies = jnp.concatenate([self_dependency, idx_nb.ee], axis=-1)
-
-        # Step 2: Nuclear embeddings depend on all dependencies of their neighbouring electrons
-        deps_neighbours = get_deps_nb(deps_h0, idx_nb.ne)
-        deps_H = merge_dependencies(deps_neighbours, idx_nb.ne, None, n_deps_max.H_nuc)
-        dep_map_h0_to_H = get_dep_map_for_all_centers(deps_neighbours, deps_H)
-        dep_map_Gamma_ne_to_H = get_dep_map_for_all_centers(idx_nb.ne[..., None], deps_H)
-
-        # Step 3: Output electron embeddings depend on themselves, their neighbouring electrons and all dependencies of their neighbouring nuclei
-        deps_neighbours = get_deps_nb(deps_H, idx_nb.en)
-        deps_hout = merge_dependencies(deps_neighbours, deps_h0, jnp.arange(n_el)[:, None], n_deps_max.h_el_out)
-        dep_map_H_to_hout = get_dep_map_for_all_centers(deps_neighbours, deps_hout)
-        dep_map_h0_to_hout = jax.vmap(get_dependency_map)(deps_h0, deps_hout)
-
-        return DependenciesMoon(deps_h0, deps_H, deps_hout), DependencyMapsMoon(
-            dep_map_h0_to_H, dep_map_Gamma_ne_to_H, dep_map_H_to_hout, dep_map_h0_to_hout
-        )
+    return DependenciesMoon(deps_h0, deps_H, deps_hout), DependencyMaps(
+        dep_map_h0_to_H, dep_map_Gamma_ne_to_H, dep_map_H_to_hout, dep_map_h0_to_hout
+    )
 
 
 def get_diff_features(
@@ -222,7 +200,19 @@ def _vmap_over_centers_and_neighbours(f):
     return f_out
 
 
-class SparseMoonParams(PyTreeNode):
+def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: NeighbourIndices, spins: Spins):
+    # [n_el  x n_neighbouring_electrons] - spin of each adjacent electron for each electron
+    spin_nb_ee = get_with_fill(spins, idx_nb.ee, 0.0)
+    # [n_el  x n_neighbouring_electrons x 3] - position of each adjacent electron for each electron
+    r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)
+    # [n_nuc x n_neighbouring_electrons x 3] - position of each adjacent electron for each nuclei
+    r_nb_ne = get_with_fill(electrons, idx_nb.ne, NO_NEIGHBOUR)
+    # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron
+    R_nb_en = get_with_fill(R, idx_nb.en, NO_NEIGHBOUR)
+    return spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en
+
+
+class MoonParams(PyTreeNode):
     ee_filter: Parameters
     ne_filter: Parameters
     en_filter: Parameters
@@ -232,14 +222,13 @@ class SparseMoonParams(PyTreeNode):
     envelopes: Parameters
 
 
-class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
+class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, StaticInput]):
     R: Nuclei
     Z: Charges
     n_electrons: int = field(pytree_node=False)
     n_up: int = field(pytree_node=False)
     n_determinants: int = field(pytree_node=False)
     cutoff: float
-    input_constructor: InputConstructorMoon
     ee_filter: PairwiseFilter
     ne_filter: PairwiseFilter
     en_filter: PairwiseFilter
@@ -279,7 +268,6 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
             n_up=int(n_up),
             n_determinants=n_determinants,
             cutoff=cutoff,
-            input_constructor=InputConstructorMoon(R, Z, n_el, cutoff, padding_factor=1.2),
             ee_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ee"),
             ne_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ne"),
             en_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_en"),
@@ -289,36 +277,50 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
             envelopes=IsotropicEnvelope(n_determinants * n_el),
         )
 
+    def get_static_input(self, electrons: Electrons):
+        def round_fn(x):
+            return int(round_to_next_step(x, 1.2, 1, self.n_electrons))
+
+        dist_ee, dist_ne = get_full_distance_matrices(electrons, self.R)
+        n_neighbours = get_nr_of_neighbours(dist_ee, dist_ne, self.cutoff, 1.2, 1)
+        n_deps_h0, n_deps_H, n_deps_hout = _get_max_nr_of_dependencies(dist_ee, dist_ne, self.cutoff)
+
+        n_deps_h0_padded = round_fn(n_deps_h0)
+        n_deps_H_padded = round_fn(n_deps_H)
+        n_deps_hout_padded = round_fn(n_deps_hout)
+        n_deps = NrOfDependencies(n_deps_h0_padded, n_deps_H_padded, n_deps_hout_padded)
+        return StaticInput(n_neighbours=n_neighbours, n_deps=n_deps)
+
     def hf_transformation(self, hf_orbitals):
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
-    def signed(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
+    def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput):
         orbitals = self.orbitals(params, electrons, static)
         return signed_logpsi_from_orbitals(orbitals)
 
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput):
+    def __call__(self, params: MoonParams, electrons: Electrons, static: StaticInput):
         return self.signed(params, electrons, static)[1]
 
-    @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
-    def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
+    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
+    def local_energy(self, params: MoonParams, electrons: Electrons, static: StaticInput):
         log_psi = self._logpsi_with_fwd_lap(params, electrons, static)
         E_kin = -0.5 * (log_psi.laplacian + jnp.vdot(log_psi.jacobian.data, log_psi.jacobian.data))
         E_pot = potential_energy(electrons, self.R, self.Z)
         return E_pot + E_kin
 
-    @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
-    def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput):
+    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
+    def local_energy_dense(self, params: MoonParams, electrons: Electrons, static: StaticInput):
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
 
-    @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(nel,dim)->()")
-    def local_energy_dense_looped(self, params: Parameters, electrons: Electrons, static: StaticInput):
+    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
+    def local_energy_dense_looped(self, params: MoonParams, electrons: Electrons, static: StaticInput):
         return make_local_energy(self, self.R, self.Z, use_fwd_lap=False)(params, electrons, static)
 
-    def init(self, rng: PRNGKeyArray):
-        rngs = jax.random.split(rng, 7)
+    def init(self, key: PRNGKeyArray):
+        rngs = jax.random.split(key, 7)
         feature_dim = self.lin_h0.features
         n_atoms = self.R.shape[0]
-        params = SparseMoonParams(
+        return MoonParams(
             ee_filter=self.ee_filter.init(rngs[0], np.zeros([5])),  # dist + 3 * diff + spin
             ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
             en_filter=self.en_filter.init(rngs[2], np.zeros([4])),  # dist + 3 * diff
@@ -327,18 +329,6 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
             lin_orbitals=self.lin_orbitals.init(rngs[5], np.zeros([feature_dim])),
             envelopes=self.envelopes.init(rngs[6], np.zeros([1, n_atoms])),
         )
-        return params
-
-    def get_neighbour_coordinates(self, electrons: Electrons, idx_nb: NeighbourIndices):
-        # [n_el  x n_neighbouring_electrons] - spin of each adjacent electron for each electron
-        spin_nb_ee = get_with_fill(self.spins, idx_nb.ee, 0.0)
-        # [n_el  x n_neighbouring_electrons x 3] - position of each adjacent electron for each electron
-        r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)
-        # [n_nuc x n_neighbouring_electrons x 3] - position of each adjacent electron for each nuclei
-        r_nb_ne = get_with_fill(electrons, idx_nb.ne, NO_NEIGHBOUR)
-        # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron
-        R_nb_en = get_with_fill(self.R, idx_nb.en, NO_NEIGHBOUR)
-        return spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en
 
     def _get_h0(
         self,
@@ -393,11 +383,10 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         return orbitals
 
     def _embedding(self, params: Parameters, electrons: Electrons, static: StaticInput):
-        params = cast(SparseMoonParams, params)
-        idx_nb = self.input_constructor.get_dynamic_input(electrons, static).neighbours
+        idx_nb = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff)
 
         # # Step 0: Get neighbours
-        spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(electrons, idx_nb)
+        spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = get_neighbour_coordinates(electrons, self.R, idx_nb, self.spins)
 
         # Step 1: Get h0
         h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0, 0, 0))(params, electrons, r_nb_ee, self.spins, spin_nb_ee)
@@ -436,17 +425,14 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
 
     def _orbitals_with_fwd_lap(
         self, params: Parameters, electrons: Electrons, static: StaticInput
-    ) -> tuple[FwdLaplArray, Dependencies]:
-        n_deps = cast(NrOfDependenciesMoon, static.n_deps)
-        params = cast(SparseMoonParams, params)
-
+    ) -> tuple[FwdLaplArray, Dependency]:
         h, dependencies = self._embedding_with_fwd_lap(params, electrons, static)
         # vmaps over electrons
         orbitals = jax.vmap(
             fwd_lap(lambda h_: self.lin_orbitals.apply(params.lin_orbitals, h_)), in_axes=-2, out_axes=-2
         )(h)
         envelopes = jax.vmap(fwd_lap(lambda r: self._envelopes(params, r)), in_axes=-2, out_axes=-2)(electrons)
-        envelopes = densify_jacobian_by_zero_padding(envelopes, 3 * n_deps.h_el_out)  # type: ignore
+        envelopes = densify_jacobian_by_zero_padding(envelopes, 3 * static.n_deps.h_el_out)  # type: ignore
         orbitals = jax.vmap(fwd_lap(lambda o, e: self._merge_orbitals_with_envelopes(o, e)), in_axes=-2, out_axes=-2)(
             orbitals, envelopes
         )
@@ -454,21 +440,19 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         return orbitals, dependencies
 
     def _embedding_with_fwd_lap(
-        self, params: SparseMoonParams, electrons: Electrons, static_input: StaticInput
-    ) -> tuple[FwdLaplArray, Dependencies]:
-        r, idx_nb, deps, dep_maps = self.input_constructor.get_dynamic_input_with_dependencies(electrons, static_input)
-        n_deps = cast(NrOfDependenciesMoon, static_input.n_deps)
-        dep_maps = cast(DependencyMapsMoon, dep_maps)
-        deps = cast(DependenciesMoon, deps)
+        self, params: MoonParams, electrons: Electrons, static: StaticInput
+    ) -> tuple[FwdLaplArray, Dependency]:
+        idx_nb = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff)
+        deps, dep_maps = get_all_dependencies(idx_nb, static.n_deps)
 
         # Step 0: Get neighbours
-        spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = self.get_neighbour_coordinates(r, idx_nb)
+        spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = get_neighbour_coordinates(electrons, self.R, idx_nb, self.spins)
 
         # Step 1: Contract ee to get electron embeedings h0
         get_h0 = fwd_lap(self._get_h0, argnums=(1, 2))
         get_h0 = jax.vmap(get_h0, in_axes=(None, 0, 0, 0, 0), out_axes=-2)  # vmap over center electrons
         # Shapes: h0: [nel x feature_dim]; h0.jac: [3*n_deps1 x n_el x feature_dim] (dense)
-        h0 = get_h0(params, r, r_nb_ee, self.spins, spin_nb_ee)
+        h0 = get_h0(params, electrons, r_nb_ee, self.spins, spin_nb_ee)
 
         # Step 2: Contract to nuclei + MLP on nuclei => nuclear embedding H
         # 2a: Get the spatial filter between nuclei and neighbouring electrons
@@ -482,8 +466,8 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         # 2c: Pad/align all jacobians with the output dependencies
         _pad_jacobian = jax.vmap(pad_jacobian_to_output_deps, in_axes=(-2, -2, None), out_axes=-2)
         _pad_jacobian = jax.vmap(_pad_jacobian, in_axes=(-3, -3, None), out_axes=-3)
-        h0_nb_ne = _pad_jacobian(h0_nb_ne, dep_maps.h0_to_Hnuc, n_deps.H_nuc)
-        Gamma_ne = _pad_jacobian(Gamma_ne, dep_maps.Gamma_ne_to_Hnuc, n_deps.H_nuc)
+        h0_nb_ne = _pad_jacobian(h0_nb_ne, dep_maps.h0_to_Hnuc, static.n_deps.H_nuc)
+        Gamma_ne = _pad_jacobian(Gamma_ne, dep_maps.Gamma_ne_to_Hnuc, static.n_deps.H_nuc)
 
         # 2d: Contract and apply the MLP
         @functools.partial(jax.vmap, in_axes=(-3, -3), out_axes=-2)  # vmap over centers (nuclei)
@@ -497,18 +481,18 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction):
         # Step 3: Contract back to electrons => Final electron embeddings h_out
         # 3a: Get Filters
         get_Gamma_en = fwd_lap(self._get_Gamma_en, argnums=(1,))
-        Gamma_en = _vmap_over_centers_and_neighbours(get_Gamma_en)(params, r, R_nb_en)
+        Gamma_en = _vmap_over_centers_and_neighbours(get_Gamma_en)(params, electrons, R_nb_en)
         # Gamma_en: [n_el x n_neighbouring_nuc x feature_dim]; Gamma_en.jac: [3 x n_el x n_neighbouring_nuc x feature_dim]
 
         # 3b: Get the neighbouring nuclear embeddings
         H_nb_en = jtu.tree_map(lambda x: x.at[..., idx_nb.en, :].get(mode="drop", fill_value=0.0), H)
 
         # 3c: Pad/align all jacobians with the output dependencies
-        H_nb_en = _pad_jacobian(H_nb_en, dep_maps.Hnuc_to_hout, n_deps.h_el_out)
+        H_nb_en = _pad_jacobian(H_nb_en, dep_maps.Hnuc_to_hout, static.n_deps.h_el_out)
         h0_residual = jax.vmap(pad_jacobian_to_output_deps, in_axes=(-2, -2, None), out_axes=-2)(
-            h0, dep_maps.h0_to_hout, n_deps.h_el_out
+            h0, dep_maps.h0_to_hout, static.n_deps.h_el_out
         )
-        Gamma_en = densify_jacobian_by_zero_padding(Gamma_en, 3 * n_deps.h_el_out)
+        Gamma_en = densify_jacobian_by_zero_padding(Gamma_en, 3 * static.n_deps.h_el_out)
 
         # 3d: Contract
         # vmap over centers (electrons)
