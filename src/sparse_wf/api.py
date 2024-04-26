@@ -244,6 +244,14 @@ class VMCStepFn(Protocol):
     ) -> tuple[TrainingState, LocalEnergy, AuxData]: ...
 
 
+class SamplingStepFn(Protocol):
+    def __call__(
+        self,
+        state: TrainingState,
+        static: StaticInput,
+    ) -> tuple[TrainingState, AuxData]: ...
+
+
 class InitTrainState(Protocol):
     def __call__(
         self,
@@ -258,6 +266,7 @@ class InitTrainState(Protocol):
 class Trainer:
     init: InitTrainState
     step: VMCStepFn
+    sampling_step: SamplingStepFn
     wave_function: ParameterizedWaveFunction
     mcmc: MCStep
     width_scheduler: WidthScheduler
@@ -319,6 +328,7 @@ class Logger(Protocol):
 
 
 class ModelArgs(TypedDict):
+    model_name: str
     cutoff: float
     feature_dim: int
     nuc_mlp_depth: int
@@ -387,6 +397,7 @@ class OptimizerArgs(TypedDict):
 
 class OptimizationArgs(TypedDict):
     steps: int
+    burn_in: int
     optimizer_args: OptimizerArgs
     preconditioner_args: PreconditionerArgs
     clipping: ClippingArgs

@@ -22,6 +22,7 @@ logging_args:
 
 optimization:
   steps: 100_000
+  burn_in: 500
   optimizer_args:
     lr_schedule: hyperbolic
     lr_schedule_args:

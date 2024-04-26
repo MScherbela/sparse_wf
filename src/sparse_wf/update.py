@@ -26,6 +26,7 @@ from sparse_wf.tree_utils import tree_dot
 
 from folx import batched_vmap
 
+
 class ClipStatistic(Enum):
     MEDIAN = "median"
     MEAN = "mean"
@@ -85,6 +86,18 @@ def make_trainer(
         )
 
     @pmap(static_broadcasted_argnums=1)
+    def sampling_step(
+        state: TrainingState,
+        static: StaticInput,
+    ) -> tuple[TrainingState, AuxData]:
+        key, subkey = jax.random.split(state.key)
+        electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
+        width_state = width_scheduler.update(state.width_state, pmove)
+        state = state.replace(key=key, electrons=electrons, width_state=width_state)
+        aux_data = {"mcmc/pmove": pmove, "mcmc/stepsize": state.width_state.width}
+        return state, aux_data
+
+    @pmap(static_broadcasted_argnums=1)
     def step(
         state: TrainingState,
         static: StaticInput,
@@ -92,7 +105,9 @@ def make_trainer(
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
-        energy = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=64)(state.params, electrons, static)
+        energy = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=64)(
+            state.params, electrons, static
+        )
         energy_diff = local_energy_diff(energy, **clipping_args)
 
         E_mean = pmean(energy.mean())
@@ -133,6 +148,7 @@ def make_trainer(
     return Trainer(
         init=init,
         step=step,
+        sampling_step=sampling_step,
         wave_function=wave_function,
         mcmc=mcmc_step,
         width_scheduler=width_scheduler,

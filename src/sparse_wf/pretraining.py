@@ -55,7 +55,8 @@ def make_pretrainer(trainer: Trainer, source_model: HFOrbitalFn, optimizer: opta
             width_state=width_state,
         ), {
             "loss": loss_val,
-            "pmove": pmove,
+            "mcmc/pmove": pmove,
+            "mcmc/stepsize": state.width_state.width,
         }
 
     return Pretrainer(init, step)

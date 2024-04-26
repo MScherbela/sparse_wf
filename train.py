@@ -87,11 +87,13 @@ def main(
     # We want to initialize differently per process so we use the proc_key here
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
+    mcmc_step = make_mcmc(wf, mcmc_steps)
+    mcmc_width_scheduler = make_width_scheduler()
 
     trainer = make_trainer(
         wf,
-        make_mcmc(wf, mcmc_steps),
-        make_width_scheduler(),
+        mcmc_step,
+        mcmc_width_scheduler,
         make_optimizer(**optimization["optimizer_args"]),
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
@@ -116,6 +118,12 @@ def main(
 
     state = state.to_train_state()
     assert_identical_copies(state.params)
+
+    logging.info("MCMC Burn-in")
+    for _ in tqdm.trange(optimization["burn_in"]):
+        static = wf.input_constructor.get_static_input(state.electrons)
+        state, aux_data = trainer.sampling_step(state, static)
+        loggers.log(dict(**aux_data))
 
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:

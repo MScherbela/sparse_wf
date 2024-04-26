@@ -5,7 +5,7 @@ model_args:
   cutoff: 10.0
 
 pretraining:
-  steps: 1000
+  steps: 100
 
 optimization:
   steps: 50_000
