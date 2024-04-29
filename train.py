@@ -15,7 +15,7 @@ import tqdm
 import wonderwords
 from seml.experiment import Experiment
 from seml.utils import flatten, merge_dicts
-from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, OptimizationArgs, PretrainingArgs
+from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
 from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
@@ -25,7 +25,8 @@ from sparse_wf.model.moon import SparseMoonWavefunction  # noqa: F401
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
-from sparse_wf.systems.scf import make_hf_orbitals
+from sparse_wf.scf import make_hf_orbitals
+from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
 
 
@@ -88,23 +89,20 @@ def update_logging_configuration(
 
 @ex.automain
 def main(
-    molecule: str,
-    spin: int,
+    molecule_args: MoleculeArgs,
     model_args: ModelArgs,
     optimization: OptimizationArgs,
     pretraining: PretrainingArgs,
     batch_size: int,
     mcmc_steps: int,
     init_width: float,
-    basis: str,
     seed: int,
     db_collection: str,
     logging_args: LoggingArgs,
 ):
     config = locals()
 
-    mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
-    mol.build()
+    mol = get_molecule(**molecule_args)
 
     loggers = MultiLogger(update_logging_configuration(mol, db_collection, logging_args, config))
     loggers.log_config(config)
@@ -150,7 +148,7 @@ def main(
     state = trainer.init(device_keys, params, electrons, jnp.array(init_width))
     assert_identical_copies(state.params)
 
-    pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol, basis), make_optimizer(**pretraining["optimizer_args"]))
+    pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol), make_optimizer(**pretraining["optimizer_args"]))
     state = pretrainer.init(state)
 
     logging.info("Pretraining")

@@ -1,5 +1,9 @@
-molecule: "Be 0 0 0"
-spin: 0
+molecule_args:
+  method: from_str
+  args:
+    atom: "Be 0 0 0"
+    spin: 0
+  basis: sto-6g
 
 model_args:
   cutoff: 10.0
@@ -69,4 +73,3 @@ pretraining:
 batch_size: 512
 mcmc_steps: 20
 init_width: 0.1
-basis: sto-6g
