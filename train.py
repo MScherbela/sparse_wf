@@ -1,6 +1,9 @@
 import logging
 import os
 
+os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+
+# ruff: noqa: E402
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -40,6 +43,7 @@ def set_postfix(pbar: tqdm.tqdm, aux_data: dict[str, float]):
 def main(
     molecule: str,
     spin: int,
+    model: str,
     model_args: ModelArgs,
     optimization: OptimizationArgs,
     pretraining: PretrainingArgs,
@@ -61,8 +65,12 @@ def main(
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
-    wf = SparseMoonWavefunction.create(mol, **model_args)
-    # wf = DenseFermiNet.create(mol)
+    if model == "moon":
+        wf = SparseMoonWavefunction.create(mol, **model_args)
+    elif model == "ferminet":
+        wf = DenseFermiNet.create(mol)
+    else:
+        raise ValueError(f"Invalid model: {model}")
 
     # Setup random keys
     # the main key will always be identitcal on all processes
@@ -82,11 +90,13 @@ def main(
     # We want to initialize differently per process so we use the proc_key here
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
+    mcmc_step = make_mcmc(wf, mcmc_steps)
+    mcmc_width_scheduler = make_width_scheduler()
 
     trainer = make_trainer(
         wf,
-        make_mcmc(wf, mcmc_steps),
-        make_width_scheduler(),
+        mcmc_step,
+        mcmc_width_scheduler,
         make_optimizer(**optimization["optimizer_args"]),
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
@@ -111,6 +121,12 @@ def main(
 
     state = state.to_train_state()
     assert_identical_copies(state.params)
+
+    logging.info("MCMC Burn-in")
+    for _ in tqdm.trange(optimization["burn_in"]):
+        static = wf.get_static_input(state.electrons)
+        state, aux_data = trainer.sampling_step(state, static)
+        loggers.log(dict(**aux_data))
 
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:

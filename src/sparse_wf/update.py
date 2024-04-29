@@ -18,9 +18,12 @@ from sparse_wf.api import (
     TrainingState,
     Width,
     WidthScheduler,
+    Parameters,
 )
 from sparse_wf.jax_utils import pgather, pmap, pmean, replicate
 from sparse_wf.tree_utils import tree_dot
+
+from folx import batched_vmap
 
 
 class ClipStatistic(Enum):
@@ -55,7 +58,7 @@ def local_energy_diff(e_loc: LocalEnergy, clip_local_energy: float, stat: str | 
     return e_loc
 
 
-P, S = TypeVar("P"), TypeVar("S")
+P, S = TypeVar("P", bound=Parameters), TypeVar("S")
 
 
 def make_trainer(
@@ -80,11 +83,22 @@ def make_trainer(
         )
 
     @pmap(static_broadcasted_argnums=1)
+    def sampling_step(state: TrainingState[P], static: S):
+        key, subkey = jax.random.split(state.key)
+        electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
+        width_state = width_scheduler.update(state.width_state, pmove)
+        state = state.replace(key=key, electrons=electrons, width_state=width_state)
+        aux_data = {"mcmc/pmove": pmove, "mcmc/stepsize": state.width_state.width}
+        return state, aux_data
+
+    @pmap(static_broadcasted_argnums=1)
     def step(state: TrainingState[P], static: S):
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
-        energy = wave_function.local_energy(state.params, electrons, static)
+        energy = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=64)(
+            state.params, electrons, static
+        )
         energy_diff = local_energy_diff(energy, **clipping_args)
 
         E_mean = pmean(energy.mean())
@@ -96,8 +110,7 @@ def make_trainer(
         # E_mean_dense = pmean(energy_dense.mean())
         # aux_data["opt/E_dense"] = E_mean_dense
 
-        natgrad = state.opt_state.natgrad
-        gradient, natgrad, preconditioner_aux = preconditioner.precondition(
+        natgrad, precond_state, preconditioner_aux = preconditioner.precondition(
             state.params,
             electrons,
             static,
@@ -105,9 +118,9 @@ def make_trainer(
             state.opt_state.natgrad,  # type: ignore
         )
         aux_data.update(preconditioner_aux)
-        aux_data["update_norm"] = tree_dot(gradient, gradient) ** 0.5
+        aux_data["update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
 
-        updates, opt = optimizer.update(gradient, state.opt_state.opt, state.params)
+        updates, opt = optimizer.update(natgrad, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)
 
         return (
@@ -115,7 +128,7 @@ def make_trainer(
                 key=key,
                 params=params,
                 electrons=electrons,
-                opt_state=OptState(opt, natgrad),
+                opt_state=OptState(opt, precond_state),
                 width_state=width_state,
             ),
             energy,
@@ -125,6 +138,7 @@ def make_trainer(
     return Trainer(
         init=init,
         step=step,
+        sampling_step=sampling_step,
         wave_function=wave_function,
         mcmc=mcmc_step,
         width_scheduler=width_scheduler,

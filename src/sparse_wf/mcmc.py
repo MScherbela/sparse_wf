@@ -165,8 +165,10 @@ def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> E
     electrons = jax.random.normal(key, (batch_size, mol.nelectron, 3))
 
     R = mol.atom_coords()
-    assert mol.charge == 0, "Only neutral molecules are supported"
-    assert abs(mol.spin) < 2, "Only singlet and doublet molecules are supported"  # type: ignore
-    ind_atom = assign_spins_to_atoms(R, mol.atom_charges())
-    electrons += R[ind_atom]
+    n_atoms = len(R)
+    if n_atoms > 1:
+        assert mol.charge == 0, "Only atoms or neutral molecules are supported"
+        assert abs(mol.spin) < 2, "Only atoms or singlet and doublet molecules are supported"  # type: ignore
+        ind_atom = assign_spins_to_atoms(R, mol.atom_charges())
+        electrons += R[ind_atom]
     return electrons

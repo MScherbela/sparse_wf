@@ -151,6 +151,14 @@ class VMCStepFn(Protocol[P, S_contra]):
     ) -> tuple[TrainingState[P], LocalEnergy, AuxData]: ...
 
 
+class SamplingStepFn(Protocol[P, S_contra]):
+    def __call__(
+        self,
+        state: TrainingState[P],
+        static: S_contra,
+    ) -> tuple[TrainingState[P], AuxData]: ...
+
+
 class InitTrainState(Protocol[P]):
     def __call__(
         self,
@@ -165,6 +173,7 @@ class InitTrainState(Protocol[P]):
 class Trainer(Generic[P, S]):
     init: InitTrainState[P]
     step: VMCStepFn[P, S]
+    sampling_step: SamplingStepFn[P, S]
     wave_function: ParameterizedWaveFunction[P, S]
     mcmc: MCStep[P, S]
     width_scheduler: WidthScheduler
@@ -294,6 +303,7 @@ class OptimizerArgs(TypedDict):
 
 class OptimizationArgs(TypedDict):
     steps: int
+    burn_in: int
     optimizer_args: OptimizerArgs
     preconditioner_args: PreconditionerArgs
     clipping: ClippingArgs
