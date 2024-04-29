@@ -70,7 +70,7 @@ def main(
     elif model == "ferminet":
         wf = DenseFermiNet.create(mol)
     else:
-        raise ValueError("Invalid model: {model}")
+        raise ValueError(f"Invalid model: {model}")
 
     # Setup random keys
     # the main key will always be identitcal on all processes
