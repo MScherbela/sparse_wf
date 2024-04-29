@@ -2,9 +2,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar
 
+import jax
 import numpy as np
 import optax
 from flax import struct
+from flax.serialization import to_bytes, from_bytes
 from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree
 from pyscf.scf.hf import SCF
 
@@ -142,6 +144,34 @@ class TrainingState(Generic[P], struct.PyTreeNode):  # the order of inheritance 
     opt_state: OptState[P]
     width_state: WidthSchedulerState
 
+    def serialize(self):
+        from sparse_wf.jax_utils import instance, pmap, pgather
+
+        @pmap
+        def gather_electrons(electrons):
+            return pgather(electrons, axis=0, tiled=True)
+
+        result = instance(self)  # only return a single copy of parameters, opt_state, etc.
+        # include electrons from all devices
+        result = result.replace(electrons=gather_electrons(self.electrons)[0])
+        return to_bytes(result)
+
+    def deserialize(self, data: bytes):
+        from sparse_wf.jax_utils import replicate
+
+        state_with_all_electrons = from_bytes(self, data)
+        # Distribute electrons to devices
+        electrons = state_with_all_electrons.electrons
+        electrons = electrons.reshape(jax.process_count(), jax.local_device_count(), -1, *electrons.shape[1:])
+        electrons = electrons[jax.process_index()]
+        # We have to create new keys for all devices
+        key = jax.random.split(state_with_all_electrons.key, (jax.process_count(), jax.local_device_count()))
+        key = key[jax.process_index()]
+        # Replicate the state to all devices
+        result = replicate(state_with_all_electrons)
+        result = result.replace(key=key, electrons=electrons)
+        return result
+
 
 class VMCStepFn(Protocol[P, S_contra]):
     def __call__(
@@ -272,13 +302,18 @@ class WandBArgs(TypedDict):
 
 class FileLoggingArgs(TypedDict):
     use: bool
-    path: str
+    file_name: str
 
 
 class LoggingArgs(TypedDict):
     smoothing: int
     wandb: WandBArgs
     file: FileLoggingArgs
+    name: str
+    name_keys: Sequence[str] | None
+    comment: str | None
+    out_directory: str
+    collection: str
 
 
 class Schedule(Enum):
@@ -312,3 +347,9 @@ class OptimizationArgs(TypedDict):
 class PretrainingArgs(TypedDict):
     steps: int
     optimizer_args: OptimizerArgs
+
+
+class MoleculeArgs(TypedDict):
+    method: str
+    args: dict[str, Any]
+    basis: str

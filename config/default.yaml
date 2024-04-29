@@ -1,5 +1,9 @@
-molecule: "Be 0 0 0"
-spin: 0
+molecule_args:
+  method: from_str
+  args:
+    atom: "Be 0 0 0"
+    spin: 0
+  basis: sto-6g
 
 model: moon
 
@@ -13,13 +17,15 @@ model_args:
 
 logging_args:
   smoothing: 500
+  out_directory: logs
   wandb:
     use: true
-    project: sparse_wf
     entity: tum_daml_nicholas
   file:
-    use: false
-    path: "log.txt"
+    use: true
+    file_name: log.txt
+  name_keys: []
+  comment: null
 
 optimization:
   steps: 100_000
@@ -70,4 +76,3 @@ pretraining:
 batch_size: 512
 mcmc_steps: 20
 init_width: 0.1
-basis: sto-6g

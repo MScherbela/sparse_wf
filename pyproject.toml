@@ -21,7 +21,8 @@ dependencies = [
     "seml[ssh_forward]",
     "tqdm",
     "wandb",
-    "pytest"
+    "pytest",
+    "wonderwords"
 ]
 
 [project.optional-dependencies]

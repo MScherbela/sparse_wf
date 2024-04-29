@@ -166,5 +166,4 @@ wandb/
 logs/
 job.sh
 sparse_wf.txt
-
 logs
