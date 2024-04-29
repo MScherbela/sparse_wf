@@ -10,10 +10,10 @@ SENTINEL_INDEX = 100_000
 
 @chex.dataclass
 class Edges:
-    j: jnp.array
-    weight: jnp.array
-    diff: jnp.array
-    dist: jnp.array
+    j: jax.Array
+    weight: jax.Array
+    diff: jax.Array
+    dist: jax.Array
 
     @jax.vmap
     def get_subset(self, electron_indices):

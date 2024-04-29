@@ -22,7 +22,7 @@ def update_log_psi(phi_inv, affected_indices, delta_phi):
     U = eye_nel.at[:, affected_indices].get(mode="drop", fill_value=0)
     M = eye_changes + delta_phi @ phi_inv @ U
 
-    # TODO: there should probably a faster way to get the determinant and inverse together
+    # IDEA: there should probably a faster way to get the determinant and inverse together
     # Probably
     # 1) jax.scipy.linalg.lu
     # 2) jax.scipy.linalg.lu_solve

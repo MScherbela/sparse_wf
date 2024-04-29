@@ -4,18 +4,17 @@ spin: 0
 model_args:
   cutoff: 10.0
 
+pretraining:
+  steps: 100
 
 optimization:
-  # learning_rate: 0.001
-  # grad_norm_constraint: 0.1
+  steps: 50_000
   preconditioner_args:
-    preconditioner: spring
-    spring_args:
-      damping: 5.e-3
+    preconditioner: cg
 
 logging_args:
   wandb:
     entity: tum_daml_nicholas
-    project: debug_moon
+    project: debug
 
-pretrain_steps: 700
+batch_size: 2048

@@ -1,27 +1,23 @@
 from typing import Sequence, cast
+
 import flax.linen as nn
 import jax
-import jax.numpy as jnp
 import jax.nn as jnn
+import jax.numpy as jnp
 import numpy as np
 import pyscf
-from jaxtyping import Array, Float
 from flax.struct import PyTreeNode
+from jaxtyping import Array, Float
+
 from sparse_wf.api import (
-    DynamicInput,
-    DynamicInputWithDependencies,
     Electrons,
-    ParameterizedWaveFunction,
-    Parameters,
-    StaticInput,
-    SlaterMatrices,
     HFOrbitals,
+    ParameterizedWaveFunction,
     PRNGKeyArray,
-    InputConstructor,
+    SlaterMatrices,
 )
 from sparse_wf.hamiltonian import make_local_energy
-from sparse_wf.model.utils import ElecInp, SlaterOrbitals, signed_logpsi_from_orbitals, hf_orbitals_to_fulldet_orbitals
-
+from sparse_wf.model.utils import ElecInp, SlaterOrbitals, hf_orbitals_to_fulldet_orbitals, signed_logpsi_from_orbitals
 
 PairInp = Float[Array, "*batch n_electrons n_electrns n_pair_in"]
 ElecOut = Float[Array, "*batch n_electrons n_out"]
@@ -35,7 +31,7 @@ def residual(x: Array, y: Array) -> Array:
     return x
 
 
-# TODO: Isn't that exactly the same as nn.Dense?
+# IDEA: Isn't that exactly the same as nn.Dense?
 class RepeatedDense(nn.Module):
     out_dim: int
 
@@ -110,7 +106,7 @@ class FermiNetOrbitals(nn.Module):
     activation: str = "silu"
 
     @nn.compact
-    def __call__(self, electrons: Electrons, static: StaticInput):
+    def __call__(self, electrons: Electrons, static: None):
         electrons = electrons.reshape(-1, 3)
         n_ele = electrons.shape[0]
         assert n_ele == self.mol.nelectron
@@ -135,43 +131,35 @@ class FermiNetOrbitals(nn.Module):
         return SlaterOrbitals(self.n_determinants, spins)(h_one, dist_im)
 
 
-class DummyInputConstructor(InputConstructor):
-    def get_static_input(self, electrons: Electrons):
-        return StaticInput(None, None)  # type: ignore
-
-    def get_dynamic_input(self, electrons: Electrons, static: StaticInput):
-        return DynamicInput(electrons, None)  # type: ignore
-
-    def get_dynamic_input_with_dependencies(
-        self, electrons: Electrons, static: StaticInput
-    ) -> DynamicInputWithDependencies:
-        return DynamicInputWithDependencies(electrons, (), (), ())  # type: ignore
+FermiNetParams = dict[str, "FermiNetParams"] | Array
 
 
-class DenseFermiNet(ParameterizedWaveFunction, PyTreeNode):
+class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode):
     mol: pyscf.gto.Mole
     ferminet: FermiNetOrbitals
-    input_constructor: InputConstructor
+
+    def get_static_input(self, electrons: Electrons):
+        return None
 
     @classmethod
     def create(cls, mol: pyscf.gto.Mole):
-        return cls(mol, FermiNetOrbitals(mol), DummyInputConstructor())
+        return cls(mol, FermiNetOrbitals(mol))
 
-    def init(self, key: PRNGKeyArray):
-        return self.ferminet.init(key, np.zeros((self.mol.nelectron, 3), dtype=np.float32), None)
+    def init(self, key: PRNGKeyArray) -> FermiNetParams:
+        return cast(FermiNetParams, self.ferminet.init(key, np.zeros((self.mol.nelectron, 3), dtype=np.float32), None))
 
-    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
+    def orbitals(self, params: FermiNetParams, electrons: Electrons, static) -> SlaterMatrices:
         return self.ferminet.apply(params, electrons, static)  # type: ignore
 
-    def signed(self, params: Parameters, electrons: Electrons, static: StaticInput):
+    def signed(self, params: FermiNetParams, electrons: Electrons, static):
         orbitals = self.orbitals(params, electrons, static)
         return signed_logpsi_from_orbitals(orbitals)
 
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput):
+    def __call__(self, params: FermiNetParams, electrons: Electrons, static):
         return self.signed(params, electrons, static)[1]
 
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
-    def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput):
+    def local_energy(self, params: FermiNetParams, electrons: Electrons, static):
         return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)

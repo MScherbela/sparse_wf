@@ -70,6 +70,32 @@ def jit(
 
 
 @overload
+def vectorize(fun: None = None, *jit_args, **jit_kwargs) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+
+
+@overload
+def vectorize(fun: Callable[P, R], *jit_args, **jit_kwargs) -> Callable[P, R]: ...
+
+
+def vectorize(
+    fun: Callable[P, R] | None = None, *vec_args, **vec_kwargs
+) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
+    def inner_jit(fun: Callable[P, R]) -> Callable[P, R]:
+        vectorized = jnp.vectorize(fun, *vec_args, **vec_kwargs)
+
+        @functools.wraps(fun)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            return cast(R, vectorized(*args, **kwargs))
+
+        return wrapper
+
+    if fun is None:
+        return inner_jit
+
+    return inner_jit(fun)
+
+
+@overload
 def pmap(fun: None = None, *jit_args, **jit_kwargs) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
@@ -98,7 +124,7 @@ def pmap(
 
 
 @functools.wraps(folx.forward_laplacian)
-def fwd_lap(f, argnums=None, sparsity_threshold=0.6):
+def fwd_lap(f, argnums=None, sparsity_threshold=0):
     """Applies forward laplacian transform using the folx package, but adds the option to specifiy which args are being differentiated,
     and chooses sparse jacobians by default."""
 

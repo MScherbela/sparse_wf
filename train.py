@@ -90,6 +90,7 @@ def update_logging_configuration(
 @ex.automain
 def main(
     molecule_args: MoleculeArgs,
+    model: str,
     model_args: ModelArgs,
     optimization: OptimizationArgs,
     pretraining: PretrainingArgs,
@@ -112,8 +113,12 @@ def main(
     logging.info(f'Run name: {loggers.args["name"]}')
     logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
 
-    # wf = SparseMoonWavefunction.create(mol, **model_args)
-    wf = DenseFermiNet.create(mol)
+    if model == "moon":
+        wf = SparseMoonWavefunction.create(mol, **model_args)
+    elif model == "ferminet":
+        wf = DenseFermiNet.create(mol)
+    else:
+        raise ValueError(f"Invalid model: {model}")
 
     # Setup random keys
     # the main key will always be identitcal on all processes
@@ -134,12 +139,13 @@ def main(
     # We want to initialize differently per process so we use the proc_key here
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
+    mcmc_step = make_mcmc(wf, mcmc_steps)
+    mcmc_width_scheduler = make_width_scheduler()
 
     trainer = make_trainer(
         wf,
-        wf.local_energy,
-        make_mcmc(wf, mcmc_steps),
-        make_width_scheduler(),
+        mcmc_step,
+        mcmc_width_scheduler,
         make_optimizer(**optimization["optimizer_args"]),
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
@@ -154,7 +160,7 @@ def main(
     logging.info("Pretraining")
     with tqdm.trange(pretraining["steps"]) as pbar:
         for _ in pbar:
-            static = wf.input_constructor.get_static_input(state.electrons)
+            static = wf.get_static_input(state.electrons)
             state, aux_data = pretrainer.step(state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(aux_data)
@@ -165,10 +171,16 @@ def main(
     state = state.to_train_state()
     assert_identical_copies(state.params)
 
+    logging.info("MCMC Burn-in")
+    for _ in tqdm.trange(optimization["burn_in"]):
+        static = wf.get_static_input(state.electrons)
+        state, aux_data = trainer.sampling_step(state, static)
+        loggers.log(dict(**aux_data))
+
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:
         for opt_step in pbar:
-            static = wf.input_constructor.get_static_input(state.electrons)
+            static = wf.get_static_input(state.electrons)
             state, _, aux_data = trainer.step(state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(dict(opt_step=opt_step, **aux_data))

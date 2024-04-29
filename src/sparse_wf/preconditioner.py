@@ -1,3 +1,5 @@
+from typing import TypeVar
+
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -6,29 +8,30 @@ from jax.scipy.sparse.linalg import cg
 from sparse_wf.api import (
     Electrons,
     EnergyCotangent,
-    Preconditioner,
-    PreconditionerState,
-    Parameters,
     ParameterizedWaveFunction,
+    Parameters,
+    Preconditioner,
     PreconditionerArgs,
-    StaticInput,
+    PreconditionerState,
 )
-from sparse_wf.jax_utils import pall_to_all, pgather, pidx, psum, pmean
+from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum
 from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub
+
+P, S = TypeVar("P"), TypeVar("S")
 
 
 def make_identity_preconditioner(
-    wave_function: ParameterizedWaveFunction,
-) -> Preconditioner:
-    def init(params):
-        return PreconditionerState(last_grad=jax.tree_map(lambda x: jnp.zeros_like(x), params))
+    wave_function: ParameterizedWaveFunction[P, S],
+):
+    def init(params: P) -> PreconditionerState[P]:
+        return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params))
 
     def precondition(
-        params: Parameters,
+        params: P,
         electrons: Electrons,
-        static: StaticInput,
+        static: S,
         dE_dlogpsi: EnergyCotangent,
-        natgrad_state: PreconditionerState,
+        natgrad_state: PreconditionerState[P],
     ):
         N = dE_dlogpsi.size * jax.device_count()
 
@@ -44,23 +47,23 @@ def make_identity_preconditioner(
 
 
 def make_cg_preconditioner(
-    wave_function: ParameterizedWaveFunction,
+    wave_function: ParameterizedWaveFunction[P, S],
     damping: float = 1e-3,
     maxiter: int = 100,
-) -> Preconditioner:
-    def init(params):
-        return PreconditionerState(last_grad=jax.tree_map(lambda x: jnp.zeros_like(x), params))
+):
+    def init(params: P) -> PreconditionerState[P]:
+        return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params))
 
     def precondition(
-        params: Parameters,
+        params: P,
         electrons: Electrons,
-        static: StaticInput,
+        static: S,
         dE_dlogpsi: EnergyCotangent,
-        natgrad_state: PreconditionerState,
+        natgrad_state: PreconditionerState[P],
     ):
         N = dE_dlogpsi.size * jax.device_count()
 
-        def log_p_closure(p: Parameters):
+        def log_p_closure(p: P):
             return jax.vmap(wave_function, in_axes=(None, 0, None))(p, electrons, static) / jnp.sqrt(N)
 
         _, vjp = jax.vjp(log_p_closure, params)
@@ -68,7 +71,7 @@ def make_cg_preconditioner(
 
         grad = psum(vjp(dE_dlogpsi / jnp.sqrt(N))[0])
 
-        def Fisher_matmul(v):
+        def Fisher_matmul(v: P):
             w = jvp(v)
             undamped = vjp(w)[0]
             result = tree_add(undamped, tree_mul(v, damping))
@@ -81,26 +84,27 @@ def make_cg_preconditioner(
 
 
 def make_spring_preconditioner(
-    wave_function: ParameterizedWaveFunction,
+    wave_function: ParameterizedWaveFunction[P, S],
     damping: float = 1e-3,
     decay_factor: float = 0.99,
-) -> Preconditioner:
-    def init(params):
-        return PreconditionerState(last_grad=jax.tree_map(lambda x: jnp.zeros_like(x), params))
+):
+    def init(params: P) -> PreconditionerState[P]:
+        return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params))
 
     def precondition(
-        params: Parameters,
+        params: P,
         electrons: Electrons,
-        static: StaticInput,
+        static: S,
         dE_dlogpsi: EnergyCotangent,
-        natgrad_state: PreconditionerState,
+        natgrad_state: PreconditionerState[P],
     ):
+        dtype = dE_dlogpsi.dtype
         n_dev = jax.device_count()
         local_batch_size = dE_dlogpsi.size
         N = local_batch_size * n_dev
         normalization = 1 / jnp.sqrt(N)
 
-        def log_p(params: Parameters, electrons: Electrons, static: StaticInput):
+        def log_p(params: P, electrons: Electrons, static: S):
             return wave_function(params, electrons, static) * normalization
 
         # Gather individual jacobians
@@ -109,13 +113,13 @@ def make_spring_preconditioner(
         jacobians = jtu.tree_map(lambda x: x.reshape(local_batch_size, -1), jacobians)
 
         # Compute T
-        T = jnp.zeros((N, N))
+        T = jnp.zeros((N, N), dtype)
         for jac in jacobians:
             if jac.shape[-1] % n_dev != 0:
                 jac = jnp.concatenate(
                     [
                         jac,
-                        jnp.zeros((jac.shape[0], n_dev - jac.shape[-1] % n_dev)),
+                        jnp.zeros((jac.shape[0], n_dev - jac.shape[-1] % n_dev), dtype),
                     ],
                     axis=-1,
                 )
@@ -124,7 +128,7 @@ def make_spring_preconditioner(
             T += jac @ jac.T
         T = psum(T)
 
-        def log_p_closed(params: Parameters):
+        def log_p_closed(params: P):
             result = jax.vmap(wave_function, in_axes=(None, 0, None))(params, electrons, static)
             return result * normalization
 
@@ -146,7 +150,7 @@ def make_spring_preconditioner(
         cotangent -= centered_jvp(decayed_last_grad).reshape(-1)
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
-        T = T + damping * jnp.eye(T.shape[-1]) + 1 / N
+        T = T + damping * jnp.eye(T.shape[-1], dtype=T.dtype) + 1 / N
 
         natgrad = centered_vjp(jnp.linalg.solve(T, cotangent).reshape(n_dev, -1)[pidx()])
         natgrad = tree_add(natgrad, decayed_last_grad)
@@ -155,7 +159,7 @@ def make_spring_preconditioner(
     return Preconditioner(init, precondition)
 
 
-def make_preconditioner(wf: ParameterizedWaveFunction, args: PreconditionerArgs):
+def make_preconditioner(wf: ParameterizedWaveFunction[P, S], args: PreconditionerArgs):
     preconditioner = args["preconditioner"].lower()
     if preconditioner == "identity":
         return make_identity_preconditioner(wf)

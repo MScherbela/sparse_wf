@@ -1,0 +1,23 @@
+Summary: batch_size=32, n_el=32, cutoff=3.0, n_nb= 7, n_deps_max= 22, sparse time=0.013
+Summary: batch_size=32, n_el=32, cutoff=5.0, n_nb=12, n_deps_max= 32, sparse time=0.025
+Summary: batch_size=32, n_el=32, cutoff=7.0, n_nb=15, n_deps_max= 32, sparse time=0.039
+Summary: batch_size=32, n_el=32, cutoff=9.0, n_nb=22, n_deps_max= 32, sparse time=0.048
+Summary: batch_size=32, n_el=44, cutoff=3.0, n_nb= 7, n_deps_max= 22, sparse time=0.022
+Summary: batch_size=32, n_el=44, cutoff=5.0, n_nb=12, n_deps_max= 38, sparse time=0.038
+Summary: batch_size=32, n_el=44, cutoff=7.0, n_nb=18, n_deps_max= 44, sparse time=0.059
+Summary: batch_size=32, n_el=44, cutoff=9.0, n_nb=22, n_deps_max= 44, sparse time=0.075
+Summary: batch_size=32, n_el=64, cutoff=3.0, n_nb= 7, n_deps_max= 22, sparse time=0.029
+Summary: batch_size=32, n_el=64, cutoff=5.0, n_nb=12, n_deps_max= 38, sparse time=0.060
+Summary: batch_size=32, n_el=64, cutoff=7.0, n_nb=18, n_deps_max= 46, sparse time=0.094
+Summary: batch_size=32, n_el=64, cutoff=9.0, n_nb=22, n_deps_max= 64, sparse time=0.147
+Summary: batch_size=32, n_el=90, cutoff=3.0, n_nb= 7, n_deps_max= 22, sparse time=0.052
+Summary: batch_size=32, n_el=90, cutoff=5.0, n_nb=12, n_deps_max= 38, sparse time=0.094
+Summary: batch_size=32, n_el=90, cutoff=7.0, n_nb=18, n_deps_max= 46, sparse time=0.145
+Summary: batch_size=32, n_el=90, cutoff=9.0, n_nb=22, n_deps_max= 66, sparse time=0.220
+Summary: batch_size=32, n_el=126, cutoff=3.0, n_nb= 8, n_deps_max= 22, sparse time=0.083
+Summary: batch_size=32, n_el=126, cutoff=5.0, n_nb=15, n_deps_max= 38, sparse time=0.149
+Summary: batch_size=32, n_el=126, cutoff=7.0, n_nb=18, n_deps_max= 46, sparse time=0.216
+Summary: batch_size=32, n_el=126, cutoff=9.0, n_nb=22, n_deps_max= 66, sparse time=0.341
+Summary: batch_size=32, n_el=180, cutoff=3.0, n_nb= 8, n_deps_max= 22, sparse time=0.129
+Summary: batch_size=32, n_el=180, cutoff=5.0, n_nb=12, n_deps_max= 38, sparse time=0.237
+Summary: batch_size=32, n_el=180, cutoff=7.0, n_nb=18, n_deps_max= 46, sparse time=0.329

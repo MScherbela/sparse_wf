@@ -1,29 +1,29 @@
 from enum import Enum
+from typing import TypeVar
 
 import jax
 import jax.numpy as jnp
 import optax
 
 from sparse_wf.api import (
-    AuxData,
     ClippingArgs,
     Electrons,
-    EnergyFn,
     LocalEnergy,
     MCStep,
-    Preconditioner,
     OptState,
-    Parameters,
     ParameterizedWaveFunction,
+    Preconditioner,
     PRNGKeyArray,
-    StaticInput,
     Trainer,
     TrainingState,
     Width,
     WidthScheduler,
+    Parameters,
 )
 from sparse_wf.jax_utils import pgather, pmap, pmean, replicate
 from sparse_wf.tree_utils import tree_dot
+
+from folx import batched_vmap
 
 
 class ClipStatistic(Enum):
@@ -58,21 +58,18 @@ def local_energy_diff(e_loc: LocalEnergy, clip_local_energy: float, stat: str | 
     return e_loc
 
 
+P, S = TypeVar("P", bound=Parameters), TypeVar("S")
+
+
 def make_trainer(
-    wave_function: ParameterizedWaveFunction,
-    energy_function: EnergyFn,
-    mcmc_step: MCStep,
+    wave_function: ParameterizedWaveFunction[P, S],
+    mcmc_step: MCStep[P, S],
     width_scheduler: WidthScheduler,
     optimizer: optax.GradientTransformation,
-    preconditioner: Preconditioner,
+    preconditioner: Preconditioner[P, S],
     clipping_args: ClippingArgs,
-) -> Trainer:
-    def init(
-        key: PRNGKeyArray,
-        params: Parameters,
-        electrons: Electrons,
-        init_width: Width,
-    ) -> TrainingState:
+):
+    def init(key: PRNGKeyArray, params: P, electrons: Electrons, init_width: Width):
         params = replicate(params)
         return TrainingState(
             key=key,
@@ -86,21 +83,34 @@ def make_trainer(
         )
 
     @pmap(static_broadcasted_argnums=1)
-    def step(
-        state: TrainingState,
-        static: StaticInput,
-    ) -> tuple[TrainingState, LocalEnergy, AuxData]:
+    def sampling_step(state: TrainingState[P], static: S):
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
-        energy = energy_function(state.params, electrons, static)
+        state = state.replace(key=key, electrons=electrons, width_state=width_state)
+        aux_data = {"mcmc/pmove": pmove, "mcmc/stepsize": state.width_state.width}
+        return state, aux_data
+
+    @pmap(static_broadcasted_argnums=1)
+    def step(state: TrainingState[P], static: S):
+        key, subkey = jax.random.split(state.key)
+        electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
+        width_state = width_scheduler.update(state.width_state, pmove)
+        energy = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=64)(
+            state.params, electrons, static
+        )
         energy_diff = local_energy_diff(energy, **clipping_args)
 
         E_mean = pmean(energy.mean())
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
         aux_data = {"opt/E": E_mean, "opt/E_std": E_std, "mcmc/pmove": pmove, "mcmc/stepsize": state.width_state.width}
-        natgrad = state.opt_state.natgrad
-        gradient, natgrad, preconditioner_aux = preconditioner.precondition(
+
+        # # TODO: for debugging only; remove
+        # energy_dense = wave_function.local_energy_dense(state.params, electrons, static) # type: ignore
+        # E_mean_dense = pmean(energy_dense.mean())
+        # aux_data["opt/E_dense"] = E_mean_dense
+
+        natgrad, precond_state, preconditioner_aux = preconditioner.precondition(
             state.params,
             electrons,
             static,
@@ -108,17 +118,17 @@ def make_trainer(
             state.opt_state.natgrad,  # type: ignore
         )
         aux_data.update(preconditioner_aux)
-        aux_data["opt/update_norm"] = tree_dot(gradient, gradient) ** 0.5
+        aux_data["opt/update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
 
-        updates, opt = optimizer.update(gradient, state.opt_state.opt, state.params)
+        updates, opt = optimizer.update(natgrad, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)
 
         return (
-            TrainingState(
+            state.replace(
                 key=key,
                 params=params,
                 electrons=electrons,
-                opt_state=OptState(opt, natgrad),
+                opt_state=OptState(opt, precond_state),
                 width_state=width_state,
             ),
             energy,
@@ -128,10 +138,10 @@ def make_trainer(
     return Trainer(
         init=init,
         step=step,
+        sampling_step=sampling_step,
         wave_function=wave_function,
         mcmc=mcmc_step,
         width_scheduler=width_scheduler,
-        energy_fn=energy_function,
         optimizer=optimizer,
         preconditioner=preconditioner,
     )

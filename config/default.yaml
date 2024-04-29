@@ -5,6 +5,8 @@ molecule_args:
     spin: 0
   basis: sto-6g
 
+model: moon
+
 model_args:
   cutoff: 10.0
   feature_dim: 256
@@ -27,6 +29,7 @@ logging_args:
 
 optimization:
   steps: 100_000
+  burn_in: 500
   optimizer_args:
     lr_schedule: hyperbolic
     lr_schedule_args:
