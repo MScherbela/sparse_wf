@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, NamedTuple, Protocol, Sequence, TypeAlias, Callable, TypedDict, Optional
+from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar
 
 import numpy as np
 import optax
@@ -33,7 +33,6 @@ EnergyCotangent = Float[Array, "*batch_dims"]
 
 Parameter = Float[Array, "..."]
 Parameters: TypeAlias = PyTree[Parameter]
-Gradients = Parameters
 
 Width = Float[Array, ""]
 PMove = Float[Array, ""]
@@ -47,118 +46,26 @@ Step = Integer[ArrayLike, ""]
 ############################################################################
 # Wave function
 ############################################################################
-ElectronElectronEdges = Integer[Array, "n_electrons n_nb_ee"]
-ElectronNucleiEdges = Integer[Array, "n_electrons n_nb_en"]
-NucleiElectronEdges = Integer[Array, "n_nuclei n_nb_ne"]
-DistanceMatrix = Float[Array, "*batch_dims n1 n2"]
-
-
-class NrOfNeighbours(NamedTuple):
-    ee: int
-    en: int
-    ne: int
-
-
-class NeighbourIndices(NamedTuple):
-    ee: ElectronElectronEdges
-    en: ElectronNucleiEdges
-    ne: NucleiElectronEdges
-
-
-NrOfDependencies = NamedTuple
-
-
-class StaticInput(NamedTuple):
-    n_neighbours: NrOfNeighbours
-    n_deps: NrOfDependencies
-
-
-Dependant = Integer[Array, "n_dependants"]
-Dependency = Integer[Array, "n_deps"]
-Dependencies = Integer[Dependency, "*batch_dims"]
-Dependants = Integer[Dependant, "*batch_dims"]
-DependencyMap = Integer[Array, "*batch_dims n_center n_neighbour n_deps"]
-
-
-class DynamicInput(NamedTuple):
-    electrons: Electrons
-    neighbours: NeighbourIndices
-
-
-class DynamicInputWithDependencies(NamedTuple):
-    electrons: Electrons
-    neighbours: NeighbourIndices
-    dependencies: tuple[Dependencies, ...]
-    dep_maps: tuple[DependencyMap, ...]
-
-
-class InputConstructor(Protocol):
-    def get_static_input(self, electrons: Electrons) -> StaticInput: ...
-
-    def get_dynamic_input(self, electrons: Electrons, static: StaticInput) -> DynamicInput: ...
-
-    def get_dynamic_input_with_dependencies(
-        self, electrons: Electrons, static: StaticInput
-    ) -> DynamicInputWithDependencies: ...
-
-
-class ClosedInputConstructor(Protocol):
-    def __call__(self, electrons: Electrons) -> DynamicInput: ...
-
-
-class Jastrow(Protocol):
-    def __call__(self, electrons: Electrons, static: StaticInput) -> LogAmplitude: ...
-
-
-class OrbitalFn(Protocol):
-    def __call__(self, electrons: Electrons, static: StaticInput) -> SlaterMatrices: ...
+# Static input
+S = TypeVar("S")
+S_contra = TypeVar("S_contra", contravariant=True)
+# Parameters
+P = TypeVar("P", bound=Parameters)
+P_contra = TypeVar("P_contra", bound=Parameters, contravariant=True)
 
 
 class HFOrbitalFn(Protocol):
     def __call__(self, electrons: Electrons) -> HFOrbitals: ...
 
 
-class HFOrbitalsToNNOrbitals(Protocol):
-    def __call__(self, hf_orbitals: HFOrbitals) -> SlaterMatrices: ...
-
-
-class OrbitalModel(Protocol):
-    __call__: OrbitalFn
-    transform_hf_orbitals: HFOrbitalsToNNOrbitals
-
-
-class SLogPsi(Protocol):
-    def __call__(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude: ...
-
-
-class LogPsi(Protocol):
-    def __call__(self, electrons: Electrons, static: StaticInput) -> LogAmplitude: ...
-
-
-class ParameterizedOrbitalFunction(Protocol):
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices: ...
-
-
-class ParameterizedSLogPsi(Protocol):
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude: ...
-
-
-class ParameterizedLogPsi(Protocol):
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude: ...
-
-
-class ParameterizedLocalEnergy(Protocol):
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy: ...
-
-
-class ParameterizedWaveFunction(Protocol):
-    init: Callable[[PRNGKeyArray], Parameters]
-    input_constructor: InputConstructor
-    orbitals: ParameterizedOrbitalFunction
-    hf_transformation: HFOrbitalsToNNOrbitals
-    signed: ParameterizedSLogPsi
-    __call__: ParameterizedLogPsi
-    local_energy: ParameterizedLocalEnergy
+class ParameterizedWaveFunction(Protocol[P, S]):
+    def init(self, key: PRNGKeyArray) -> P: ...
+    def get_static_input(self, electrons: Electrons) -> S: ...
+    def orbitals(self, params: P, electrons: Electrons, static: S) -> SlaterMatrices: ...
+    def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices: ...
+    def local_energy(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
+    def signed(self, params: P, electrons: Electrons, static: S) -> SignedLogAmplitude: ...
+    def __call__(self, params: P, electrons: Electrons, static: S) -> LogAmplitude: ...
 
 
 ############################################################################
@@ -168,9 +75,9 @@ class ClosedLogLikelihood(Protocol):
     def __call__(self, electrons: Electrons) -> LogAmplitude: ...
 
 
-class MCStep(Protocol):
+class MCStep(Protocol[P_contra, S_contra]):
     def __call__(
-        self, key: PRNGKeyArray, params: Parameters, electrons: Electrons, static: StaticInput, width: Width
+        self, key: PRNGKeyArray, params: P_contra, electrons: Electrons, static: S_contra, width: Width
     ) -> tuple[Electrons, PMove]: ...
 
 
@@ -196,88 +103,88 @@ class WidthScheduler(NamedTuple):
 ############################################################################
 # Natural Gradient
 ############################################################################
-class PreconditionerState(NamedTuple):
-    last_grad: Parameters
+class PreconditionerState(NamedTuple, Generic[P]):
+    last_grad: P
 
 
-class PreconditionerInit(Protocol):
-    def __call__(self, params: Parameters) -> PreconditionerState: ...
+class PreconditionerInit(Protocol[P]):
+    def __call__(self, params: P) -> PreconditionerState[P]: ...
 
 
-class ApplyPreconditioner(Protocol):
+class ApplyPreconditioner(Protocol[P, S_contra]):
     def __call__(
         self,
-        params: Parameters,
+        params: P,
         electrons: Electrons,
-        static: StaticInput,
+        static: S_contra,
         dE_dlogpsi: EnergyCotangent,
-        natgrad_state: PreconditionerState,
-    ) -> tuple[Gradients, PreconditionerState, AuxData]: ...
+        natgrad_state: PreconditionerState[P],
+    ) -> tuple[P, PreconditionerState[P], AuxData]: ...
 
 
-class Preconditioner(NamedTuple):
-    init: PreconditionerInit
-    precondition: ApplyPreconditioner
+class Preconditioner(NamedTuple, Generic[P, S]):
+    init: PreconditionerInit[P]
+    precondition: ApplyPreconditioner[P, S]
 
 
 ############################################################################
 # Optimizer
 ############################################################################
-class OptState(NamedTuple):
+class OptState(NamedTuple, Generic[P]):
     opt: optax.OptState
-    natgrad: PreconditionerState
+    natgrad: PreconditionerState[P]
 
 
-class TrainingState(struct.PyTreeNode):
+class TrainingState(Generic[P], struct.PyTreeNode):  # the order of inheritance is important here!
     key: PRNGKeyArray
-    params: Parameters
+    params: P
     electrons: Electrons
-    opt_state: OptState
+    opt_state: OptState[P]
     width_state: WidthSchedulerState
 
 
-class VMCStepFn(Protocol):
+class VMCStepFn(Protocol[P, S_contra]):
     def __call__(
         self,
-        state: TrainingState,
-        static: StaticInput,
-    ) -> tuple[TrainingState, LocalEnergy, AuxData]: ...
+        state: TrainingState[P],
+        static: S_contra,
+    ) -> tuple[TrainingState[P], LocalEnergy, AuxData]: ...
 
 
-class SamplingStepFn(Protocol):
+class SamplingStepFn(Protocol[P, S_contra]):
     def __call__(
         self,
-        state: TrainingState,
-        static: StaticInput,
-    ) -> tuple[TrainingState, AuxData]: ...
+        state: TrainingState[P],
+        static: S_contra,
+    ) -> tuple[TrainingState[P], AuxData]: ...
 
 
-class InitTrainState(Protocol):
+class InitTrainState(Protocol[P]):
     def __call__(
         self,
         key: PRNGKeyArray,
-        params: Parameters,
+        params: P,
         electrons: Electrons,
         init_width: Width,
-    ) -> TrainingState: ...
+    ) -> TrainingState[P]: ...
 
 
 @dataclass(frozen=True)
-class Trainer:
-    init: InitTrainState
-    step: VMCStepFn
-    sampling_step: SamplingStepFn
-    wave_function: ParameterizedWaveFunction
-    mcmc: MCStep
+class Trainer(Generic[P, S]):
+    init: InitTrainState[P]
+    step: VMCStepFn[P, S]
+    sampling_step: SamplingStepFn[P, S]
+    wave_function: ParameterizedWaveFunction[P, S]
+    mcmc: MCStep[P, S]
     width_scheduler: WidthScheduler
     optimizer: optax.GradientTransformation
-    preconditioner: Preconditioner
+    preconditioner: Preconditioner[P, S]
 
 
 ############################################################################
 # Pretraining
 ############################################################################
-class PretrainState(TrainingState):
+class PretrainState(TrainingState[P]):
     pre_opt_state: optax.OptState
 
     def to_train_state(self):
@@ -293,20 +200,20 @@ class PretrainState(TrainingState):
 Loss = Float[Array, ""]
 
 
-class InitPretrainState(Protocol):
+class InitPretrainState(Protocol[P]):
     def __call__(
         self,
-        training_state: TrainingState,
-    ) -> PretrainState: ...
+        training_state: TrainingState[P],
+    ) -> PretrainState[P]: ...
 
 
-class UpdatePretrainFn(Protocol):
-    def __call__(self, state: PretrainState, static: StaticInput) -> tuple[PretrainState, AuxData]: ...
+class UpdatePretrainFn(Protocol[P, S_contra]):
+    def __call__(self, state: PretrainState[P], static: S_contra) -> tuple[PretrainState[P], AuxData]: ...
 
 
-class Pretrainer(NamedTuple):
-    init: InitPretrainState
-    step: UpdatePretrainFn
+class Pretrainer(NamedTuple, Generic[P, S]):
+    init: InitPretrainState[P]
+    step: UpdatePretrainFn[P, S]
 
 
 ############################################################################
@@ -328,7 +235,6 @@ class Logger(Protocol):
 
 
 class ModelArgs(TypedDict):
-    model_name: str
     cutoff: float
     feature_dim: int
     nuc_mlp_depth: int

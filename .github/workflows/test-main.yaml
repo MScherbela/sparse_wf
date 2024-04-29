@@ -19,6 +19,10 @@ jobs:
           python -m pip install --upgrade uv
           uv pip install --system pytest
           uv pip install --system .
+      - name: Setup dev version of folx
+        run: |
+          git clone https://github.com/microsoft/folx.git folx
+          uv pip install --system folx/
       - name: Test with pytest
         run: |
           pytest

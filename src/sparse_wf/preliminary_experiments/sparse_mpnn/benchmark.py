@@ -1,6 +1,6 @@
 # %%
 from sparse_wf.model import SparseMoonWavefunction
-from sparse_wf.model.moon import NrOfDependenciesMoon
+from sparse_wf.model.moon import NrOfDependencies
 import jax
 from jax.lib import xla_bridge
 import jax.numpy as jnp
@@ -55,7 +55,7 @@ for n_el in n_el_values:
             timings[n] = t1 - t0
 
             n_nb = static.n_neighbours.ee
-            n_deps_max = cast(NrOfDependenciesMoon, static.n_deps).h_el_out
+            n_deps_max = cast(NrOfDependencies, static.n_deps).h_el_out
             print(f"n_el={n_el}, cutoff={cutoff:3.1f}, n_nb={n_nb:2d}, n_deps_max={n_deps_max:3d}, iteration={n}, t sparse energy ={timings[n]:5.3f} sec", flush=True)
 
         print("-" * 80)

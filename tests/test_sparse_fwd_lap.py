@@ -1,22 +1,23 @@
 # %%
 import functools
+import itertools
 import os
-from pyscf.gto import Mole
-import pytest
 
 # ruff: noqa: E402 # Allow setting environment variables before importing jax
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
+import pytest
 from folx.api import FwdJacobian, FwdLaplArray
 from jax import config as jax_config
+from pyscf.gto import Mole
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.mcmc import init_electrons
 from sparse_wf.model import SparseMoonWavefunction
-import itertools
 
 jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
@@ -58,7 +59,7 @@ def setup_inputs(dtype):
     electrons = init_electrons(rng_r, mol, batch_size=1)[0]
     params = model.init(rng_params)
     model, params, electrons = jtu.tree_map(lambda x: change_float_dtype(x, dtype), (model, params, electrons))
-    static_args = model.input_constructor.get_static_input(electrons)
+    static_args = model.get_static_input(electrons)
     return model, electrons, params, static_args
 
 

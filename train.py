@@ -43,6 +43,7 @@ def set_postfix(pbar: tqdm.tqdm, aux_data: dict[str, float]):
 def main(
     molecule: str,
     spin: int,
+    model: str,
     model_args: ModelArgs,
     optimization: OptimizationArgs,
     pretraining: PretrainingArgs,
@@ -64,10 +65,12 @@ def main(
     mol = pyscf.gto.M(atom=molecule, basis=basis, spin=spin, unit="bohr")
     mol.build()
 
-    if model_args["model_name"] == "moon":
+    if model == "moon":
         wf = SparseMoonWavefunction.create(mol, **model_args)
-    else:
+    elif model == "ferminet":
         wf = DenseFermiNet.create(mol)
+    else:
+        raise ValueError("Invalid model: {model}")
 
     # Setup random keys
     # the main key will always be identitcal on all processes
@@ -108,7 +111,7 @@ def main(
     logging.info("Pretraining")
     with tqdm.trange(pretraining["steps"]) as pbar:
         for _ in pbar:
-            static = wf.input_constructor.get_static_input(state.electrons)
+            static = wf.get_static_input(state.electrons)
             state, aux_data = pretrainer.step(state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(aux_data)
@@ -121,14 +124,14 @@ def main(
 
     logging.info("MCMC Burn-in")
     for _ in tqdm.trange(optimization["burn_in"]):
-        static = wf.input_constructor.get_static_input(state.electrons)
+        static = wf.get_static_input(state.electrons)
         state, aux_data = trainer.sampling_step(state, static)
         loggers.log(dict(**aux_data))
 
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:
         for opt_step in pbar:
-            static = wf.input_constructor.get_static_input(state.electrons)
+            static = wf.get_static_input(state.electrons)
             state, _, aux_data = trainer.step(state, static)
             aux_data = to_log_data(aux_data)
             loggers.log(dict(opt_step=opt_step, **aux_data))

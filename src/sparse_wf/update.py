@@ -1,25 +1,24 @@
 from enum import Enum
+from typing import TypeVar
 
 import jax
 import jax.numpy as jnp
 import optax
 
 from sparse_wf.api import (
-    AuxData,
     ClippingArgs,
     Electrons,
     LocalEnergy,
     MCStep,
-    Preconditioner,
     OptState,
-    Parameters,
     ParameterizedWaveFunction,
+    Preconditioner,
     PRNGKeyArray,
-    StaticInput,
     Trainer,
     TrainingState,
     Width,
     WidthScheduler,
+    Parameters,
 )
 from sparse_wf.jax_utils import pgather, pmap, pmean, replicate
 from sparse_wf.tree_utils import tree_dot
@@ -59,20 +58,18 @@ def local_energy_diff(e_loc: LocalEnergy, clip_local_energy: float, stat: str | 
     return e_loc
 
 
+P, S = TypeVar("P", bound=Parameters), TypeVar("S")
+
+
 def make_trainer(
-    wave_function: ParameterizedWaveFunction,
-    mcmc_step: MCStep,
+    wave_function: ParameterizedWaveFunction[P, S],
+    mcmc_step: MCStep[P, S],
     width_scheduler: WidthScheduler,
     optimizer: optax.GradientTransformation,
-    preconditioner: Preconditioner,
+    preconditioner: Preconditioner[P, S],
     clipping_args: ClippingArgs,
-) -> Trainer:
-    def init(
-        key: PRNGKeyArray,
-        params: Parameters,
-        electrons: Electrons,
-        init_width: Width,
-    ) -> TrainingState:
+):
+    def init(key: PRNGKeyArray, params: P, electrons: Electrons, init_width: Width):
         params = replicate(params)
         return TrainingState(
             key=key,
@@ -86,10 +83,7 @@ def make_trainer(
         )
 
     @pmap(static_broadcasted_argnums=1)
-    def sampling_step(
-        state: TrainingState,
-        static: StaticInput,
-    ) -> tuple[TrainingState, AuxData]:
+    def sampling_step(state: TrainingState[P], static: S):
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
@@ -98,10 +92,7 @@ def make_trainer(
         return state, aux_data
 
     @pmap(static_broadcasted_argnums=1)
-    def step(
-        state: TrainingState,
-        static: StaticInput,
-    ) -> tuple[TrainingState, LocalEnergy, AuxData]:
+    def step(state: TrainingState[P], static: S):
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
@@ -133,7 +124,7 @@ def make_trainer(
         params = optax.apply_updates(state.params, updates)
 
         return (
-            TrainingState(
+            state.replace(
                 key=key,
                 params=params,
                 electrons=electrons,
