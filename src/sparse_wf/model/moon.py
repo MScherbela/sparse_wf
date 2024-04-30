@@ -165,6 +165,7 @@ class PairwiseFilter(nn.Module):
     directional_mlp_widths: Sequence[int]
     n_envelopes: int
     out_dim: int
+    scales: np.ndarray
 
     def scale_initializer(self, rng, shape, dtype):
         relative_noise = 0.1 * jax.random.normal(rng, shape, dtype)
@@ -185,9 +186,10 @@ class PairwiseFilter(nn.Module):
 
         # Distance-dependenet radial filters
         dist = dist_diff[..., 0]
-        scales = self.param("scales", self.scale_initializer, (self.n_envelopes,), jnp.float32)
-        scales = jax.nn.softplus(scales)
-        envelopes = jnp.exp(-((dist[..., None] / scales) ** 2))
+        # scales = self.param("scales", self.scale_initializer, (self.n_envelopes,), jnp.float32)
+        # scales = np.random.normal(loc=10, scale=2, size=(self.n_envelopes,)).astype(jnp.float32) # TODO: revert
+        # scales = jax.nn.softplus(scales)
+        envelopes = jnp.exp(-((dist[..., None] / self.scales) ** 2))
         envelopes = nn.Dense(directional_features.shape[-1], use_bias=False)(envelopes)
         envelopes *= cutoff_function(dist / self.cutoff)[..., None]
         beta = directional_features * envelopes
@@ -268,9 +270,30 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             n_up=int(n_up),
             n_determinants=n_determinants,
             cutoff=cutoff,
-            ee_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ee"),
-            ne_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ne"),
-            en_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_en"),
+            ee_filter=PairwiseFilter(
+                cutoff,
+                pair_mlp_widths,
+                pair_n_envelopes,
+                feature_dim,
+                np.abs(np.random.normal(10, 2, pair_n_envelopes)),
+                name="Gamma_ee",
+            ),  # TODO: revert
+            ne_filter=PairwiseFilter(
+                cutoff,
+                pair_mlp_widths,
+                pair_n_envelopes,
+                feature_dim,
+                np.abs(np.random.normal(10, 2, pair_n_envelopes)),
+                name="Gamma_ne",
+            ),
+            en_filter=PairwiseFilter(
+                cutoff,
+                pair_mlp_widths,
+                pair_n_envelopes,
+                feature_dim,
+                np.abs(np.random.normal(10, 2, pair_n_envelopes)),
+                name="Gamma_en",
+            ),
             mlp_nuc=MLP(widths=[feature_dim] * nuc_mlp_depth, name="mlp_nuc"),
             lin_h0=nn.Dense(feature_dim, use_bias=True, name="lin_h0"),
             lin_orbitals=nn.Dense(n_determinants * n_el, name="lin_orbitals"),
