@@ -12,10 +12,12 @@ from sparse_wf.jax_utils import only_on_main_process
 class FileLogger(Logger):
     @only_on_main_process
     def __init__(self, file_name: str, collection: str, out_directory: str, name: str, comment: str, **_) -> None:
-        if collection:
-            self.path = os.path.join(out_directory, collection, name, file_name)
-        else:
-            self.path = os.path.join(out_directory, name, file_name)
+        # TODO: fix this for seml
+        # if collection:
+        #     self.path = os.path.join(out_directory, collection, name, file_name)
+        # else:
+        #     self.path = os.path.join(out_directory, name, file_name)
+        self.path = file_name
         self.file = open(self.path, "w")
         atexit.register(self.file.close)
         if comment:
@@ -54,14 +56,17 @@ class MultiLogger(Logger):
         self.smoothing_length = logging_args["smoothing"]
         self.args = logging_args
 
-        with only_on_main_process():
-            os.makedirs(self.run_directory, exist_ok=False)
+        # TODO: fix this for seml
+        # with only_on_main_process():
+        #     if self.run_directory != ".":
+        #         os.makedirs(self.run_directory, exist_ok=False)
 
         if ("wandb" in logging_args) and (logging_args["wandb"]["use"]):
             self.loggers.append(WandBLogger(**(logging_args | logging_args["wandb"])))  # type: ignore
         if ("file" in logging_args) and (logging_args["file"]["use"]):
             self.loggers.append(FileLogger(**(logging_args | logging_args["file"])))  # type: ignore
 
+    # TODO: This enforces that the run directory always ends with the name of the run and does not support setting the cwd as run_directory
     @property
     def run_directory(self):
         if self.args.get("collection", None):
