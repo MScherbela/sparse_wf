@@ -5,15 +5,17 @@ model_args:
   cutoff: 10.0
 
 pretraining:
-  steps: 100
+  steps: 0
 
 optimization:
+  burn_in: 0
   steps: 50_000
   preconditioner_args:
     preconditioner: cg
 
 logging_args:
   wandb:
+    use: False
     entity: tum_daml_nicholas
     project: debug
 

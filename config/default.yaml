@@ -1,6 +1,6 @@
 experiment_name: ""
 
-seed: -1
+seed: 0
 
 molecule_args:
   method: from_str

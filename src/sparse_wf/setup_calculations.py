@@ -199,7 +199,7 @@ def setup_calculations():
             run_name = f'{full_config["experiment_name"]}_{run_name}'
 
         # Pick a random seed for this run, unless specified
-        if full_config.get("seed", -1) < 0:
+        if full_config.get("seed", 0) == 0:
             full_config["seed"] = random.randint(0, 2**16 - 1)
 
         # Create the run-directory and submit the job with slurm
