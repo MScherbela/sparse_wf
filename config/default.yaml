@@ -59,6 +59,7 @@ optimization:
       damping: 1.e-3
       ema_natgrad: 0.9
       ema_S: 0.9
+      history_length: 200
   clipping:
     clip_local_energy: 5.0
     stat: median

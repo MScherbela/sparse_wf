@@ -287,6 +287,7 @@ class SVDArgs(TypedDict):
     damping: float
     ema_natgrad: float
     ema_S: float
+    history_length: int
 
 
 class PreconditionerArgs(TypedDict):
