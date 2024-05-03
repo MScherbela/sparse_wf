@@ -1,9 +1,9 @@
 from typing import TypeVar
-
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jax.scipy.sparse.linalg import cg
+from typing import NamedTuple, Optional
 
 from sparse_wf.api import (
     Electrons,
@@ -14,7 +14,7 @@ from sparse_wf.api import (
     PreconditionerArgs,
     PreconditionerState,
 )
-from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum
+from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum, vector_to_tree_like
 from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub
 
 P, S = TypeVar("P"), TypeVar("S")
@@ -159,6 +159,53 @@ def make_spring_preconditioner(
     return Preconditioner(init, precondition)
 
 
+class SVDPreconditionerState(NamedTuple):
+    last_grad: jax.Array
+    last_U: Optional[jax.Array]
+
+
+def make_svd_preconditioner(
+    wf: ParameterizedWaveFunction[P, S],
+    damping: float,
+    ema_natgrad: float,
+    ema_S: float,
+):
+    def init(params: P):
+        n_params = sum([p.size for p in jtu.tree_leaves(params)])
+        return SVDPreconditionerState(last_grad=jnp.zeros(n_params), last_U=None)
+
+    def precondition(
+        params: P,
+        electrons: Electrons,
+        static: S,
+        dE_dlogpsi: EnergyCotangent,
+        natgrad_state,
+    ):
+        assert jax.device_count() == 1
+        N = dE_dlogpsi.size * jax.device_count()
+
+        def get_dlogpsi_dparam(r: Electrons):
+            g = jax.grad(wf)(params, r, static)
+            g = jtu.tree_flatten(g)[0]
+            g = jnp.concatenate([x.flatten() for x in g])
+            return g
+
+        X = jax.vmap(get_dlogpsi_dparam, out_axes=-1)(electrons)  # [n_params x n_samples]
+        U, s, Vt = jnp.linalg.svd(X, full_matrices=False, compute_uv=True)
+        # scaling = S / (S**2 + damping)
+        D1 = s / (N * damping + s**2)
+        D2 = ema_natgrad * s**2 / (N * damping + s**2)
+
+        grad_term = jnp.einsum("i,ij,j", D1, Vt, dE_dlogpsi)
+        momentum_term = jnp.einsum("i,ij,j", D2, Vt, natgrad_state.last_grad)
+        natgrad = ema_natgrad * natgrad_state.last_grad + U @ (grad_term - momentum_term)
+
+        natgrad = vector_to_tree_like(natgrad, params)
+        return natgrad, SVDPreconditionerState(last_grad=natgrad, last_U=None), {}
+
+    return Preconditioner(init, precondition)  # type: ignore
+
+
 def make_preconditioner(wf: ParameterizedWaveFunction[P, S], args: PreconditionerArgs):
     preconditioner = args["preconditioner"].lower()
     if preconditioner == "identity":
@@ -167,5 +214,7 @@ def make_preconditioner(wf: ParameterizedWaveFunction[P, S], args: Preconditione
         return make_cg_preconditioner(wf, **args["cg_args"])
     elif preconditioner == "spring":
         return make_spring_preconditioner(wf, **args["spring_args"])
+    elif preconditioner == "svd":
+        return make_svd_preconditioner(wf, **args["svd_args"])
     else:
         raise ValueError(f"Unknown preconditioner: {args['preconditioner']}")

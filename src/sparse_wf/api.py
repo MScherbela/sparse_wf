@@ -283,10 +283,17 @@ class CgArgs(TypedDict):
     maxiter: int
 
 
+class SVDArgs(TypedDict):
+    damping: float
+    ema_natgrad: float
+    ema_S: float
+
+
 class PreconditionerArgs(TypedDict):
     preconditioner: str
     spring_args: SpringArgs
     cg_args: CgArgs
+    svd_args: SVDArgs
 
 
 class ClippingArgs(TypedDict):

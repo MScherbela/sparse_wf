@@ -55,6 +55,10 @@ optimization:
     cg_args:
       damping: 1.e-3
       maxiter: 100
+    svd_args:
+      damping: 1.e-3
+      ema_natgrad: 0.9
+      ema_S: 0.9
   clipping:
     clip_local_energy: 5.0
     stat: median

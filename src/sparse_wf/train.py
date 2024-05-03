@@ -141,10 +141,11 @@ def main(
         for opt_step in pbar:
             static = wf.get_static_input(state.electrons)
             state, _, aux_data = trainer.step(state, static)
-            if opt_step in [0, 1, 2] + [100, 101, 102]:
-                gradients = get_gradients(wf.__call__, state.params, state.electrons, static)
-                singular_values = jnp.linalg.svd(gradients, compute_uv=False, full_matrices=False)
-                np.save(f"singular_values_{opt_step}.npy", singular_values)
+            # TODO: remove
+            # if opt_step in [0, 1, 2] + [100, 101, 102]:
+            #     gradients = get_gradients(wf.__call__, state.params, state.electrons, static)
+            #     singular_values = jnp.linalg.svd(gradients, compute_uv=False, full_matrices=False)
+            #     np.save(f"singular_values_{opt_step}.npy", singular_values)
             aux_data = to_log_data(aux_data)
             loggers.log(dict(opt_step=opt_step, **aux_data))
             if np.isnan(aux_data["opt/E"]):
