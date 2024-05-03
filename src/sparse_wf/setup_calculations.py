@@ -10,6 +10,7 @@ import subprocess
 import shutil
 import random
 import argcomplete
+from argcomplete.completers import ChoicesCompleter, FilesCompleter
 
 SPECIAL_KEYS = ["slurm"]
 N_PARAM_GROUPS = 5
@@ -158,13 +159,20 @@ def build_grid(*param_groups):
 
 def get_argparser():
     param_choices = get_all_parameter_keys()
+    param_completer = ChoicesCompleter(param_choices)
+    yaml_completer = FilesCompleter(["yaml", "yml"])
+
     parser = argparse.ArgumentParser(
         description="Setup and dispatch one or multiple calculations, e.g. for a parameter sweep"
     )
-    parser.add_argument("--input", "-i", default="config.yaml", help="Path to input config file")
-    parser.add_argument("--parameter", "-p", nargs="+", action="append", default=[], choices=param_choices)
+    parser.add_argument(
+        "--input", "-i", default="config.yaml", help="Path to input config file"
+    ).completer = yaml_completer  # type: ignore
+    parser.add_argument("--parameter", "-p", nargs="+", action="append", default=[]).completer = param_completer  # type: ignore
     for n in range(N_PARAM_GROUPS):
-        parser.add_argument(f"--parameter{n}", f"-p{n}", nargs="+", action="append", default=[], choices=param_choices)
+        parser.add_argument(
+            f"--parameter{n}", f"-p{n}", nargs="+", action="append", default=[]
+        ).completer = param_completer  # type: ignore
     parser.add_argument("--force", "-f", action="store_true", help="Overwrite directories if they already exist")
     parser.add_argument(
         "--dry-run",
