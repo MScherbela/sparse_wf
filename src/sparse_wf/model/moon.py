@@ -318,6 +318,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
 
         alpha_same = 1# hk.get_parameter("el_el_cusp_alpha_same", [], init=jnp.ones)
+        #alpha_same = self.param("alpha_same", self.scale_initializer, (self.n_envelopes,), jnp.float32)
         alpha_diff = 1#hk.get_parameter("el_el_cusp_alpha_diff", [], init=jnp.ones)
         factor_same = -0.25#hk.get_parameter("el_el_cusp_same", [], init=self.get_init_factor(-0.25))
         factor_diff = -0.5#hk.get_parameter("el_el_cusp_diff", [], init=self.get_init_factor(-0.5))
@@ -330,7 +331,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
     def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         orbitals = self.orbitals(params, electrons, static)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
-        #logpsi += self.el_el_cusp(electrons)
+        logpsi += self.el_el_cusp(electrons)
         return signpsi, logpsi
 
     def __call__(self, params: MoonParams, electrons: Electrons, static: StaticInput):

@@ -88,7 +88,7 @@ def signed_logpsi_from_orbitals(orbitals: SlaterMatrices) -> SignedLogAmplitude:
     logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
     return signpsi, logpsi
 
-def get_dist_same_diff(electrons: ElecElecDistances, n_up):
+def     get_dist_same_diff(electrons: ElecElecDistances, n_up):
     # Compute distances
     diff = electrons[..., None, :, :] - electrons[..., :, None, :]
     dists = jnp.linalg.norm(diff, axis=-1)
@@ -102,11 +102,6 @@ def get_dist_same_diff(electrons: ElecElecDistances, n_up):
     # Get the distance between all electrons of different spin
     flat_shape = dists.shape[:-2] + (-1,)
     dist_diff = dists[..., :n_up, n_up:].reshape(flat_shape)
-
-    jax.debug.print("electrons: {e}", e=electrons)
-    jax.debug.print("dists: {d}", d=dists)
-    jax.debug.print("dist_same: {d}", d=dist_same)
-    jax.debug.print("dist_diff: {d}", d=dist_diff)
 
     return dist_same, dist_diff
 
