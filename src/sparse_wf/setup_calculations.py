@@ -1,4 +1,5 @@
-# %%
+#!/usr/bin/env python
+# PYTHON_ARGCOMPLETE_OK
 import argparse
 import itertools
 import yaml
@@ -8,9 +9,17 @@ import os
 import subprocess
 import shutil
 import random
+import argcomplete
 
 SPECIAL_KEYS = ["slurm"]
 N_PARAM_GROUPS = 5
+
+
+def get_all_parameter_keys():
+    default_path = pathlib.Path(__file__).parent / "../../config/default.yaml"
+    default_config = load_yaml(default_path)
+    default_config = to_flat_dict(default_config)
+    return list(default_config.keys())
 
 
 def update_dict(original, update, allow_new_keys):
@@ -56,6 +65,18 @@ def to_nested_dict(flattened_dict):
             current_dict = current_dict[k]
         current_dict[keys[-1]] = value
     return nested_dict
+
+
+def to_flat_dict(nested_dict, parent_key=""):
+    flat_dict = {}
+    for key, value in nested_dict.items():
+        if parent_key:
+            key = f"{parent_key}.{key}"
+        if isinstance(value, dict):
+            flat_dict.update(to_flat_dict(value, key))
+        else:
+            flat_dict[key] = value
+    return flat_dict
 
 
 def setup_run_dir(run_dir, run_config, full_config, force):
@@ -135,20 +156,27 @@ def build_grid(*param_groups):
     return grid
 
 
-def setup_calculations():
+def get_argparser():
+    param_choices = get_all_parameter_keys()
     parser = argparse.ArgumentParser(
         description="Setup and dispatch one or multiple calculations, e.g. for a parameter sweep"
     )
     parser.add_argument("--input", "-i", default="config.yaml", help="Path to input config file")
-    parser.add_argument("--parameter", "-p", nargs="+", action="append", default=[])
+    parser.add_argument("--parameter", "-p", nargs="+", action="append", default=[], choices=param_choices)
     for n in range(N_PARAM_GROUPS):
-        parser.add_argument(f"--parameter{n}", f"-p{n}", nargs="+", action="append", default=[])
+        parser.add_argument(f"--parameter{n}", f"-p{n}", nargs="+", action="append", default=[], choices=param_choices)
     parser.add_argument("--force", "-f", action="store_true", help="Overwrite directories if they already exist")
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Only set-up the directories and config-files, but do not dispatch the actual calculation.",
     )
+    argcomplete.autocomplete(parser)
+    return parser
+
+
+def setup_calculations():
+    parser = get_argparser()
     # args = parser.parse_args("--force --dry-run -p1 pretraining.steps 1 2 3 -p1 optimization.steps 1000 2000 3000 -p experiment_name e1 e2 -p seed 10 20".split())
     args = parser.parse_args()
 
@@ -194,9 +222,14 @@ def setup_calculations():
         full_config = convert_to_default_datatype(full_config, default_config)
 
         # Generate the name for the run
+        if not full_config["experiment_name"]:
+            raise KeyError("No experiment_name parameter given.")
+
         run_name = "_".join([str(v) for v in cli_values])
-        if full_config["experiment_name"]:
+        if run_name:
             run_name = f'{full_config["experiment_name"]}_{run_name}'
+        else:
+            run_name = full_config["experiment_name"]
 
         # Pick a random seed for this run, unless specified
         if full_config.get("seed", 0) == 0:
