@@ -22,7 +22,8 @@ dependencies = [
     "tqdm",
     "wandb",
     "pytest",
-    "wonderwords"
+    "wonderwords",
+    "argcomplete"
 ]
 
 [project.optional-dependencies]
