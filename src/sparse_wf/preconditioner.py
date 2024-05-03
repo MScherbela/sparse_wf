@@ -196,12 +196,13 @@ def make_svd_preconditioner(
         D1 = s / (N * damping + s**2)
         D2 = ema_natgrad * s**2 / (N * damping + s**2)
 
-        grad_term = jnp.einsum("i,ij,j", D1, Vt, dE_dlogpsi)
-        momentum_term = jnp.einsum("i,ij,j", D2, Vt, natgrad_state.last_grad)
+        grad_term = jnp.einsum("i,ij,j->i", D1, Vt, dE_dlogpsi)  # D1 @ V.T @ dE_dlogpsi
+        momentum_term = jnp.einsum("i,ji,j->i", D2, U, natgrad_state.last_grad)  # D2 @ U.T @ last_grad
         natgrad = ema_natgrad * natgrad_state.last_grad + U @ (grad_term - momentum_term)
 
+        precond_state = SVDPreconditionerState(last_grad=natgrad, last_U=U)
         natgrad = vector_to_tree_like(natgrad, params)
-        return natgrad, SVDPreconditionerState(last_grad=natgrad, last_U=None), {}
+        return natgrad, precond_state, {}
 
     return Preconditioner(init, precondition)  # type: ignore
 
