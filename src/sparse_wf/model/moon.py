@@ -21,6 +21,7 @@ from sparse_wf.api import (
     Parameters,
     SlaterMatrices,
     Spins,
+    SignedLogAmplitude,
 )
 from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import fwd_lap, jit, vectorize
@@ -52,6 +53,7 @@ from sparse_wf.model.utils import (
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
     swap_bottom_blocks,
+    get_dist_same_diff,
 )
 
 
@@ -312,9 +314,24 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
     def hf_transformation(self, hf_orbitals):
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
-    def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput):
+    def el_el_cusp(self, electrons: Electrons):
+        dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
+
+        alpha_same = 1# hk.get_parameter("el_el_cusp_alpha_same", [], init=jnp.ones)
+        alpha_diff = 1#hk.get_parameter("el_el_cusp_alpha_diff", [], init=jnp.ones)
+        factor_same = -0.25#hk.get_parameter("el_el_cusp_same", [], init=self.get_init_factor(-0.25))
+        factor_diff = -0.5#hk.get_parameter("el_el_cusp_diff", [], init=self.get_init_factor(-0.5))
+
+        cusp_same = jnp.sum(alpha_same ** 2 / (alpha_same + dist_same), axis=-1)
+        cusp_diff = jnp.sum(alpha_diff ** 2 / (alpha_diff + dist_diff), axis=-1)
+
+        return factor_same * cusp_same + factor_diff * cusp_diff
+
+    def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         orbitals = self.orbitals(params, electrons, static)
-        return signed_logpsi_from_orbitals(orbitals)
+        signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
+        #logpsi += self.el_el_cusp(electrons)
+        return signpsi, logpsi
 
     def __call__(self, params: MoonParams, electrons: Electrons, static: StaticInput):
         return self.signed(params, electrons, static)[1]
