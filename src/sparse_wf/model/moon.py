@@ -213,6 +213,24 @@ def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: Neighbour
     R_nb_en = get_with_fill(R, idx_nb.en, NO_NEIGHBOUR)
     return spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en
 
+class ElElCuspSame(nn.Module):
+    @nn.compact
+    def __call__(self, x):
+        x = nn.Dense(features=1)(x)
+class ElElCusp(nn.Module):
+    @nn.compact
+    def __call__(self, electrons, n_up):
+        dist_same, dist_diff = get_dist_same_diff(electrons, n_up)
+
+        alpha_same = self.param("alpha_same", nn.initializers.ones, (self.n_envelopes,), jnp.float32)
+        alpha_diff = self.param("alpha_diff", nn.initializers.ones, (self.n_envelopes,), jnp.float32)
+        factor_same = self.param("factor_same", nn.initializers.ones, (self.n_envelopes,), jnp.float32)
+        factor_diff = self.param("factor_diff", nn.initializers.ones, (self.n_envelopes,), jnp.float32)
+
+        cusp_same = jnp.sum(alpha_same ** 2 / (alpha_same + dist_same), axis=-1)
+        cusp_diff = jnp.sum(alpha_diff ** 2 / (alpha_diff + dist_diff), axis=-1)
+
+        return factor_same * cusp_same + factor_diff * cusp_diff
 
 class MoonParams(PyTreeNode):
     ee_filter: Parameters
@@ -318,7 +336,6 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
 
         alpha_same = 1# hk.get_parameter("el_el_cusp_alpha_same", [], init=jnp.ones)
-        #alpha_same = self.param("alpha_same", self.scale_initializer, (self.n_envelopes,), jnp.float32)
         alpha_diff = 1#hk.get_parameter("el_el_cusp_alpha_diff", [], init=jnp.ones)
         factor_same = -0.25#hk.get_parameter("el_el_cusp_same", [], init=self.get_init_factor(-0.25))
         factor_diff = -0.5#hk.get_parameter("el_el_cusp_diff", [], init=self.get_init_factor(-0.5))
