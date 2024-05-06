@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Optional, Any
 
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
@@ -47,7 +48,7 @@ def main(
     init_width: float,
     seed: int,
     logging_args: LoggingArgs,
-    experiment_name: str = "",
+    metadata: Optional[dict[str, Any]],
 ):
     config = locals()
 

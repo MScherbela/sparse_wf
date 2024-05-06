@@ -230,14 +230,12 @@ def setup_calculations():
         full_config = convert_to_default_datatype(full_config, default_config)
 
         # Generate the name for the run
-        if not full_config["experiment_name"]:
-            raise KeyError("No experiment_name parameter given.")
-
+        experiment_name = full_config.get("metadata", {}).get("experiment_name", "exp")
         run_name = "_".join([str(v) for v in cli_values])
         if run_name:
-            run_name = f'{full_config["experiment_name"]}_{run_name}'
+            run_name = f"{experiment_name}_{run_name}"
         else:
-            run_name = full_config["experiment_name"]
+            run_name = experiment_name
 
         # Pick a random seed for this run, unless specified
         if full_config.get("seed", -1) < 0:
