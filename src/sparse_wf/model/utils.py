@@ -11,6 +11,7 @@ import einops
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
 ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei"]
+ElecElecDistances = Float[Array, "*batch n_electrons n_electrons"]
 
 
 FilterKernel = Float[Array, "neighbour features"]
@@ -85,7 +86,31 @@ def signed_logpsi_from_orbitals(orbitals: SlaterMatrices) -> SignedLogAmplitude:
     # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
     sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (1, 0))
     logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
-    return (signpsi, logpsi)
+    return signpsi, logpsi
+
+
+def get_dist_same_diff(electrons: ElecElecDistances, n_up):
+    # Compute distances
+    diff = electrons[..., None, :, :] - electrons[..., :, None, :]
+    dists = jnp.linalg.norm(diff, axis=-1)
+
+    # Get one copy of the distances between all electrons with the same spin
+    upper_tri_indices = jnp.triu_indices(n_up, 1)
+    dist_same_up = dists[..., :n_up, :n_up][..., upper_tri_indices[0], upper_tri_indices[1]]
+    upper_tri_indices = jnp.triu_indices(dists.shape[-1] - n_up, 1)
+    dist_same_down = dists[..., n_up:, n_up:][..., upper_tri_indices[0], upper_tri_indices[1]]
+    dist_same = jnp.concatenate([dist_same_up, dist_same_down], axis=-1)
+    # Get the distance between all electrons of different spin
+    flat_shape = dists.shape[:-2] + (-1,)
+    dist_diff = dists[..., :n_up, n_up:].reshape(flat_shape)
+
+    return dist_same, dist_diff
+
+
+def param_initializer(value: float):
+    def init(key, shape, dtype) -> Array:
+        return value * jnp.ones(shape, dtype)
+    return init
 
 
 class IsotropicEnvelope(nn.Module):

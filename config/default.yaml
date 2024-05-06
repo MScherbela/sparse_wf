@@ -21,6 +21,7 @@ model_args:
   pair_mlp_widths: [16, 8]
   pair_n_envelopes: 32
   n_determinants: 4
+  use_el_el_cusp: True
 
 logging_args:
   smoothing: 500
