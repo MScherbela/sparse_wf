@@ -240,7 +240,7 @@ class MoonParams(PyTreeNode):
     lin_h0: Parameters
     lin_orbitals: Parameters
     envelopes: Parameters
-    el_el_cusp: Parameters
+    el_el_cusp: Optional[Parameters]
 
 
 class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, StaticInput]):
@@ -368,6 +368,10 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         rngs = jax.random.split(key, 8)
         feature_dim = self.lin_h0.features
         n_atoms = self.R.shape[0]
+        if self.use_el_el_cusp:  # Make sure to not include the el-el cusp parameters when it's not being used.
+            el_el_cusp = self.el_el_cusp.init(rngs[7], np.zeros((self.n_electrons, 3)))
+        else:
+            el_el_cusp = None
         return MoonParams(
             ee_filter=self.ee_filter.init(rngs[0], np.zeros([5])),  # dist + 3 * diff + spin
             ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
@@ -376,7 +380,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             mlp_nuc=self.mlp_nuc.init(rngs[4], np.zeros([feature_dim])),
             lin_orbitals=self.lin_orbitals.init(rngs[5], np.zeros([feature_dim])),
             envelopes=self.envelopes.init(rngs[6], np.zeros([1, n_atoms])),
-            el_el_cusp=self.el_el_cusp.init(rngs[7], np.zeros((self.n_electrons, 3))),
+            el_el_cusp=el_el_cusp,
         )
 
     def _get_h0(
