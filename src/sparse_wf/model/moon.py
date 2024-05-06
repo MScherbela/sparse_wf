@@ -167,9 +167,11 @@ class PairwiseFilter(nn.Module):
     out_dim: int
 
     def scale_initializer(self, rng, shape, dtype):
-        relative_noise = 0.1 * jax.random.normal(rng, shape, dtype)
-        mean_scale = 0.5 * jnp.array(self.cutoff, dtype)
-        return mean_scale * (1 + relative_noise)
+        assert len(shape) == 1
+        n_scales = shape[0]
+        scale = jnp.linspace(0, self.cutoff, n_scales, dtype=dtype)
+        scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
+        return scale
 
     @nn.compact
     def __call__(self, dist_diff: Float[Array, "*batch_dims features_in"]) -> Float[Array, "*batch_dims features_out"]:
@@ -188,8 +190,8 @@ class PairwiseFilter(nn.Module):
         scales = self.param("scales", self.scale_initializer, (self.n_envelopes,), jnp.float32)
         scales = jax.nn.softplus(scales)
         envelopes = jnp.exp(-((dist[..., None] / scales) ** 2))
-        envelopes = nn.Dense(directional_features.shape[-1], use_bias=False)(envelopes)
         envelopes *= cutoff_function(dist / self.cutoff)[..., None]
+        envelopes = nn.Dense(directional_features.shape[-1], use_bias=False)(envelopes)
         beta = directional_features * envelopes
         return nn.Dense(self.out_dim, use_bias=False)(beta)
 

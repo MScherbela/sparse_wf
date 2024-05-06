@@ -206,11 +206,9 @@ def make_svd_preconditioner(
         momentum_term = jnp.einsum("i,ji,j->i", D2, U, natgrad_state.last_grad)  # D2 @ U.T @ last_grad
         natgrad = ema_natgrad * natgrad_state.last_grad + U @ (grad_term - momentum_term)
 
-        # New history = U,S,Vt corresponding to the largest singular values
-        U_history = U[:, :history_length]
-        Vt_history = Vt[:history_length, :history_length]
+        # New history = U @ S corresponding to the largest singular values
         s_history = s[:history_length]
-        X_history = jnp.einsum("ij,j,jk->ik", U_history, ema_S * s_history, Vt_history)
+        X_history = U[:, :history_length] * (ema_S * s_history)
 
         # Compute auxiliary data and convert to output format
         s2_fraction = jnp.sum(s_history**2) / jnp.sum(s**2)

@@ -25,4 +25,4 @@ logging_args:
     entity: tum_daml_nicholas
     project: svd_preconditioner
 
-batch_size: 512
+batch_size: 5

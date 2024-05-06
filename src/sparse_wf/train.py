@@ -10,7 +10,7 @@ import jax.tree_util as jtu
 import numpy as np
 import tqdm
 from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
-from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap
+from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, vector_to_tree_like
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 
@@ -22,6 +22,7 @@ from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.scf import make_hf_orbitals
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
+import flax.serialization
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -142,10 +143,14 @@ def main(
             static = wf.get_static_input(state.electrons)
             state, _, aux_data = trainer.step(state, static)
             # TODO: remove
-            # if opt_step in [0, 1, 2] + [100, 101, 102]:
-            #     gradients = get_gradients(wf.__call__, state.params, state.electrons, static)
-            #     singular_values = jnp.linalg.svd(gradients, compute_uv=False, full_matrices=False)
-            #     np.save(f"singular_values_{opt_step}.npy", singular_values)
+            if opt_step % 1000 == 0:
+                gradients = get_gradients(wf.__call__, state.params, state.electrons, static)
+                _, s, Vt = jnp.linalg.svd(gradients, compute_uv=True, full_matrices=False)
+                params = jtu.tree_map(lambda x: x[0], state.params)
+                Vt = jax.vmap(lambda v: vector_to_tree_like(v, params))(Vt[0])
+                with open(f"grad_{opt_step:06d}.msgpk", "wb") as f:
+                    f.write(flax.serialization.to_bytes(dict(Vt=Vt, s=s[0], params=params, gradients=gradients)))
+
             aux_data = to_log_data(aux_data)
             loggers.log(dict(opt_step=opt_step, **aux_data))
             if np.isnan(aux_data["opt/E"]):
