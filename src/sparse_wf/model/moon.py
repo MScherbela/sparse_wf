@@ -54,7 +54,6 @@ from sparse_wf.model.utils import (
     signed_logpsi_from_orbitals,
     swap_bottom_blocks,
     get_dist_same_diff,
-    param_initializer,
 )
 
 
@@ -221,18 +220,20 @@ class ElElCusp(nn.Module):
     n_up: int
 
     @nn.compact
-    def __call__(self, electrons: Electrons) -> Float[Array, "*batch_dims"]:
+    def __call__(self, electrons: Electrons) -> Float[Array, " *batch_dims"]:
         dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
 
         alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
         alpha_diff = self.param("alpha_diff", nn.initializers.ones, (), jnp.float32)
-        factor_same = self.param("factor_same", param_initializer(-0.25), (), jnp.float32)
-        factor_diff = self.param("factor_diff", param_initializer(-0.5), (), jnp.float32)
+        # factor_same = self.param("factor_same", param_initializer(-0.25), (), jnp.float32)
+        # factor_diff = self.param("factor_diff", param_initializer(-0.5), (), jnp.float32)
+        factor_same, factor_diff = -0.25, -0.5
 
-        cusp_same = jnp.sum(alpha_same ** 2 / (alpha_same + dist_same), axis=-1)
-        cusp_diff = jnp.sum(alpha_diff ** 2 / (alpha_diff + dist_diff), axis=-1)
+        cusp_same = jnp.sum(alpha_same**2 / (alpha_same + dist_same), axis=-1)
+        cusp_diff = jnp.sum(alpha_diff**2 / (alpha_diff + dist_diff), axis=-1)
 
         return factor_same * cusp_same + factor_diff * cusp_diff
+
 
 class MoonParams(PyTreeNode):
     ee_filter: Parameters
@@ -343,7 +344,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
     def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         orbitals = self.orbitals(params, electrons, static)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
-        if self.use_el_el_cusp:
+        if params.el_el_cusp is not None:
             logpsi += self.el_el_cusp.apply(params.el_el_cusp, electrons)
         return signpsi, logpsi
 
