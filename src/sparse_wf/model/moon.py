@@ -54,6 +54,7 @@ from sparse_wf.model.utils import (
     signed_logpsi_from_orbitals,
     swap_bottom_blocks,
     get_dist_same_diff,
+    param_initializer,
 )
 
 
@@ -217,20 +218,14 @@ def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: Neighbour
 class ElElCusp(nn.Module):
     n_up: int
 
-    def param_initilizer(self, value: float):
-        def init(key, shape, dtype) -> Array:
-            return value * jnp.ones(shape, dtype)
-        return init
-
-
     @nn.compact
     def __call__(self, electrons: Electrons) -> Float[Array, "*batch_dims"]:
         dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
 
         alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
         alpha_diff = self.param("alpha_diff", nn.initializers.ones, (), jnp.float32)
-        factor_same = self.param("factor_same", nn.initializers.ones, (), jnp.float32)
-        factor_diff = self.param("factor_diff", nn.initializers.ones, (), jnp.float32)
+        factor_same = self.param("factor_same", param_initializer(-0.25), (), jnp.float32)
+        factor_diff = self.param("factor_diff", param_initializer(-0.5), (), jnp.float32)
 
         cusp_same = jnp.sum(alpha_same ** 2 / (alpha_same + dist_same), axis=-1)
         cusp_diff = jnp.sum(alpha_diff ** 2 / (alpha_diff + dist_diff), axis=-1)
