@@ -258,6 +258,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
     lin_orbitals: nn.Dense
     envelopes: IsotropicEnvelope
     el_el_cusp: ElElCusp
+    use_el_el_cusp: bool
 
     @property
     def n_dn(self):
@@ -278,6 +279,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         nuc_mlp_depth: int,
         pair_mlp_widths: Sequence[int],
         pair_n_envelopes: int,
+        use_el_el_cusp: bool = True
     ):
         n_up, n_dn = mol.nelec
         n_el = n_up + n_dn
@@ -315,7 +317,8 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             lin_h0=nn.Dense(feature_dim, use_bias=True, name="lin_h0"),
             lin_orbitals=nn.Dense(n_determinants * n_el, name="lin_orbitals"),
             envelopes=IsotropicEnvelope(n_determinants * n_el),
-            el_el_cusp=ElElCusp(n_up)
+            el_el_cusp=ElElCusp(n_up),
+            use_el_el_cusp=use_el_el_cusp,
         )
 
     def get_static_input(self, electrons: Electrons):
@@ -338,7 +341,8 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
     def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         orbitals = self.orbitals(params, electrons, static)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
-        logpsi += self.el_el_cusp.apply(params.el_el_cusp, electrons)
+        if self.use_el_el_cusp:
+            logpsi += self.el_el_cusp.apply(params.el_el_cusp, electrons)
         return signpsi, logpsi
 
     def __call__(self, params: MoonParams, electrons: Electrons, static: StaticInput):
