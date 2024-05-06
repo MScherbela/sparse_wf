@@ -61,6 +61,7 @@ def main(
     seed: int,
     logging_args: LoggingArgs,
     metadata: Optional[dict[str, Any]] = None,
+    experiment_name: str = "",
 ):
     config = locals()
 
