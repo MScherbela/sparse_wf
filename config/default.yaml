@@ -1,4 +1,7 @@
-experiment_name: ""
+metadata:
+  experiment_name: ""
+  commit: ""
+  cwd: ""
 
 seed: 0
 
