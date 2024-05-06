@@ -3,6 +3,7 @@ import os
 import sys
 from typing import Callable, ParamSpec, TypeVar, cast, overload
 
+import numpy as np
 import folx
 import jax
 import jax.numpy as jnp
@@ -30,6 +31,20 @@ def replicate(pytree: T) -> T:
     n = jax.local_device_count()
     stacked_pytree = jtu.tree_map(lambda x: jax.lax.broadcast(x, (n,)), pytree)
     return broadcast(stacked_pytree)
+
+
+def vector_to_tree_like(v: jax.Array, tree):
+    tree_flat, tree_def = jtu.tree_flatten(tree)
+    tree_shapes = [x.shape for x in tree_flat]
+    sizes = [int(np.prod(x)) for x in tree_shapes]
+    assert sum(sizes) == len(v), f"Size of vector {len(v)} does not match size of tree {sum(sizes)}"
+
+    output_list = []
+    start = 0
+    for shape, size in zip(tree_shapes, sizes):
+        output_list.append(v[start : start + size].reshape(shape))
+        start += size
+    return jtu.tree_unflatten(tree_def, output_list)
 
 
 # Axis name we pmap over.

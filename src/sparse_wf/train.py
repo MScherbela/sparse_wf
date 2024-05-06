@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Optional, Any
 
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
@@ -10,7 +11,7 @@ import jax.tree_util as jtu
 import numpy as np
 import tqdm
 from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
-from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate
+from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, vector_to_tree_like
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 
@@ -22,6 +23,7 @@ from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.scf import make_hf_orbitals
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
+import flax.serialization
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -36,6 +38,17 @@ def set_postfix(pbar: tqdm.tqdm, aux_data: dict[str, float]):
     pbar.set_postfix(jtu.tree_map(lambda x: f"{x:.4f}", aux_data))
 
 
+@pmap(static_broadcasted_argnums=(0, 3))
+def get_gradients(logpsi_func, params, electrons, static):
+    def get_grad(r):
+        g = jax.grad(logpsi_func)(params, r, static)
+        g = jtu.tree_flatten(g)[0]
+        g = jnp.concatenate([x.flatten() for x in g])
+        return g
+
+    return jax.vmap(get_grad)(electrons)
+
+
 def main(
     molecule_args: MoleculeArgs,
     model: str,
@@ -47,7 +60,7 @@ def main(
     init_width: float,
     seed: int,
     logging_args: LoggingArgs,
-    experiment_name: str = "",
+    metadata: Optional[dict[str, Any]] = None,
 ):
     config = locals()
 
@@ -130,6 +143,15 @@ def main(
         for opt_step in pbar:
             static = wf.get_static_input(state.electrons)
             state, _, aux_data = trainer.step(state, static)
+            # TODO: remove
+            if opt_step % 1000 == 0:
+                gradients = get_gradients(wf.__call__, state.params, state.electrons, static)
+                _, s, Vt = jnp.linalg.svd(gradients, compute_uv=True, full_matrices=False)
+                params = jtu.tree_map(lambda x: x[0], state.params)
+                Vt = jax.vmap(lambda v: vector_to_tree_like(v, params))(Vt[0])
+                with open(f"grad_{opt_step:06d}.msgpk", "wb") as f:
+                    f.write(flax.serialization.to_bytes(dict(Vt=Vt, s=s[0], params=params, gradients=gradients)))
+
             aux_data = to_log_data(aux_data)
             loggers.log(dict(opt_step=opt_step, **aux_data))
             if np.isnan(aux_data["opt/E"]):

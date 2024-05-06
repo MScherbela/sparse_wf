@@ -1,5 +1,5 @@
 seml:
-  executable: train.py
+  executable: train_with_seml.py
   project_root_dir: ../../
   output_dir: ~/slurm-output/
 
@@ -27,6 +27,8 @@ fixed:
     steps: 10_000
     preconditioner_args:
       preconditioner: cg
+  logging_args:
+    out_directory: logs
 
   logging_args.name_keys:
     - model
