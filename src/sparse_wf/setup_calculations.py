@@ -179,14 +179,27 @@ def get_argparser():
         action="store_true",
         help="Only set-up the directories and config-files, but do not dispatch the actual calculation.",
     )
+    parser.add_argument("--no-commit-check", action="store_true", help="Do not check if code is committed.")
     argcomplete.autocomplete(parser)
     return parser
 
 
+def is_code_committed():
+    code_path = pathlib.Path(__file__).parent.parent
+    git_status = subprocess.run(["git", "status", "--porcelain"], cwd=code_path, capture_output=True)
+    return not git_status.stdout
+
+
 def setup_calculations():
     parser = get_argparser()
-    # args = parser.parse_args("--force --dry-run -p1 pretraining.steps 1 2 3 -p1 optimization.steps 1000 2000 3000 -p experiment_name e1 e2 -p seed 10 20".split())
     args = parser.parse_args()
+
+    if (not args.no_commit_check) and (not is_code_committed()):
+        print(
+            "Warning: Code has uncommited changes. Running calculations might not be reproducible. Proceed anyway [y/N]?"
+        )
+        if input().lower() != "y":
+            return
 
     # Load the default config and the local config file
     default_path = pathlib.Path(__file__).parent / "../../config/default.yaml"
