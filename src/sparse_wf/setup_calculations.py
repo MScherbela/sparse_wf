@@ -123,7 +123,7 @@ def get_slurm_defaults(cluster, queue):
     if cluster == "hgx":
         return dict(time="30-00:00:00", n_gpus=1)
     elif cluster == "vsc5":
-        defaults = dict(time="3-00:00:00", n_gpus=2)
+        defaults = dict(time="3-00:00:00", n_gpus=2, nodes=1)
         if queue == "a100":
             defaults["partition"] = "zen3_0512_a100x2"
             defaults["qos"] = "zen3_0512_a100x2"

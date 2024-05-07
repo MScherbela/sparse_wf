@@ -6,7 +6,7 @@
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
 #SBATCH --gres=gpu:{n_gpus}
-#SBATCH --ntasks-per-node {n_gpus}
+#SBATCH --ntasks-per-node={n_gpus}
 
 module purge
 source /gpfs/opt/sw/spack-0.17.1/opt/spack/linux-almalinux8-zen3/gcc-11.2.0/miniconda3-4.12.0-ap65vga66z2rvfcfmbqopba6y543nnws/etc/profile.d/conda.sh
