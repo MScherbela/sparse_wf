@@ -194,7 +194,7 @@ def make_svd_preconditioner(
         # Compute jacobian X = dlogpsi/dparam and concatenate with jacobian history
         X = jax.vmap(get_dlogpsi_dparam, out_axes=-1)(electrons)  # [n_params x n_samples]
         # X = X - jnp.mean(X, axis=1, keepdims=True)  # center grads
-        X_full = jnp.concatenate([(1 - ema_S) * X, ema_S * natgrad_state.X_history], axis=1)
+        X_full = jnp.concatenate([X, natgrad_state.X_history], axis=1)
 
         # Compute SVD of merged jacobian
         U, s, Vt = jnp.linalg.svd(X_full, full_matrices=False, compute_uv=True)
@@ -209,7 +209,7 @@ def make_svd_preconditioner(
 
         # New history = U @ S corresponding to the largest singular values
         s_history = s[:history_length]
-        X_history = U[:, :history_length] * s_history
+        X_history = U[:, :history_length] * (s_history * ema_S)
 
         # Compute auxiliary data and convert to output format
         s2_fraction = jnp.sum(s_history**2) / jnp.sum(s**2)
