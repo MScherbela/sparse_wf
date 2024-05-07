@@ -198,8 +198,8 @@ def make_svd_preconditioner(
 
         # Compute SVD of merged jacobian
         U, s, Vt = jnp.linalg.svd(X_full, full_matrices=False, compute_uv=True)
-        D1 = (1 - ema_natgrad) * s / (N * damping + s**2)
-        D2 = (1 - ema_natgrad) * ema_natgrad * s**2 / (N * damping + s**2)
+        D1 = s / (N * damping + s**2)
+        D2 = ema_natgrad * s**2 / (N * damping + s**2)
 
         # Compute natural gradient
         E_padded = jnp.concatenate([dE_dlogpsi, jnp.zeros(history_length)])
