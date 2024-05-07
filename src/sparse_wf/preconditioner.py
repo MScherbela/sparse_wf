@@ -213,8 +213,8 @@ def make_svd_preconditioner(
         X_history = U[:, :history_length] * (s_history * ema_S)
 
         # Compute auxiliary data and convert to output format
-        s2_fraction = jnp.sum(s_history**2) / jnp.sum(s**2)
-        aux_data = {"opt/svd_s2_fraction": s2_fraction}
+        s2_residual = jnp.sum(s[history_length:] ** 2) / jnp.sum(s**2)
+        aux_data = {"opt/svd_s2_residual": s2_residual}
         precond_state = SVDPreconditionerState(last_grad=natgrad, X_history=X_history)
         natgrad = vector_to_tree_like(natgrad, params)
         return natgrad, precond_state, aux_data
