@@ -34,7 +34,7 @@ def update_dict(original, update, allow_new_keys):
                 original[key] = update_dict(original_subdict, update[key], allow_new_keys)
             elif isinstance(original, list):
                 list_index = int(key)
-                if key >= len(original):
+                if list_index >= len(original):
                     raise KeyError(
                         f"List index {list_index} exceeds length of list. Maximum index is {len(original) - 1}."
                     )
@@ -45,11 +45,14 @@ def update_dict(original, update, allow_new_keys):
 
 
 def convert_to_default_datatype(config_dict, default_dict):
-    for key, value in config_dict.items():
-        if isinstance(value, dict):
-            config_dict[key] = convert_to_default_datatype(config_dict[key], default_dict[key])
-        else:
-            config_dict[key] = type(default_dict[key])(config_dict[key])
+    if isinstance(config_dict, dict):
+        for key, value in config_dict.items():
+            config_dict[key] = convert_to_default_datatype(value, default_dict[key])
+    elif isinstance(config_dict, list):
+        for i, value in enumerate(config_dict):
+            config_dict[i] = convert_to_default_datatype(value, default_dict[i])
+    else:
+        config_dict = type(default_dict)(config_dict)
     return config_dict
 
 
