@@ -193,7 +193,7 @@ def make_svd_preconditioner(
 
         # Compute jacobian X = dlogpsi/dparam and concatenate with jacobian history
         X = jax.vmap(get_dlogpsi_dparam, out_axes=-1)(electrons)  # [n_params x n_samples]
-        X = X - jnp.mean(X, axis=1, keepdims=True)  # center grads
+        # X = X - jnp.mean(X, axis=1, keepdims=True)  # center grads
         X_full = jnp.concatenate([(1 - ema_S) * X, ema_S * natgrad_state.X_history], axis=1)
 
         # Compute SVD of merged jacobian
