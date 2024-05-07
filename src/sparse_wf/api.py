@@ -273,6 +273,12 @@ class ModelArgs(TypedDict):
     n_determinants: int
 
 
+class MLPJastrowArgs(TypedDict):
+    use: bool
+    embedding_n_hidden: Optional[Sequence[int]]
+    soe_n_hidden: Optional[Sequence[int]]
+
+
 class SpringArgs(TypedDict):
     damping: float
     decay_factor: float

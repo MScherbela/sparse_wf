@@ -22,6 +22,10 @@ model_args:
   pair_n_envelopes: 32
   n_determinants: 4
   use_el_el_cusp: True
+  mlp_jastrow:
+    use: true
+    embedding_n_hidden: [40,40]
+    soe_n_hidden: [40,40]
 
 logging_args:
   smoothing: 500

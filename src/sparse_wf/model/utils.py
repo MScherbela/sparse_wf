@@ -32,10 +32,10 @@ class MLP(nn.Module):
             y = nn.Dense(out_width)(x)
             if (ind_layer < depth - 1) or self.activate_final:
                 y = self.activation(y)
-                if self.residual and (x.shape[-1] == out_width):
-                    x = x + y
-                else:
-                    x = y
+            if self.residual and (x.shape[-1] == out_width):
+                x = x + y
+            else:
+                x = y
         return x
 
 
