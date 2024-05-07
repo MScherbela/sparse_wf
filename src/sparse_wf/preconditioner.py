@@ -198,14 +198,14 @@ def make_svd_preconditioner(
 
         # Compute SVD of merged jacobian
         U, s, Vt = jnp.linalg.svd(X_full, full_matrices=False, compute_uv=True)
-        D1 = s / (N * damping + s**2)
-        D2 = ema_natgrad * s**2 / (N * damping + s**2)
+        D1 = (1 - ema_natgrad) * s / (N * damping + s**2)
+        D2 = (1 - ema_natgrad) * ema_natgrad * s**2 / (N * damping + s**2)
 
         # Compute natural gradient
         E_padded = jnp.concatenate([dE_dlogpsi, jnp.zeros(history_length)])
         grad_term = jnp.einsum("i,ij,j->i", D1, Vt, E_padded)  # D1 @ V.T @ dE_dlogpsi
         momentum_term = jnp.einsum("i,ji,j->i", D2, U, natgrad_state.last_grad)  # D2 @ U.T @ last_grad
-        natgrad = ema_natgrad * natgrad_state.last_grad + U @ (1 - ema_natgrad) * (grad_term - momentum_term)
+        natgrad = ema_natgrad * natgrad_state.last_grad + U @ (grad_term - momentum_term)
 
         # New history = U @ S corresponding to the largest singular values
         s_history = s[:history_length]
