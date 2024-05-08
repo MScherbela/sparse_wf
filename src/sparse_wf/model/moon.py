@@ -161,7 +161,9 @@ def get_diff_features(
     if (s is not None) and (s_nb is not None):
         # s_prod = s * s_nb
         # features.append(s_prod[..., None])
-        features += [s[..., None], s_nb[..., None]]
+        n_neighbours = r_nb.shape[-2]
+        s_tiled = jnp.tile(s[None], (n_neighbours,))  # => [n_neighbours]
+        features += [s_tiled[:, None], s_nb[:, None]]  # => [n_neighbours x 1 (feature)]
     return jnp.concatenate(features, axis=-1)
 
 
@@ -242,14 +244,26 @@ class JastrowFactor(nn.Module):
 
     @nn.compact
     def __call__(self, embeddings):
-        if self.embedding_n_hidden:
-            jastrow = jnp.squeeze(MLP(self.embedding_n_hidden + (1,), activate_final=False, residual=False)(embeddings), axis=-1)
-        else:
-            jastrow = jnp.sum(embeddings, axis=-1)
-        # now jastrow.shape= (batch x num_el)
+        """
+        There are three options here (i is the electron index):
+        (1) J_i = MLP_[embedding_n_hidden, 1](embeddings) , J=sum(J_i)
+        (2) J_i = MLP_[embedding_n_hidden](embeddings), J=MLP_[soe_n_hidden, 1](sum(J_i))
+        (3) J=MLP_[soe_n_hidden, 1](sum(embeddings_i))
+        """
+        if self.embedding_n_hidden is None and self.soe_n_hidden is None:
+            raise KeyError("Either embedding_n_hidden or soe_n_hidden must be specified when using mlp jastrow.")
 
-        if self.soe_n_hidden:
-            jastrow = jnp.squeeze(MLP(self.soe_n_hidden + (1,), activate_final=False, residual=False)(jastrow), axis=-1)
+        if self.embedding_n_hidden is not None:
+            if self.soe_n_hidden is None:  # Option (1)
+                jastrow = jnp.sum(jnp.squeeze(MLP(self.embedding_n_hidden + [1,], activate_final=False, residual=False)(embeddings), axis=-1), axis=-1)
+            else:  # Option (2) part 1
+                jastrow = MLP(self.embedding_n_hidden, activate_final=False, residual=False)(embeddings)
+        else:  # Option (3) part 2
+            jastrow = embeddings
+
+        if self.soe_n_hidden is not None:  # Option (2 or 3)
+            jastrow = jnp.sum(jastrow, axis=-2)  # Sum over electrons.
+            jastrow = jnp.squeeze(MLP(self.soe_n_hidden + [1,], activate_final=False, residual=False)(jastrow), axis=-1)
 
         return jastrow
 
