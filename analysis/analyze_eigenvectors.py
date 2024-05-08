@@ -19,7 +19,9 @@ def to_flat_dict(nested_dict, parent_key=""):
     return flat_dict
 
 
-fname = "/home/scherbelam20/develop/sparse_wf/runs/svd_precond/dump_sv/dump_sv_10_scale_linspace/grad_002000.msgpk"
+fname = (
+    "/home/scherbelam20/develop/sparse_wf/runs/svd_precond/cusps/N2_svd_cusps_0.99_0.99_0.1_2000_50k/grad_015000.msgpk"
+)
 with open(fname, "rb") as f:
     data = f.read()
 data = flax.serialization.msgpack_restore(data)
@@ -29,7 +31,7 @@ params = to_flat_dict(data["params"])
 grad = data["gradients"][0]
 
 # %%
-ind_sv = 20
+ind_sv = 0
 print(f"{s[ind_sv]:.1f}")
 Vt = jtu.tree_map(lambda x: x[ind_sv], Vt_all)
 norms = jtu.tree_map(lambda x: jnp.linalg.norm(x) ** 2, Vt)

@@ -183,7 +183,8 @@ def make_svd_preconditioner(
         natgrad_state,
     ):
         assert jax.device_count() == 1
-        N = dE_dlogpsi.size * jax.device_count()
+        total_batch_size = dE_dlogpsi.size * jax.device_count()
+        N_total = total_batch_size + history_length
 
         def get_dlogpsi_dparam(r: Electrons):
             g = jax.grad(wf)(params, r, static)
@@ -193,12 +194,13 @@ def make_svd_preconditioner(
 
         # Compute jacobian X = dlogpsi/dparam and concatenate with jacobian history
         X = jax.vmap(get_dlogpsi_dparam, out_axes=-1)(electrons)  # [n_params x n_samples]
+        X = X - jnp.mean(X, axis=1, keepdims=True)  # center grads
         X_full = jnp.concatenate([X, natgrad_state.X_history], axis=1)
 
         # Compute SVD of merged jacobian
         U, s, Vt = jnp.linalg.svd(X_full, full_matrices=False, compute_uv=True)
-        D1 = s / (N * damping + s**2)
-        D2 = ema_natgrad * s**2 / (N * damping + s**2)
+        D1 = (N_total / total_batch_size) * s / (N_total * damping + s**2)
+        D2 = ema_natgrad * s**2 / (N_total * damping + s**2)
 
         # Compute natural gradient
         E_padded = jnp.concatenate([dE_dlogpsi, jnp.zeros(history_length)])
@@ -208,11 +210,11 @@ def make_svd_preconditioner(
 
         # New history = U @ S corresponding to the largest singular values
         s_history = s[:history_length]
-        X_history = U[:, :history_length] * (ema_S * s_history)
+        X_history = U[:, :history_length] * (s_history * ema_S)
 
         # Compute auxiliary data and convert to output format
-        s2_fraction = jnp.sum(s_history**2) / jnp.sum(s**2)
-        aux_data = {"opt/svd_s2_fraction": s2_fraction}
+        s2_residual = jnp.sum(s[history_length:] ** 2) / jnp.sum(s**2)
+        aux_data = {"opt/svd_s2_residual": s2_residual}
         precond_state = SVDPreconditionerState(last_grad=natgrad, X_history=X_history)
         natgrad = vector_to_tree_like(natgrad, params)
         return natgrad, precond_state, aux_data

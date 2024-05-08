@@ -159,8 +159,9 @@ def get_diff_features(
     dist = jnp.linalg.norm(diff, axis=-1, keepdims=True)
     features = [dist, diff]
     if (s is not None) and (s_nb is not None):
-        s_prod = s * s_nb
-        features.append(s_prod[..., None])
+        # s_prod = s * s_nb
+        # features.append(s_prod[..., None])
+        features += [s[..., None], s_nb[..., None]]
     return jnp.concatenate(features, axis=-1)
 
 
@@ -222,7 +223,7 @@ class ElElCusp(nn.Module):
     n_up: int
 
     @nn.compact
-    def __call__(self, electrons: Electrons) -> Float[Array, "*batch_dims"]:
+    def __call__(self, electrons: Electrons) -> Float[Array, " *batch_dims"]:
         dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
 
         alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
@@ -251,6 +252,7 @@ class JastrowFactor(nn.Module):
             jastrow = jnp.squeeze(MLP(self.soe_n_hidden + (1,), activate_final=False, residual=False)(jastrow), axis=-1)
 
         return jastrow
+
 
 class MoonParams(PyTreeNode):
     ee_filter: Parameters
@@ -367,9 +369,9 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
     def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         orbitals = self.orbitals(params, electrons, static)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
-        if self.use_el_el_cusp:
+        if params.el_el_cusp is not None:
             logpsi += self.el_el_cusp.apply(params.el_el_cusp, electrons)
-        if self.use_mlp_jastrow:
+        if params.mlp_jastrow is not None:
             embeddings = self._embedding(params, electrons, static)
             logpsi += self.mlp_jastrow.apply(params.mlp_jastrow, embeddings)
         return signpsi, logpsi
@@ -406,7 +408,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         else:
             mlp_jastrow = None
         return MoonParams(
-            ee_filter=self.ee_filter.init(rngs[0], np.zeros([5])),  # dist + 3 * diff + spin
+            ee_filter=self.ee_filter.init(rngs[0], np.zeros([6])),  # dist + 3 * diff + spin1 + spin2
             ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
             en_filter=self.en_filter.init(rngs[2], np.zeros([4])),  # dist + 3 * diff
             lin_h0=self.lin_h0.init(rngs[3], np.zeros([feature_dim])),

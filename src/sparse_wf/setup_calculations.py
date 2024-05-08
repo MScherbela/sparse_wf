@@ -27,21 +27,32 @@ def update_dict(original, update, allow_new_keys):
     original = copy.deepcopy(original)
     for key, value in update.items():
         if isinstance(value, dict):
-            if (key not in original) and (not allow_new_keys):
-                raise KeyError(f"Key {key} not found in original dict. Possible keys are {list(original.keys())}")
-            original_subdict = original.get(key, {})
-            original[key] = update_dict(original_subdict, update[key], allow_new_keys)
+            if isinstance(original, dict):
+                if (key not in original) and (not allow_new_keys):
+                    raise KeyError(f"Key {key} not found in original dict. Possible keys are {list(original.keys())}")
+                original_subdict = original.get(key, {})
+                original[key] = update_dict(original_subdict, update[key], allow_new_keys)
+            elif isinstance(original, list):
+                list_index = int(key)
+                if list_index >= len(original):
+                    raise KeyError(
+                        f"List index {list_index} exceeds length of list. Maximum index is {len(original) - 1}."
+                    )
+                original[list_index] = update_dict(original[list_index], update[key], allow_new_keys)
         else:
             original[key] = value
     return original
 
 
 def convert_to_default_datatype(config_dict, default_dict):
-    for key, value in config_dict.items():
-        if isinstance(value, dict):
-            config_dict[key] = convert_to_default_datatype(config_dict[key], default_dict[key])
-        else:
-            config_dict[key] = type(default_dict[key])(config_dict[key])
+    if isinstance(config_dict, dict):
+        for key, value in config_dict.items():
+            config_dict[key] = convert_to_default_datatype(value, default_dict[key])
+    elif isinstance(config_dict, list):
+        for i, value in enumerate(config_dict):
+            config_dict[i] = convert_to_default_datatype(value, default_dict[i])
+    else:
+        config_dict = type(default_dict)(config_dict)
     return config_dict
 
 

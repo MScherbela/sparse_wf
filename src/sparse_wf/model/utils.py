@@ -110,6 +110,7 @@ def get_dist_same_diff(electrons: ElecElecDistances, n_up):
 def param_initializer(value: float):
     def init(key, shape, dtype) -> Array:
         return value * jnp.ones(shape, dtype)
+
     return init
 
 

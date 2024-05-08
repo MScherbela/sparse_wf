@@ -271,6 +271,7 @@ class ModelArgs(TypedDict):
     pair_mlp_widths: Sequence[int]
     pair_n_envelopes: int
     n_determinants: int
+    use_el_el_cusp: bool
 
 
 class MLPJastrowArgs(TypedDict):
