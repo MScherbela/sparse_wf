@@ -159,7 +159,9 @@ def get_diff_features(
     if (s is not None) and (s_nb is not None):
         # s_prod = s * s_nb
         # features.append(s_prod[..., None])
-        features += [s[..., None, None], s_nb[..., :, None]]
+        n_neighbours = r_nb.shape[-2]
+        s_tiled = jnp.tile(s[None], (n_neighbours,))  # => [n_neighbours]
+        features += [s_tiled[:, None], s_nb[:, None]]  # => [n_neighbours x 1 (feature)]
     return jnp.concatenate(features, axis=-1)
 
 
