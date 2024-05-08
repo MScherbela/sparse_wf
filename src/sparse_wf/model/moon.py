@@ -255,7 +255,7 @@ class JastrowFactor(nn.Module):
 
         if self.embedding_n_hidden is not None:
             if self.soe_n_hidden is None:  # Option (1)
-                jastrow = jnp.sum(jnp.squeeze(MLP(self.embedding_n_hidden + [1,], activate_final=False, residual=False)(embeddings), axis=-1), axis=-1)
+                jastrow = jnp.sum(jnp.squeeze(MLP(self.embedding_n_hidden + (1,), activate_final=False, residual=False)(embeddings), axis=-1), axis=-1)
             else:  # Option (2) part 1
                 jastrow = MLP(self.embedding_n_hidden, activate_final=False, residual=False)(embeddings)
         else:  # Option (3) part 2
@@ -263,7 +263,7 @@ class JastrowFactor(nn.Module):
 
         if self.soe_n_hidden is not None:  # Option (2 or 3)
             jastrow = jnp.sum(jastrow, axis=-2)  # Sum over electrons.
-            jastrow = jnp.squeeze(MLP(self.soe_n_hidden + [1,], activate_final=False, residual=False)(jastrow), axis=-1)
+            jastrow = jnp.squeeze(MLP(self.soe_n_hidden + (1,), activate_final=False, residual=False)(jastrow), axis=-1)
 
         return jastrow
 
@@ -381,13 +381,16 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
     def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
-        orbitals = self.orbitals(params, electrons, static)
+        h = None
+        if params.mlp_jastrow is not None:
+            # TODO fix so that we don't calculate embeddings twice
+            h = self._embedding(params, electrons, static)
+        orbitals = self.orbitals(params, electrons, static, h)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
         if params.el_el_cusp is not None:
             logpsi += self.el_el_cusp.apply(params.el_el_cusp, electrons)
         if params.mlp_jastrow is not None:
-            embeddings = self._embedding(params, electrons, static)
-            logpsi += self.mlp_jastrow.apply(params.mlp_jastrow, embeddings)
+            logpsi = self.mlp_jastrow.apply(params.mlp_jastrow, h)
         return signpsi, logpsi
 
     def __call__(self, params: MoonParams, electrons: Electrons, static: StaticInput):
@@ -506,9 +509,10 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         h_out = contract(H_nb_en, Gamma_en, h0)
         return h_out
 
-    @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(el,dim)->(det,el,orb)")
-    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
-        h = self._embedding(params, electrons, static)
+    @functools.partial(jnp.vectorize, excluded=(0, 1, 3, 4), signature="(el,dim)->(det,el,orb)")
+    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput, h=None) -> SlaterMatrices:
+        if h is None:
+            h = self._embedding(params, electrons, static)
         orbitals = cast(jax.Array, self.lin_orbitals.apply(params.lin_orbitals, h))
         envelopes = jax.vmap(lambda r: self._envelopes(params, r))(electrons)
         orbitals = jax.vmap(self._merge_orbitals_with_envelopes, in_axes=0, out_axes=-2)(
