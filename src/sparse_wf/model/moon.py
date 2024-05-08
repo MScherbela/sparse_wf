@@ -159,7 +159,7 @@ def get_diff_features(
     if (s is not None) and (s_nb is not None):
         # s_prod = s * s_nb
         # features.append(s_prod[..., None])
-        features += [s[..., None], s_nb[..., None]]
+        features += [s[..., None, None], s_nb[..., :, None]]
     return jnp.concatenate(features, axis=-1)
 
 
