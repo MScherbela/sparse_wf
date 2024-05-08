@@ -157,8 +157,9 @@ def get_diff_features(
     dist = jnp.linalg.norm(diff, axis=-1, keepdims=True)
     features = [dist, diff]
     if (s is not None) and (s_nb is not None):
-        s_prod = s * s_nb
-        features.append(s_prod[..., None])
+        # s_prod = s * s_nb
+        # features.append(s_prod[..., None])
+        features += [s[..., None], s_nb[..., None]]
     return jnp.concatenate(features, axis=-1)
 
 
@@ -376,7 +377,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         else:
             el_el_cusp = None
         return MoonParams(
-            ee_filter=self.ee_filter.init(rngs[0], np.zeros([5])),  # dist + 3 * diff + spin
+            ee_filter=self.ee_filter.init(rngs[0], np.zeros([6])),  # dist + 3 * diff + spin1 + spin2
             ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
             en_filter=self.en_filter.init(rngs[2], np.zeros([4])),  # dist + 3 * diff
             lin_h0=self.lin_h0.init(rngs[3], np.zeros([feature_dim])),
