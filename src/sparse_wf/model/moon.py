@@ -150,10 +150,10 @@ def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies)
 
 
 def get_diff_features(
-    r: Float[Array, "dim=3"],
-    r_nb: Float[Array, "*neighbours dim=3"],
-    s: Optional[Int] = None,
-    s_nb: Optional[Integer[Array, " *neighbours"]] = None,
+        r: Float[Array, "dim=3"],
+        r_nb: Float[Array, "*neighbours dim=3"],
+        s: Optional[Int] = None,
+        s_nb: Optional[Integer[Array, " *neighbours"]] = None,
 ):
     diff = r - r_nb
     dist = jnp.linalg.norm(diff, axis=-1, keepdims=True)
@@ -214,7 +214,7 @@ def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: Neighbour
     spin_nb_ee = get_with_fill(spins, idx_nb.ee, 0.0)
     # [n_el  x n_neighbouring_electrons x 3] - position of each adjacent electron for each electron
     r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)
-    # [n_nuc x n_neighbouring_electrons x 3] - position of each adjacent electron for each nuclei
+    # [n_nuc x n_neighbouring_electrons x 3] - position of each adjacent electron for each nucleus
     r_nb_ne = get_with_fill(electrons, idx_nb.ne, NO_NEIGHBOUR)
     # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron
     R_nb_en = get_with_fill(R, idx_nb.en, NO_NEIGHBOUR)
@@ -238,6 +238,7 @@ class ElElCusp(nn.Module):
 
         return factor_same * cusp_same + factor_diff * cusp_diff
 
+
 class JastrowFactor(nn.Module):
     embedding_n_hidden: Sequence[int]
     soe_n_hidden: Sequence[int]
@@ -255,7 +256,9 @@ class JastrowFactor(nn.Module):
 
         if self.embedding_n_hidden is not None:
             if self.soe_n_hidden is None:  # Option (1)
-                jastrow = jnp.sum(jnp.squeeze(MLP(self.embedding_n_hidden + (1,), activate_final=False, residual=False)(embeddings), axis=-1), axis=-1)
+                jastrow = jnp.sum(
+                    jnp.squeeze(MLP(self.embedding_n_hidden + (1,), activate_final=False, residual=False)(embeddings),
+                                axis=-1), axis=-1)
             else:  # Option (2) part 1
                 jastrow = MLP(self.embedding_n_hidden, activate_final=False, residual=False)(embeddings)
         else:  # Option (3) part 2
@@ -310,16 +313,16 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
 
     @classmethod
     def create(
-        cls,
-        mol: pyscf.gto.Mole,
-        n_determinants: int,
-        cutoff: float,
-        feature_dim: int,
-        nuc_mlp_depth: int,
-        pair_mlp_widths: Sequence[int],
-        pair_n_envelopes: int,
-        use_el_el_cusp: bool,
-        mlp_jastrow: MLPJastrowArgs,
+            cls,
+            mol: pyscf.gto.Mole,
+            n_determinants: int,
+            cutoff: float,
+            feature_dim: int,
+            nuc_mlp_depth: int,
+            pair_mlp_widths: Sequence[int],
+            pair_n_envelopes: int,
+            use_el_el_cusp: bool,
+            mlp_jastrow: MLPJastrowArgs,
     ):
         n_up, n_dn = mol.nelec
         n_el = n_up + n_dn
@@ -381,16 +384,12 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
     def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
-        h = None
-        if params.mlp_jastrow is not None:
-            # TODO fix so that we don't calculate embeddings twice
-            h = self._embedding(params, electrons, static)
-        orbitals = self.orbitals(params, electrons, static, h)
+        orbitals = self.orbitals(params, electrons, static)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
         if params.el_el_cusp is not None:
             logpsi += self.el_el_cusp.apply(params.el_el_cusp, electrons)
-        if params.mlp_jastrow is not None:
-            logpsi = self.mlp_jastrow.apply(params.mlp_jastrow, h)
+        #if params.mlp_jastrow is not None:
+            #logpsi = self.mlp_jastrow.apply(params.mlp_jastrow, h)
         return signpsi, logpsi
 
     def __call__(self, params: MoonParams, electrons: Electrons, static: StaticInput):
@@ -437,12 +436,12 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         )
 
     def _get_h0(
-        self,
-        params: Parameters,
-        r: Float[Array, "dim=3"],
-        r_nb: Float[Array, "*neighbours dim=3"],
-        s: Optional[Int] = None,
-        s_nb: Optional[Integer[Array, " *neighbours"]] = None,
+            self,
+            params: Parameters,
+            r: Float[Array, "dim=3"],
+            r_nb: Float[Array, "*neighbours dim=3"],
+            s: Optional[Int] = None,
+            s_nb: Optional[Integer[Array, " *neighbours"]] = None,
     ):
         # vmap over neighbours
         features_ee = get_diff_features(r, r_nb, s, s_nb)
@@ -509,10 +508,9 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         h_out = contract(H_nb_en, Gamma_en, h0)
         return h_out
 
-    @functools.partial(jnp.vectorize, excluded=(0, 1, 3, 4), signature="(el,dim)->(det,el,orb)")
-    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput, h=None) -> SlaterMatrices:
-        if h is None:
-            h = self._embedding(params, electrons, static)
+    @functools.partial(jnp.vectorize, excluded=(0, 1, 3), signature="(el,dim)->(det,el,orb)")
+    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
+        h = self._embedding(params, electrons, static)
         orbitals = cast(jax.Array, self.lin_orbitals.apply(params.lin_orbitals, h))
         envelopes = jax.vmap(lambda r: self._envelopes(params, r))(electrons)
         orbitals = jax.vmap(self._merge_orbitals_with_envelopes, in_axes=0, out_axes=-2)(
@@ -531,7 +529,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         return fwd_lap(lambda logdets_: jax.nn.logsumexp(logdets_, b=signs, return_sign=True)[0])(logdets)
 
     def _orbitals_with_fwd_lap(
-        self, params: Parameters, electrons: Electrons, static: StaticInput
+            self, params: Parameters, electrons: Electrons, static: StaticInput
     ) -> tuple[FwdLaplArray, Dependency]:
         h, dependencies = self._embedding_with_fwd_lap(params, electrons, static)
         # vmaps over electrons
@@ -547,7 +545,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         return orbitals, dependencies
 
     def _embedding_with_fwd_lap(
-        self, params: MoonParams, electrons: Electrons, static: StaticInput
+            self, params: MoonParams, electrons: Electrons, static: StaticInput
     ) -> tuple[FwdLaplArray, Dependency]:
         idx_nb = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff)
         deps, dep_maps = get_all_dependencies(idx_nb, static.n_deps)

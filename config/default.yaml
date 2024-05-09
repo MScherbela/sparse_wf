@@ -23,7 +23,7 @@ model_args:
   n_determinants: 4
   use_el_el_cusp: True
   mlp_jastrow:
-    use: true
+    use: false
     embedding_n_hidden: [40,40]
     soe_n_hidden: [40,40]
 

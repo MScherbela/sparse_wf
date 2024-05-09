@@ -45,6 +45,7 @@ def update_dict(original, update, allow_new_keys):
 
 
 def convert_to_default_datatype(config_dict, default_dict):
+    print(config_dict, default_dict)
     if isinstance(config_dict, dict):
         for key, value in config_dict.items():
             config_dict[key] = convert_to_default_datatype(value, default_dict[key])
