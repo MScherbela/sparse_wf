@@ -1,5 +1,9 @@
-molecule: "Be 0 0 0"
-spin: 0
+molecule_args:
+  method: from_str
+  args:
+    atom: "Li 0 0 0; H 3 0 0"
+    spin: 0
+  basis: sto-6g
 
 model_args:
   cutoff: 20.0

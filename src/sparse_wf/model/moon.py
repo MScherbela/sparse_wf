@@ -378,10 +378,16 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             el_el_cusp = self.el_el_cusp.init(rngs[7], np.zeros((self.n_electrons, 3)))
         else:
             el_el_cusp = None
+
+        def init_filter(filter, rng):
+            rngs = jax.random.split(rng, len(self.R))
+            dummy_features = jnp.zeros([4])  # dist + 3 * diff
+            return jax.vmap(filter.init, in_axes=(0, None))(rngs, dummy_features)
+
         return MoonParams(
             ee_filter=self.ee_filter.init(rngs[0], np.zeros([6])),  # dist + 3 * diff + spin1 + spin2
-            ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
-            en_filter=self.en_filter.init(rngs[2], np.zeros([4])),  # dist + 3 * diff
+            ne_filter=init_filter(self.ne_filter, rngs[1]),  # dist + 3 * diff
+            en_filter=init_filter(self.en_filter, rngs[2]),  # dist + 3 * diff
             lin_h0=self.lin_h0.init(rngs[3], np.zeros([feature_dim])),
             mlp_nuc=self.mlp_nuc.init(rngs[4], np.zeros([feature_dim])),
             lin_orbitals=self.lin_orbitals.init(rngs[5], np.zeros([feature_dim])),
@@ -407,21 +413,21 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
 
     def _get_Gamma_ne(self, params, R, r_nb_ne):
         features_ne = get_diff_features(R, r_nb_ne)
-        return cast(FilterKernel, self.ne_filter.apply(params.ne_filter, features_ne))
+        return cast(FilterKernel, self.ne_filter.apply(params, features_ne))
 
-    def _get_Gamma_en(self, params, r, R_nb_en_):
-        features_en = get_diff_features(r, R_nb_en_)
-        return cast(FilterKernel, self.en_filter.apply(params.en_filter, features_en))
+    def _get_Gamma_en(self, params, r, R_nb_en):
+        features_en = get_diff_features(r, R_nb_en)
+        return cast(FilterKernel, self.en_filter.apply(params, features_en))
 
     def _get_Gamma_ne_vmapped(self, params, R, r_nb_ne):
-        _get_Gamma = jax.vmap(self._get_Gamma_ne, in_axes=(None, None, 0))  # vmap over neighbours
-        _get_Gamma = jax.vmap(_get_Gamma, in_axes=(None, 0, 0))  # vmap over center
-        return _get_Gamma(params, R, r_nb_ne)
+        _get_Gamma = jax.vmap(self._get_Gamma_ne, in_axes=(None, None, 0))  # vmap over neighbours (el)
+        _get_Gamma = jax.vmap(_get_Gamma, in_axes=(0, 0, 0))  # vmap over center (nuc)
+        return _get_Gamma(params.ne_filter, R, r_nb_ne)
 
-    def _get_Gamma_en_vmapped(self, params, r, R_nb_en_):
-        _get_Gamma = jax.vmap(self._get_Gamma_en, in_axes=(None, None, 0))  # vmap over neighbours
-        _get_Gamma = jax.vmap(_get_Gamma, in_axes=(None, 0, 0))  # vmap over center
-        return _get_Gamma(params, r, R_nb_en_)
+    def _get_Gamma_en_vmapped(self, params, r, R_nb_en):
+        _get_Gamma = jax.vmap(self._get_Gamma_en, in_axes=(0, None, 0))  # vmap over neighbours (nuc)
+        _get_Gamma = jax.vmap(_get_Gamma, in_axes=(None, 0, 0))  # vmap over center (el)
+        return _get_Gamma(params.en_filter, r, R_nb_en)
 
     def _envelopes(self, params, r: Float[Array, "dim=3"]):
         dist_en_full = jnp.linalg.norm(r[None, :] - self.R, axis=-1)
@@ -448,6 +454,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en = get_neighbour_coordinates(electrons, self.R, idx_nb, self.spins)
 
         # Step 1: Get h0
+        # vmap over electrons
         h0 = jax.vmap(self._get_h0, in_axes=(None, 0, 0, 0, 0))(params, electrons, r_nb_ee, self.spins, spin_nb_ee)
 
         # # Step 2: Contract to nuclei + MLP
