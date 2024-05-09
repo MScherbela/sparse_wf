@@ -1,5 +1,5 @@
 seml:
-  executable: train.py
+  executable: train_with_seml.py
   project_root_dir: ../../
   output_dir: ~/slurm-output/
 
@@ -21,12 +21,19 @@ fixed:
     args:
       atom: "N 0 0 0; N 2.068 0 0"
   batch_size: 2048
-  pretraining.steps: 500
-  optimization.steps: 10_000
+  pretraining:
+    steps: 500
+  optimization:
+    steps: 10_000
+    preconditioner_args:
+      preconditioner: cg
+  logging_args:
+    out_directory: logs
+
   logging_args.name_keys:
     - model
 
 grid:
   model:
     type: choice
-    options: [moon, ferminet]
+    options: [moon]

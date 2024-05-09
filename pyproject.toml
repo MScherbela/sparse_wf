@@ -22,7 +22,8 @@ dependencies = [
     "tqdm",
     "wandb",
     "pytest",
-    "wonderwords"
+    "wonderwords",
+    "argcomplete"
 ]
 
 [project.optional-dependencies]
@@ -38,10 +39,17 @@ ignore = ["F722"]
 
 [tool.mypy]
 strict = false
-exclude = ["src/sparse_wf/preliminary_experiments"]
+exclude = [
+    'src/sparse_wf/preliminary_experiments',
+    'analysis',
+    ]
 disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 
 [tool.pytest.ini_options]
 testpaths = [
     "tests"
 ]
+
+[project.scripts]
+sparse-wf-run = "sparse_wf.train_with_config:train_with_config"
+sparse-wf-setup = "sparse_wf.setup_calculations:setup_calculations"

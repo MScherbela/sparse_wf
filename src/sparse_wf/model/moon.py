@@ -21,6 +21,7 @@ from sparse_wf.api import (
     Parameters,
     SlaterMatrices,
     Spins,
+    SignedLogAmplitude,
 )
 from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import fwd_lap, jit, vectorize
@@ -52,6 +53,7 @@ from sparse_wf.model.utils import (
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
     swap_bottom_blocks,
+    get_dist_same_diff,
 )
 
 
@@ -155,8 +157,11 @@ def get_diff_features(
     dist = jnp.linalg.norm(diff, axis=-1, keepdims=True)
     features = [dist, diff]
     if (s is not None) and (s_nb is not None):
-        s_prod = s * s_nb
-        features.append(s_prod[..., None])
+        # s_prod = s * s_nb
+        # features.append(s_prod[..., None])
+        n_neighbours = r_nb.shape[-2]
+        s_tiled = jnp.tile(s[None], (n_neighbours,))  # => [n_neighbours]
+        features += [s_tiled[:, None], s_nb[:, None]]  # => [n_neighbours x 1 (feature)]
     return jnp.concatenate(features, axis=-1)
 
 
@@ -167,16 +172,18 @@ class PairwiseFilter(nn.Module):
     out_dim: int
 
     def scale_initializer(self, rng, shape, dtype):
-        relative_noise = 0.1 * jax.random.normal(rng, shape, dtype)
-        mean_scale = 0.5 * jnp.array(self.cutoff, dtype)
-        return mean_scale * (1 + relative_noise)
+        assert len(shape) == 1
+        n_scales = shape[0]
+        scale = jnp.linspace(0, self.cutoff, n_scales, dtype=dtype)
+        scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
+        return scale
 
     @nn.compact
     def __call__(self, dist_diff: Float[Array, "*batch_dims features_in"]) -> Float[Array, "*batch_dims features_out"]:
         """Compute the pairwise filters between two particles.
 
         Args:
-            dist_diff: The distance, 3D difference and optionall spin difference between two particles [n_el x n_nb x 4(5)].
+            dist_diff: The distance, 3D difference and optional spin difference between two particles [n_el x n_nb x 4(5)].
                 The 0th feature dimension must contain the distance, the remaining dimensions can contain arbitrary
                 features that are used to compute the pairwise filters, e.g. product of spins.
         """
@@ -188,8 +195,8 @@ class PairwiseFilter(nn.Module):
         scales = self.param("scales", self.scale_initializer, (self.n_envelopes,), jnp.float32)
         scales = jax.nn.softplus(scales)
         envelopes = jnp.exp(-((dist[..., None] / scales) ** 2))
-        envelopes = nn.Dense(directional_features.shape[-1], use_bias=False)(envelopes)
         envelopes *= cutoff_function(dist / self.cutoff)[..., None]
+        envelopes = nn.Dense(directional_features.shape[-1], use_bias=False)(envelopes)
         beta = directional_features * envelopes
         return nn.Dense(self.out_dim, use_bias=False)(beta)
 
@@ -212,6 +219,25 @@ def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: Neighbour
     return spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en
 
 
+class ElElCusp(nn.Module):
+    n_up: int
+
+    @nn.compact
+    def __call__(self, electrons: Electrons) -> Float[Array, " *batch_dims"]:
+        dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
+
+        alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
+        alpha_diff = self.param("alpha_diff", nn.initializers.ones, (), jnp.float32)
+        # factor_same = self.param("factor_same", param_initializer(-0.25), (), jnp.float32)
+        # factor_diff = self.param("factor_diff", param_initializer(-0.5), (), jnp.float32)
+        factor_same, factor_diff = -0.25, -0.5
+
+        cusp_same = jnp.sum(alpha_same**2 / (alpha_same + dist_same), axis=-1)
+        cusp_diff = jnp.sum(alpha_diff**2 / (alpha_diff + dist_diff), axis=-1)
+
+        return factor_same * cusp_same + factor_diff * cusp_diff
+
+
 class MoonParams(PyTreeNode):
     ee_filter: Parameters
     ne_filter: Parameters
@@ -220,6 +246,7 @@ class MoonParams(PyTreeNode):
     lin_h0: Parameters
     lin_orbitals: Parameters
     envelopes: Parameters
+    el_el_cusp: Optional[Parameters]
 
 
 class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, StaticInput]):
@@ -236,6 +263,8 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
     lin_h0: nn.Dense
     lin_orbitals: nn.Dense
     envelopes: IsotropicEnvelope
+    el_el_cusp: ElElCusp
+    use_el_el_cusp: bool
 
     @property
     def n_dn(self):
@@ -256,6 +285,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         nuc_mlp_depth: int,
         pair_mlp_widths: Sequence[int],
         pair_n_envelopes: int,
+        use_el_el_cusp: bool,
     ):
         n_up, n_dn = mol.nelec
         n_el = n_up + n_dn
@@ -268,13 +298,33 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             n_up=int(n_up),
             n_determinants=n_determinants,
             cutoff=cutoff,
-            ee_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ee"),
-            ne_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_ne"),
-            en_filter=PairwiseFilter(cutoff, pair_mlp_widths, pair_n_envelopes, feature_dim, name="Gamma_en"),
+            ee_filter=PairwiseFilter(
+                cutoff,
+                pair_mlp_widths,
+                pair_n_envelopes,
+                feature_dim,
+                name="Gamma_ee",
+            ),
+            ne_filter=PairwiseFilter(
+                cutoff,
+                pair_mlp_widths,
+                pair_n_envelopes,
+                feature_dim,
+                name="Gamma_ne",
+            ),
+            en_filter=PairwiseFilter(
+                cutoff,
+                pair_mlp_widths,
+                pair_n_envelopes,
+                feature_dim,
+                name="Gamma_en",
+            ),
             mlp_nuc=MLP(widths=[feature_dim] * nuc_mlp_depth, name="mlp_nuc"),
             lin_h0=nn.Dense(feature_dim, use_bias=True, name="lin_h0"),
             lin_orbitals=nn.Dense(n_determinants * n_el, name="lin_orbitals"),
             envelopes=IsotropicEnvelope(n_determinants * n_el),
+            el_el_cusp=ElElCusp(n_up),
+            use_el_el_cusp=use_el_el_cusp,
         )
 
     def get_static_input(self, electrons: Electrons):
@@ -294,15 +344,19 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
     def hf_transformation(self, hf_orbitals):
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
-    def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput):
+    def signed(self, params: MoonParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         orbitals = self.orbitals(params, electrons, static)
-        return signed_logpsi_from_orbitals(orbitals)
+        signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
+        if params.el_el_cusp is not None:
+            logpsi += self.el_el_cusp.apply(params.el_el_cusp, electrons)
+        return signpsi, logpsi
 
     def __call__(self, params: MoonParams, electrons: Electrons, static: StaticInput):
         return self.signed(params, electrons, static)[1]
 
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy(self, params: MoonParams, electrons: Electrons, static: StaticInput):
+        raise NotImplementedError("Sparse energy not implemented for cusps")
         log_psi = self._logpsi_with_fwd_lap(params, electrons, static)
         E_kin = -0.5 * (log_psi.laplacian + jnp.vdot(log_psi.jacobian.data, log_psi.jacobian.data))
         E_pot = potential_energy(electrons, self.R, self.Z)
@@ -317,17 +371,22 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         return make_local_energy(self, self.R, self.Z, use_fwd_lap=False)(params, electrons, static)
 
     def init(self, key: PRNGKeyArray):
-        rngs = jax.random.split(key, 7)
+        rngs = jax.random.split(key, 8)
         feature_dim = self.lin_h0.features
         n_atoms = self.R.shape[0]
+        if self.use_el_el_cusp:  # Make sure to not include the el-el cusp parameters when it's not being used.
+            el_el_cusp = self.el_el_cusp.init(rngs[7], np.zeros((self.n_electrons, 3)))
+        else:
+            el_el_cusp = None
         return MoonParams(
-            ee_filter=self.ee_filter.init(rngs[0], np.zeros([5])),  # dist + 3 * diff + spin
+            ee_filter=self.ee_filter.init(rngs[0], np.zeros([6])),  # dist + 3 * diff + spin1 + spin2
             ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
             en_filter=self.en_filter.init(rngs[2], np.zeros([4])),  # dist + 3 * diff
             lin_h0=self.lin_h0.init(rngs[3], np.zeros([feature_dim])),
             mlp_nuc=self.mlp_nuc.init(rngs[4], np.zeros([feature_dim])),
             lin_orbitals=self.lin_orbitals.init(rngs[5], np.zeros([feature_dim])),
             envelopes=self.envelopes.init(rngs[6], np.zeros([1, n_atoms])),
+            el_el_cusp=el_el_cusp,
         )
 
     def _get_h0(

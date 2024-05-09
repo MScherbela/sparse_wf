@@ -65,7 +65,7 @@ class ParameterizedWaveFunction(Protocol[P, S]):
     def get_static_input(self, electrons: Electrons) -> S: ...
     def orbitals(self, params: P, electrons: Electrons, static: S) -> SlaterMatrices: ...
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices: ...
-    def local_energy(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
+    def local_energy_dense(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
     def signed(self, params: P, electrons: Electrons, static: S) -> SignedLogAmplitude: ...
     def __call__(self, params: P, electrons: Electrons, static: S) -> LogAmplitude: ...
 
@@ -271,6 +271,7 @@ class ModelArgs(TypedDict):
     pair_mlp_widths: Sequence[int]
     pair_n_envelopes: int
     n_determinants: int
+    use_el_el_cusp: bool
 
 
 class SpringArgs(TypedDict):
@@ -283,10 +284,18 @@ class CgArgs(TypedDict):
     maxiter: int
 
 
+class SVDArgs(TypedDict):
+    damping: float
+    ema_natgrad: float
+    ema_S: float
+    history_length: int
+
+
 class PreconditionerArgs(TypedDict):
     preconditioner: str
     spring_args: SpringArgs
     cg_args: CgArgs
+    svd_args: SVDArgs
 
 
 class ClippingArgs(TypedDict):

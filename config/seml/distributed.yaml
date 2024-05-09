@@ -1,5 +1,5 @@
 seml:
-  executable: train.py
+  executable: train_with_seml.py
   project_root_dir: ../../
   output_dir: ~/slurm-output/
 
@@ -16,6 +16,8 @@ slurm:
     tasks-per-node: 2
 
 fixed:
+  logging_args:
+    out_directory: logs
   batch_size: 16
   pretrain_steps: 10
   optimization.steps: 10

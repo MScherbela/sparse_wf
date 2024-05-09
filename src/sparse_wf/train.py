@@ -1,7 +1,6 @@
 import logging
-from collections import Counter
-from typing import Any, Sequence, cast
 import os
+from typing import Optional, Any
 
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
@@ -10,13 +9,9 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-import pyscf
 import tqdm
-import wonderwords
-from seml.experiment import Experiment
-from seml.utils import flatten, merge_dicts
 from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
-from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate
+from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 
@@ -32,10 +27,6 @@ from sparse_wf.update import make_trainer
 
 jax.config.update("jax_default_matmul_precision", "float32")
 jax.config.update("jax_enable_x64", False)
-ex = Experiment()
-
-
-ex.add_config("config/default.yaml")
 
 
 def to_log_data(aux_data: AuxData) -> dict[str, float]:
@@ -46,48 +37,17 @@ def set_postfix(pbar: tqdm.tqdm, aux_data: dict[str, float]):
     pbar.set_postfix(jtu.tree_map(lambda x: f"{x:.4f}", aux_data))
 
 
-def get_run_name(mol: pyscf.gto.Mole, name_keys: Sequence[str] | None, config):
-    atoms = Counter([mol.atom_symbol(i) for i in range(mol.natm)])
-    mol_name = "".join([f"{k}{v}" for k, v in atoms.items()])
+@pmap(static_broadcasted_argnums=(0, 3))
+def get_gradients(logpsi_func, params, electrons, static):
+    def get_grad(r):
+        g = jax.grad(logpsi_func)(params, r, static)
+        g = jtu.tree_flatten(g)[0]
+        g = jnp.concatenate([x.flatten() for x in g])
+        return g
 
-    if name_keys:
-        flat_config = flatten(config)
-        config_name = "-".join([str(flat_config[k]) for k in name_keys])
-        key_string = f"-{config_name}"
-    else:
-        key_string = ""
-
-    array_id = os.environ.get("SLURM_ARRAY_JOB_ID", None)
-    if array_id is not None:
-        # We are running in slurm - here we get unique IDs via SLURM and seml
-        exp_id = ex.current_run._id
-        return f"{mol_name}{key_string}-{exp_id}-{array_id}"
-
-    # If we are not running slurm let's just draw a random adjective and word
-    adjective = wonderwords.RandomWord().word(include_parts_of_speech=["adjectives"], word_max_length=8)
-    noun = wonderwords.RandomWord().word(include_parts_of_speech=["noun"], word_max_length=8)
-
-    result = f"{mol_name}{key_string}-{adjective}-{noun}"
-    return result
+    return jax.vmap(get_grad)(electrons)
 
 
-def update_logging_configuration(
-    mol: pyscf.gto.Mole, db_collection: str, logging_args: LoggingArgs, config
-) -> LoggingArgs:
-    folder_name = db_collection if db_collection else os.environ.get("USER", "default")
-    updates: dict[str, Any] = {}
-    if logging_args.get("collection", None) is None:
-        updates["collection"] = folder_name
-    if logging_args["wandb"].get("project", None) is None:
-        updates["wandb"] = dict(project=folder_name)
-    if logging_args.get("name", None) is None:
-        updates["name"] = get_run_name(mol, logging_args["name_keys"], config)
-    if logging_args.get("comment", None) is None:
-        updates["comment"] = None
-    return cast(LoggingArgs, merge_dicts(logging_args, updates))
-
-
-@ex.automain
 def main(
     molecule_args: MoleculeArgs,
     model: str,
@@ -98,14 +58,14 @@ def main(
     mcmc_steps: int,
     init_width: float,
     seed: int,
-    db_collection: str,
     logging_args: LoggingArgs,
+    metadata: Optional[dict[str, Any]] = None,
 ):
     config = locals()
 
     mol = get_molecule(**molecule_args)
 
-    loggers = MultiLogger(update_logging_configuration(mol, db_collection, logging_args, config))
+    loggers = MultiLogger(logging_args)
     loggers.log_config(config)
     # initialize distributed training
     if int(os.environ.get("SLURM_NTASKS", 1)) > 1:
@@ -182,6 +142,15 @@ def main(
         for opt_step in pbar:
             static = wf.get_static_input(state.electrons)
             state, _, aux_data = trainer.step(state, static)
+            # TODO: remove
+            # if opt_step % 1000 == 0:
+            #     gradients = get_gradients(wf.__call__, state.params, state.electrons, static)
+            #     _, s, Vt = jnp.linalg.svd(gradients, compute_uv=True, full_matrices=False)
+            #     params = jtu.tree_map(lambda x: x[0], state.params)
+            #     Vt = jax.vmap(lambda v: vector_to_tree_like(v, params))(Vt[0])
+            #     with open(f"grad_{opt_step:06d}.msgpk", "wb") as f:
+            #         f.write(flax.serialization.to_bytes(dict(Vt=Vt, s=s[0], params=params, gradients=gradients)))
+
             aux_data = to_log_data(aux_data)
             loggers.log(dict(opt_step=opt_step, **aux_data))
             if np.isnan(aux_data["opt/E"]):
