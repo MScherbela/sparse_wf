@@ -51,6 +51,8 @@ def convert_to_default_datatype(config_dict, default_dict):
     elif isinstance(config_dict, list):
         for i, value in enumerate(config_dict):
             config_dict[i] = convert_to_default_datatype(value, default_dict[i])
+    elif config_dict is None:
+        pass
     else:
         config_dict = type(default_dict)(config_dict)
     return config_dict
