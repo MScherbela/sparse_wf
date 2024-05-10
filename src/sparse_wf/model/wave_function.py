@@ -1,0 +1,129 @@
+from typing import NamedTuple, cast, Sequence
+import einops
+import jax
+import jax.numpy as jnp
+import flax.linen as nn
+import numpy as np
+import pyscf
+
+from sparse_wf.api import (
+    Charges,
+    Electrons,
+    HFOrbitals,
+    LocalEnergy,
+    Nuclei,
+    ParameterizedWaveFunction,
+    Parameters,
+    SignedLogAmplitude,
+    SlaterMatrices,
+)
+from sparse_wf.hamiltonian import make_local_energy
+from sparse_wf.jax_utils import vectorize
+from sparse_wf.model.graph_utils import NrOfNeighbours
+from sparse_wf.model.utils import (
+    ElElCusp,
+    IsotropicEnvelope,
+    hf_orbitals_to_fulldet_orbitals,
+    signed_logpsi_from_orbitals,
+)
+
+
+class NrOfDependencies(NamedTuple):
+    h_el_initial: int
+    H_nuc: int
+    h_el_out: int
+
+
+class StaticInput(NamedTuple):
+    n_neighbours: NrOfNeighbours
+    n_deps: NrOfDependencies
+
+
+class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, StaticInput]):
+    # Configuration
+    R: Nuclei
+    Z: Charges
+    n_electrons: int
+    n_up: int
+    # Model
+    n_determinants: int
+    cutoff: float
+    use_e_e_cusp: bool
+    feature_dim: int
+    pair_mlp_widths: tuple[int, int]
+    n_envelopes: int
+    nuc_mlp_depth: int
+
+    def setup(self):
+        self.to_orbitals = nn.Dense(self.n_determinants * self.n_electrons, name="lin_orbitals")
+        self.envelope = IsotropicEnvelope(self.n_determinants * self.n_electrons)
+        if self.use_e_e_cusp:
+            self.e_e_cusp = ElElCusp(self.n_electrons)
+        else:
+            self.e_e_cusp = None
+        self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)])
+
+    @classmethod
+    def from_pyscf(
+        cls,
+        mol: pyscf.gto.Mole,
+        cutoff: float,
+        feature_dim: int,
+        nuc_mlp_depth: int,
+        pair_mlp_widths: tuple[int, int],
+        pair_n_envelopes: int,
+        n_determinants: int,
+        use_e_e_cusp: bool,
+    ):
+        return cls(
+            R=np.asarray(mol.atom_coords()),
+            Z=np.asarray(mol.atom_charges()),
+            n_electrons=mol.nelectron,
+            n_up=mol.nelec[0],
+            n_determinants=n_determinants,
+            cutoff=cutoff,
+            feature_dim=feature_dim,
+            pair_mlp_widths=pair_mlp_widths,
+            n_envelopes=pair_n_envelopes,
+            nuc_mlp_depth=nuc_mlp_depth,
+            use_e_e_cusp=use_e_e_cusp,
+        )
+
+    def _embedding(self, electrons: Electrons, static: StaticInput) -> jax.Array: ...
+
+    def _orbitals(self, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
+        h = self._embedding(electrons, static)
+        dist_en_full = jnp.linalg.norm(electrons[None, :] - self.R, axis=-1)
+        orbitals = self.to_orbitals(h) * self.envelope(dist_en_full)
+        return (einops.rearrange(orbitals, "el (det orb) -> det el orb"),)
+
+    def _signed(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
+        orbitals = self._orbitals(electrons, static)
+        signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
+        if self.use_e_e_cusp:
+            logpsi += self.el_el_cusp(electrons)
+        return signpsi, logpsi
+
+    def __call__(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
+        return self._signed(electrons, static)
+
+    def get_static_input(self, electrons: Electrons) -> StaticInput:
+        raise NotImplementedError
+
+    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
+        return cast(SlaterMatrices, self.apply(params, electrons, static, method=self._orbitals))
+
+    def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
+        return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
+
+    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
+    def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
+        return self.local_energy_dense(params, electrons, static)
+
+    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
+    def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
+        return make_local_energy(self, self.R, self.Z)(params, electrons, static)
+
+    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
+    def signed(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
+        return cast(SignedLogAmplitude, self.apply(params, electrons, static, method=self._signed))

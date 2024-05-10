@@ -85,11 +85,11 @@ def jit(
 
 
 @overload
-def vectorize(fun: None = None, *jit_args, **jit_kwargs) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+def vectorize(fun: None = None, *vec_args, **vec_kwargs) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
 @overload
-def vectorize(fun: Callable[P, R], *jit_args, **jit_kwargs) -> Callable[P, R]: ...
+def vectorize(fun: Callable[P, R], *vec_args, **vec_kwargs) -> Callable[P, R]: ...
 
 
 def vectorize(

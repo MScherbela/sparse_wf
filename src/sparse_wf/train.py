@@ -16,7 +16,8 @@ from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
-from sparse_wf.model.moon import SparseMoonWavefunction  # noqa: F401
+from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
+from sparse_wf.model.two_step_moon import TwoStepMoon
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
@@ -75,6 +76,8 @@ def main(
 
     if model == "moon":
         wf = SparseMoonWavefunction.create(mol, **model_args)
+    elif model == "moon2step":
+        wf = TwoStepMoon.create(mol, **model_args)
     elif model == "ferminet":
         wf = DenseFermiNet.create(mol)
     else:

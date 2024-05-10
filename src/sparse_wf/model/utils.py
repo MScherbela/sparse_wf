@@ -1,12 +1,12 @@
 import jax.nn as jnn
-from jaxtyping import Float, Array
-from typing import Callable, Optional, Sequence, cast
+from jaxtyping import Float, Array, Integer, ArrayLike
+from typing import Callable, Optional, Sequence, cast, NamedTuple
 import flax.linen as nn
 import jax.numpy as jnp
 import jax
 import numpy as np
 import functools
-from sparse_wf.api import HFOrbitals, SlaterMatrices, SignedLogAmplitude
+from sparse_wf.api import Electrons, HFOrbitals, Int, SlaterMatrices, SignedLogAmplitude, Parameters
 import einops
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
@@ -174,3 +174,84 @@ def hf_orbitals_to_fulldet_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
     )
     # Add broadcast dimension for many determinants
     return (full_det[..., None, :, :],)
+
+
+class DynamicFilterParams(NamedTuple):
+    scales: jax.Array
+    kernel: jax.Array
+    bias: jax.Array
+
+
+def scale_initializer(cutoff, rng, shape, dtype):
+    assert len(shape) == 1
+    n_scales = shape[0]
+    scale = jnp.linspace(0, cutoff, n_scales, dtype=dtype)
+    scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
+    return scale
+
+
+class PairwiseFilter(nn.Module):
+    cutoff: float
+    pair_dim: int
+
+    @nn.compact
+    def __call__(
+        self, dist_diff: Float[Array, "*batch_dims features_in"], dynamic_params: DynamicFilterParams
+    ) -> Float[Array, "*batch_dims features_out"]:
+        """Compute the pairwise filters between two particles.
+
+        Args:
+            dist_diff: The distance, 3D difference and optional spin difference between two particles [n_el x n_nb x 4(5)].
+                The 0th feature dimension must contain the distance, the remaining dimensions can contain arbitrary
+                features that are used to compute the pairwise filters, e.g. product of spins.
+        """
+        # Direction- (and spin-) dependent MLP
+        directional_features = jax.nn.silu(dist_diff @ dynamic_params.kernel + dynamic_params.bias)
+        directional_features = nn.Dense(self.pair_dim)(directional_features)
+
+        # Distance-dependenet radial filters
+        dist = dist_diff[..., 0]
+        # scales = self.param("scales", self.scale_initializer, (self.n_envelopes,), jnp.float32)
+        scales = jax.nn.softplus(dynamic_params.scales)
+        envelopes = jnp.exp(-((dist[..., None] / scales) ** 2))
+        envelopes *= cutoff_function(dist / self.cutoff)[..., None]
+        envelopes = nn.Dense(directional_features.shape[-1], use_bias=False)(envelopes)
+        beta = directional_features * envelopes
+        return beta
+
+
+class ElElCusp(nn.Module):
+    n_up: int
+
+    @nn.compact
+    def __call__(self, electrons: Electrons) -> Float[Array, " *batch_dims"]:
+        dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
+
+        alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
+        alpha_diff = self.param("alpha_diff", nn.initializers.ones, (), jnp.float32)
+        # factor_same = self.param("factor_same", param_initializer(-0.25), (), jnp.float32)
+        # factor_diff = self.param("factor_diff", param_initializer(-0.5), (), jnp.float32)
+        factor_same, factor_diff = -0.25, -0.5
+
+        cusp_same = jnp.sum(alpha_same**2 / (alpha_same + dist_same), axis=-1)
+        cusp_diff = jnp.sum(alpha_diff**2 / (alpha_diff + dist_diff), axis=-1)
+
+        return factor_same * cusp_same + factor_diff * cusp_diff
+
+
+def get_diff_features(
+    r: Float[ArrayLike, "dim=3"],
+    r_nb: Float[Array, "*neighbours dim=3"],
+    s: Optional[Int] = None,
+    s_nb: Optional[Integer[Array, " *neighbours"]] = None,
+):
+    n_neighbours = r_nb.shape[-2]
+
+    diff = r - r_nb
+    dist = jnp.linalg.norm(diff, axis=-1, keepdims=True)
+    features = [dist, diff]
+    if s is not None:
+        features.append(jnp.tile(s[None], (n_neighbours,))[..., None])
+    if s_nb is not None:
+        features.append(s_nb[:, None])
+    return jnp.concatenate(features, axis=-1)

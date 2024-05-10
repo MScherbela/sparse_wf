@@ -1,5 +1,5 @@
 import functools
-from typing import NamedTuple, TypeAlias
+from typing import NamedTuple, TypeAlias, Optional
 
 import jax
 import jax.numpy as jnp
@@ -7,7 +7,7 @@ import numpy as np
 from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer, Shaped
 
-from sparse_wf.api import Electrons, Int, Nuclei
+from sparse_wf.api import Electrons, Int, Nuclei, Spins
 from sparse_wf.jax_utils import jit, vectorize
 
 NO_NEIGHBOUR = 1_000_000
@@ -91,16 +91,15 @@ def get_nr_of_neighbours(
     return NrOfNeighbours(ee=int(n_ee), en=int(n_en), ne=int(n_ne))
 
 
-@jit(static_argnames=("n_neighbours", "cutoff"))
+@jit(static_argnames=("n_neighbours", "cutoff_en", "cutoff_ee"))
 def get_neighbour_indices(
-    r: Electrons,
-    R: Nuclei,
-    n_neighbours: NrOfNeighbours,
-    cutoff: float,
+    r: Electrons, R: Nuclei, n_neighbours: NrOfNeighbours, cutoff_en: float, cutoff_ee: Optional[float] = None
 ) -> NeighbourIndices:
+    if cutoff_ee is None:
+        cutoff_ee = cutoff_en
     dist_ee, dist_ne = get_full_distance_matrices(r, R)
 
-    def _get_ind_neighbour(dist, max_n_neighbours: int, exclude_diagonal=False):
+    def _get_ind_neighbour(dist, max_n_neighbours: int, cutoff, exclude_diagonal=False):
         if exclude_diagonal:
             n_particles = dist.shape[-1]
             dist += jnp.diag(jnp.inf * jnp.ones(n_particles, dist.dtype))
@@ -117,9 +116,9 @@ def get_neighbour_indices(
         return _get_ind(in_cutoff)
 
     return NeighbourIndices(
-        ee=_get_ind_neighbour(dist_ee, n_neighbours.ee, exclude_diagonal=True),
-        ne=_get_ind_neighbour(dist_ne, n_neighbours.ne),
-        en=_get_ind_neighbour(dist_ne.T, n_neighbours.en),
+        ee=_get_ind_neighbour(dist_ee, n_neighbours.ee, cutoff_ee, exclude_diagonal=True),
+        ne=_get_ind_neighbour(dist_ne, n_neighbours.ne, cutoff_en),
+        en=_get_ind_neighbour(dist_ne.T, n_neighbours.en, cutoff_en),
     )
 
 
@@ -248,3 +247,15 @@ def densify_jacobian_by_zero_padding(h: FwdLaplArray, n_deps_out):
     n_deps_sparse = jac.shape[0]
     padding = jnp.zeros([n_deps_out - n_deps_sparse, *jac.shape[1:]], jac.dtype)
     return FwdLaplArray(x=h.x, jacobian=FwdJacobian(jnp.concatenate([jac, padding], axis=0)), laplacian=h.laplacian)
+
+
+def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: NeighbourIndices, spins: Spins):
+    # [n_el  x n_neighbouring_electrons] - spin of each adjacent electron for each electron
+    spin_nb_ee = get_with_fill(spins, idx_nb.ee, 0.0)
+    # [n_el  x n_neighbouring_electrons x 3] - position of each adjacent electron for each electron
+    r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)
+    # [n_nuc x n_neighbouring_electrons x 3] - position of each adjacent electron for each nuclei
+    r_nb_ne = get_with_fill(electrons, idx_nb.ne, NO_NEIGHBOUR)
+    # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron
+    R_nb_en = get_with_fill(R, idx_nb.en, NO_NEIGHBOUR)
+    return spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en

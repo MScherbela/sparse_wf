@@ -5,6 +5,8 @@ molecule_args:
     spin: 0
   basis: sto-6g
 
+model: moon2step
+
 model_args:
   cutoff: 20.0
 
