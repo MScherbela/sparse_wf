@@ -8,6 +8,7 @@ import numpy as np
 import functools
 from sparse_wf.api import HFOrbitals, SlaterMatrices, SignedLogAmplitude
 import einops
+from flax.linen.initializers import truncated_normal, variance_scaling, lecun_normal, zeros_init
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
 ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei"]
@@ -24,18 +25,30 @@ class MLP(nn.Module):
     activate_final: bool = False
     activation: Callable = jax.nn.silu
     residual: bool = False
+    use_bias: bool = True
+    output_bias: bool = True
+    init_w = variance_scaling(1.0, "fan_avg", "uniform")
+    init_b = truncated_normal()
 
     @nn.compact
     def __call__(self, x: Float[Array, "*batch_dims _"]) -> Float[Array, "*batch_dims _"]:
         depth = len(self.widths)
         for ind_layer, out_width in enumerate(self.widths):
-            y = nn.Dense(out_width)(x)
-            if (ind_layer < depth - 1) or self.activate_final:
+            is_output_layer = ind_layer == (depth - 1)
+
+            if is_output_layer:
+                y = nn.Dense(out_width, use_bias=self.output_bias, kernel_init=variance_scaling(1.0, "fan_avg", "uniform"), bias_init=truncated_normal())(x)
+            else:
+                y = nn.Dense(out_width, use_bias=self.use_bias, kernel_init=variance_scaling(1.0, "fan_avg", "uniform"), bias_init=truncated_normal())(x)
+
+            if not is_output_layer or self.activate_final:
                 y = self.activation(y)
+
             if self.residual and (x.shape[-1] == out_width):
                 x = x + y
             else:
                 x = y
+
         return x
 
 
