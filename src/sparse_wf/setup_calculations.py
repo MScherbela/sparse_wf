@@ -50,7 +50,7 @@ def convert_to_default_datatype(config_dict, default_dict):
             config_dict[key] = convert_to_default_datatype(value, default_dict[key])
     elif isinstance(config_dict, list):
         for i, value in enumerate(config_dict):
-            config_dict[i] = convert_to_default_datatype(value, default_dict[i])
+            config_dict[i] = convert_to_default_datatype(value, default_dict[0])
     elif config_dict is None:
         pass
     else:
@@ -181,7 +181,8 @@ def get_argparser():
     parser.add_argument(
         "--input", "-i", default="config.yaml", help="Path to input config file"
     ).completer = yaml_completer  # type: ignore
-    parser.add_argument("--parameter", "-p", nargs="+", action="append", default=[]).completer = param_completer  # type: ignore
+    parser.add_argument("--parameter", "-p", nargs="+", action="append",
+                        default=[]).completer = param_completer  # type: ignore
     for n in range(N_PARAM_GROUPS):
         parser.add_argument(
             f"--parameter{n}", f"-p{n}", nargs="+", action="append", default=[]
@@ -265,7 +266,7 @@ def setup_calculations():
 
         # Pick a random seed for this run, unless specified
         if full_config.get("seed", 0) == 0:
-            full_config["seed"] = random.randint(0, 2**16 - 1)
+            full_config["seed"] = random.randint(0, 2 ** 16 - 1)
 
         # Create the run-directory and submit the job with slurm
         success = setup_run_dir(run_name, run_config, full_config, args.force)
