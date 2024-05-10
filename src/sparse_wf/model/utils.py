@@ -37,9 +37,9 @@ class MLP(nn.Module):
             is_output_layer = ind_layer == (depth - 1)
 
             if is_output_layer:
-                y = nn.Dense(out_width, use_bias=self.output_bias, kernel_init=variance_scaling(1.0, "fan_avg", "uniform"), bias_init=truncated_normal())(x)
+                y = nn.Dense(out_width, use_bias=self.output_bias, kernel_init=variance_scaling(1.0, "fan_avg", "uniform"), bias_init=zeros_init())(x)
             else:
-                y = nn.Dense(out_width, use_bias=self.use_bias, kernel_init=variance_scaling(1.0, "fan_avg", "uniform"), bias_init=truncated_normal())(x)
+                y = nn.Dense(out_width, use_bias=self.use_bias, kernel_init=variance_scaling(1.0, "fan_avg", "uniform"), bias_init=zeros_init())(x)
 
             if not is_output_layer or self.activate_final:
                 y = self.activation(y)
