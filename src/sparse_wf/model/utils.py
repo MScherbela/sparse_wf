@@ -27,8 +27,6 @@ class MLP(nn.Module):
     residual: bool = False
     use_bias: bool = True
     output_bias: bool = True
-    init_w = variance_scaling(1.0, "fan_avg", "uniform")
-    init_b = truncated_normal()
 
     @nn.compact
     def __call__(self, x: Float[Array, "*batch_dims _"]) -> Float[Array, "*batch_dims _"]:
@@ -37,9 +35,9 @@ class MLP(nn.Module):
             is_output_layer = ind_layer == (depth - 1)
 
             if is_output_layer:
-                y = nn.Dense(out_width, use_bias=self.output_bias, kernel_init=variance_scaling(1.0, "fan_avg", "uniform"), bias_init=zeros_init())(x)
+                y = nn.Dense(out_width, use_bias=self.output_bias)(x)
             else:
-                y = nn.Dense(out_width, use_bias=self.use_bias, kernel_init=variance_scaling(1.0, "fan_avg", "uniform"), bias_init=zeros_init())(x)
+                y = nn.Dense(out_width, use_bias=self.use_bias)(x)
 
             if not is_output_layer or self.activate_final:
                 y = self.activation(y)

@@ -393,7 +393,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         if params.el_el_cusp is not None:
             logpsi += self.el_el_cusp.apply(params.el_el_cusp, electrons)
         if params.mlp_jastrow is not None:
-            logpsi = self.mlp_jastrow.apply(params.mlp_jastrow, embeddings)
+            logpsi += self.mlp_jastrow.apply(params.mlp_jastrow, embeddings)
         return signpsi, logpsi
 
     def __call__(self, params: MoonParams, electrons: Electrons, static: StaticInput):
