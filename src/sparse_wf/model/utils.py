@@ -126,24 +126,27 @@ def param_initializer(value: float):
 
 
 class IsotropicEnvelope(nn.Module):
-    out_dim: int
+    n_determinants: int
+    n_orbitals: int
+    envelope_size: int
     cutoff: Optional[float] = None
 
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (n_nuc, self.out_dim), jnp.float32))
-        pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.out_dim), jnp.float32)
+        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (n_nuc, self.envelope_size), jnp.float32))
+        pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.n_orbitals * self.n_determinants, self.envelope_size), jnp.float32)
         scaled_dists = dists[..., None] * sigma
         env = jnp.exp(-scaled_dists)
         if self.cutoff is not None:
             env *= cutoff_function(dists / self.cutoff)
-        out = env * pi
-        return out.sum(axis=-2)  # sum over atom positions
+        out = jnp.einsum("JKe,Je->K", pi, env)  # J = atom, K = orbital x determinant, e = envelope size
+        return out
 
 
 class SlaterOrbitals(nn.Module):
     n_determinants: int
+    envelope_size: int
     spins: tuple[int, int]
 
     @nn.compact
@@ -151,7 +154,7 @@ class SlaterOrbitals(nn.Module):
         n_el = h_one.shape[-2]
         spins = np.array(self.spins)
         orbitals = nn.Dense(self.n_determinants * n_el)(h_one)
-        orbitals *= IsotropicEnvelope(self.n_determinants * n_el)(dists)
+        orbitals *= IsotropicEnvelope(self.n_determinants, n_el, self.envelope_size)(dists)
         orbitals = einops.rearrange(
             orbitals, "... el (det orb) -> ... det el orb", el=n_el, orb=n_el, det=self.n_determinants
         )

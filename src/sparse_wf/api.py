@@ -274,7 +274,7 @@ class ModelArgs(TypedDict):
     use_el_el_cusp: bool
 
 
-class MLPJastrowArgs(TypedDict):
+class JastrowArgs(TypedDict):
     use: bool
     embedding_n_hidden: Optional[Sequence[int]]
     soe_n_hidden: Optional[Sequence[int]]

@@ -21,8 +21,13 @@ model_args:
   pair_mlp_widths: [16, 8]
   pair_n_envelopes: 32
   n_determinants: 4
+  n_envelopes: 8
   use_el_el_cusp: True
   mlp_jastrow:
+    use: false
+    embedding_n_hidden: [40,40]
+    soe_n_hidden: [40,40]
+  log_jastrow:
     use: false
     embedding_n_hidden: [40,40]
     soe_n_hidden: [40,40]

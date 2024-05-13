@@ -22,7 +22,7 @@ from sparse_wf.api import (
     SlaterMatrices,
     Spins,
     SignedLogAmplitude,
-    MLPJastrowArgs,
+    JastrowArgs,
 )
 from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import fwd_lap, jit, vectorize
@@ -242,6 +242,7 @@ class ElElCusp(nn.Module):
 class JastrowFactor(nn.Module):
     embedding_n_hidden: Sequence[int]
     soe_n_hidden: Sequence[int]
+    init_with_zero: bool = False
 
     @nn.compact
     def __call__(self, embeddings):
@@ -284,6 +285,7 @@ class MoonParams(PyTreeNode):
     envelopes: Parameters
     el_el_cusp: Optional[Parameters]
     mlp_jastrow: Optional[Parameters]
+    log_jastrow: Optional[Parameters]
 
 
 class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, StaticInput]):
@@ -304,6 +306,8 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
     use_el_el_cusp: bool
     use_mlp_jastrow: bool
     mlp_jastrow: JastrowFactor
+    use_log_jastrow: bool
+    log_jastrow: JastrowFactor
 
     @property
     def n_dn(self):
@@ -319,13 +323,15 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             cls,
             mol: pyscf.gto.Mole,
             n_determinants: int,
+            n_envelopes: int,
             cutoff: float,
             feature_dim: int,
             nuc_mlp_depth: int,
             pair_mlp_widths: Sequence[int],
             pair_n_envelopes: int,
             use_el_el_cusp: bool,
-            mlp_jastrow: MLPJastrowArgs,
+            mlp_jastrow: JastrowArgs,
+            log_jastrow: JastrowArgs,
     ):
         n_up, n_dn = mol.nelec
         n_el = n_up + n_dn
@@ -362,11 +368,13 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             mlp_nuc=MLP(widths=[feature_dim] * nuc_mlp_depth, name="mlp_nuc"),
             lin_h0=nn.Dense(feature_dim, use_bias=True, name="lin_h0"),
             lin_orbitals=nn.Dense(n_determinants * n_el, name="lin_orbitals"),
-            envelopes=IsotropicEnvelope(n_determinants * n_el),
+            envelopes=IsotropicEnvelope(n_determinants, n_el, n_envelopes),
             el_el_cusp=ElElCusp(n_up),
             use_el_el_cusp=use_el_el_cusp,
             use_mlp_jastrow=mlp_jastrow["use"],
-            mlp_jastrow=JastrowFactor(mlp_jastrow["embedding_n_hidden"], mlp_jastrow["soe_n_hidden"])
+            mlp_jastrow=JastrowFactor(mlp_jastrow["embedding_n_hidden"], mlp_jastrow["soe_n_hidden"]),
+            use_log_jastrow=log_jastrow["use"],
+            log_jastrow=JastrowFactor(log_jastrow["embedding_n_hidden"], log_jastrow["soe_n_hidden"]),
         )
 
     def get_static_input(self, electrons: Electrons):
@@ -394,6 +402,8 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             logpsi += self.el_el_cusp.apply(params.el_el_cusp, electrons)
         if params.mlp_jastrow is not None:
             logpsi += self.mlp_jastrow.apply(params.mlp_jastrow, embeddings)
+        if params.log_jastrow is not None:
+            logpsi += jnp.log(jnp.abs(self.log_jastrow.apply(params.log_jastrow, embeddings)))
         return signpsi, logpsi
 
     def __call__(self, params: MoonParams, electrons: Electrons, static: StaticInput):
@@ -427,6 +437,10 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             mlp_jastrow = self.mlp_jastrow.init(rngs[8], np.zeros((self.n_electrons, feature_dim)))
         else:
             mlp_jastrow = None
+        if self.use_log_jastrow:
+            log_jastrow = self.log_jastrow.init(rngs[8], np.zeros((self.n_electrons, feature_dim)))
+        else:
+            log_jastrow = None
         return MoonParams(
             ee_filter=self.ee_filter.init(rngs[0], np.zeros([6])),  # dist + 3 * diff + spin1 + spin2
             ne_filter=self.ne_filter.init(rngs[1], np.zeros([4])),  # dist + 3 * diff
@@ -434,9 +448,10 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             lin_h0=self.lin_h0.init(rngs[3], np.zeros([feature_dim])),
             mlp_nuc=self.mlp_nuc.init(rngs[4], np.zeros([feature_dim])),
             lin_orbitals=self.lin_orbitals.init(rngs[5], np.zeros([feature_dim])),
-            envelopes=self.envelopes.init(rngs[6], np.zeros([1, n_atoms])),
+            envelopes=self.envelopes.init(rngs[6], np.zeros([n_atoms])),
             el_el_cusp=el_el_cusp,
             mlp_jastrow=mlp_jastrow,
+            log_jastrow=log_jastrow,
         )
 
     def _get_h0(
@@ -514,10 +529,9 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
 
     @functools.partial(jnp.vectorize, excluded=(0, 1, 3, 4), signature="(el,dim)->(det,el,orb)")
     def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput,
-                 embeddings=None) -> SlaterMatrices:
+                 embeddings: Optional[Embedding] = None) -> SlaterMatrices:
         if embeddings is None:
             embeddings = self._embedding(params, electrons, static)
-        # h = self._embedding(params, electrons, static)
         orbitals = cast(jax.Array, self.lin_orbitals.apply(params.lin_orbitals, embeddings))
         envelopes = jax.vmap(lambda r: self._envelopes(params, r))(electrons)
         orbitals = jax.vmap(self._merge_orbitals_with_envelopes, in_axes=0, out_axes=-2)(
