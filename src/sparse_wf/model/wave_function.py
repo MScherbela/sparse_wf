@@ -56,9 +56,6 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     n_envelopes: int
     nuc_mlp_depth: int
 
-    def init(self, key: PRNGKeyArray, electrons: Electrons, static: StaticInput) -> Parameters:
-        return super().init(key, electrons, static)  # type: ignore
-
     def setup(self):
         self.to_orbitals = nn.Dense(self.n_determinants * self.n_electrons, name="lin_orbitals")
         self.envelope = IsotropicEnvelope(self.n_determinants * self.n_electrons)
