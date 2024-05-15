@@ -55,7 +55,6 @@ from sparse_wf.model.utils import (
     signed_logpsi_from_orbitals,
     swap_bottom_blocks,
     get_dist_same_diff,
-    param_initializer,
 )
 
 
@@ -230,8 +229,8 @@ class ElElCusp(nn.Module):
 
         alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
         alpha_diff = self.param("alpha_diff", nn.initializers.ones, (), jnp.float32)
-        factor_same = self.param("factor_same", param_initializer(-0.25), (), jnp.float32)
-        factor_diff = self.param("factor_diff", param_initializer(-0.5), (), jnp.float32)
+        factor_same = self.param("factor_same", nn.initializers.constant(-0.25), (), jnp.float32)
+        factor_diff = self.param("factor_diff", nn.initializers.constant(-0.5), (), jnp.float32)
 
         cusp_same = jnp.sum(alpha_same ** 2 / (alpha_same + dist_same), axis=-1)
         cusp_diff = jnp.sum(alpha_diff ** 2 / (alpha_diff + dist_diff), axis=-1)

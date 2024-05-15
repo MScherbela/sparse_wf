@@ -125,6 +125,13 @@ def param_initializer(value: float):
     return init
 
 
+def truncated_normal_with_mean_initializer(mean: float, stddev=0.01):
+    def init(key, shape, dtype) -> Array:
+        return mean + nn.initializers.truncated_normal(stddev)(key, shape, dtype)
+
+    return init
+
+
 class IsotropicEnvelope(nn.Module):
     n_determinants: int
     n_orbitals: int
@@ -134,7 +141,7 @@ class IsotropicEnvelope(nn.Module):
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (n_nuc, self.envelope_size), jnp.float32))
+        sigma = nn.softplus(self.param("sigma", truncated_normal_with_mean_initializer(1), (n_nuc, self.envelope_size), jnp.float32))
         pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.n_orbitals * self.n_determinants, self.envelope_size), jnp.float32)
         scaled_dists = dists[..., None] * sigma
         env = jnp.exp(-scaled_dists)
