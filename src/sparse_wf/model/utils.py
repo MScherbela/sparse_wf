@@ -1,12 +1,12 @@
 import jax.nn as jnn
-from jaxtyping import Float, Array, Integer, ArrayLike
+from jaxtyping import Float, Array, ArrayLike
 from typing import Callable, Optional, Sequence, cast, NamedTuple
 import flax.linen as nn
 import jax.numpy as jnp
 import jax
 import numpy as np
 import functools
-from sparse_wf.api import Electrons, HFOrbitals, Int, SlaterMatrices, SignedLogAmplitude, Parameters
+from sparse_wf.api import Electrons, HFOrbitals, Int, SlaterMatrices, SignedLogAmplitude
 import einops
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
@@ -182,9 +182,8 @@ class DynamicFilterParams(NamedTuple):
     bias: jax.Array
 
 
-def scale_initializer(cutoff, rng, shape, dtype):
-    assert len(shape) == 1
-    n_scales = shape[0]
+def scale_initializer(cutoff, rng, shape, dtype=jnp.float32):
+    n_scales = shape[-1]
     scale = jnp.linspace(0, cutoff, n_scales, dtype=dtype)
     scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
     return scale
@@ -215,7 +214,7 @@ class PairwiseFilter(nn.Module):
         scales = jax.nn.softplus(dynamic_params.scales)
         envelopes = jnp.exp(-((dist[..., None] / scales) ** 2))
         envelopes *= cutoff_function(dist / self.cutoff)[..., None]
-        envelopes = nn.Dense(directional_features.shape[-1], use_bias=False)(envelopes)
+        envelopes = nn.Dense(self.pair_dim, use_bias=False)(envelopes)
         beta = directional_features * envelopes
         return beta
 
@@ -241,17 +240,18 @@ class ElElCusp(nn.Module):
 
 def get_diff_features(
     r: Float[ArrayLike, "dim=3"],
-    r_nb: Float[Array, "*neighbours dim=3"],
+    r_nb: Float[Array, "dim=3"],
     s: Optional[Int] = None,
-    s_nb: Optional[Integer[Array, " *neighbours"]] = None,
+    s_nb: Optional[Int] = None,
 ):
-    n_neighbours = r_nb.shape[-2]
-
     diff = r - r_nb
-    dist = jnp.linalg.norm(diff, axis=-1, keepdims=True)
+    dist = jnp.linalg.norm(diff, keepdims=True)
     features = [dist, diff]
     if s is not None:
-        features.append(jnp.tile(s[None], (n_neighbours,))[..., None])
+        features.append(s[None])
     if s_nb is not None:
-        features.append(s_nb[:, None])
-    return jnp.concatenate(features, axis=-1)
+        features.append(s_nb[None])
+    return jnp.concatenate(features)
+
+
+get_diff_features_vmapped = jax.vmap(get_diff_features, in_axes=(None, 0, None, 0))

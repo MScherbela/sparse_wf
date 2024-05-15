@@ -1,6 +1,6 @@
 # %%
 from sparse_wf.model import SparseMoonWavefunction
-from sparse_wf.model.moon import NrOfDependencies
+from sparse_wf.model.moon_old import NrOfDependencies
 import jax
 from jax.lib import xla_bridge
 import jax.numpy as jnp

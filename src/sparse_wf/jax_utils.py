@@ -1,7 +1,7 @@
 import functools
 import os
 import sys
-from typing import Callable, ParamSpec, TypeVar, cast, overload
+from typing import Callable, ParamSpec, TypeVar, cast, overload, Sequence
 
 import numpy as np
 import folx
@@ -11,6 +11,7 @@ import jax.tree_util as jtu
 
 from sparse_wf.api import PRNGKeyArray
 from sparse_wf.tree_utils import tree_squared_norm
+import flax.linen as nn
 
 T = TypeVar("T")
 
@@ -82,6 +83,29 @@ def jit(
         return inner_jit
 
     return inner_jit(fun)
+
+
+def nn_multi_vmap(module, in_axes: Sequence[int | None | Sequence[int | None]], out_axes: int | Sequence[int] = 0):
+    if isinstance(out_axes, int):
+        out_axes = [out_axes] * len(in_axes)
+    assert len(in_axes) == len(out_axes)
+
+    def call_module(m, *args):
+        return m(*args)
+
+    for in_ax, out_ax in zip(in_axes, out_axes):
+        call_module = nn.vmap(
+            call_module,
+            variable_axes={"params": None},
+            split_rngs={"params": False},
+            in_axes=in_ax,  # type: ignore # too restrictive typing by flax
+            out_axes=out_ax,
+        )
+    return functools.partial(call_module, module)
+
+
+def nn_vmap(module, in_axes: int | None | Sequence[int | None] = 0, out_axes: int = 0):
+    return nn_multi_vmap(module, [in_axes], [out_axes])
 
 
 @overload

@@ -16,7 +16,8 @@ from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
-from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
+
+# from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
 from sparse_wf.model.two_step_moon import TwoStepMoon
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
@@ -74,9 +75,9 @@ def main(
     logging.info(f'Run name: {loggers.args["name"]}')
     logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
 
-    if model == "moon":
-        wf = SparseMoonWavefunction.create(mol, **model_args)
-    elif model == "moon2step":
+    # if model == "moon":
+    #     wf = SparseMoonWavefunction.create(mol, **model_args)
+    if model == "moon2step":
         wf = TwoStepMoon.create(mol, **model_args)
     elif model == "ferminet":
         wf = DenseFermiNet.create(mol)
@@ -94,16 +95,16 @@ def main(
     proc_key, subkey = jax.random.split(proc_key)
     device_keys = jax.random.split(subkey, jax.local_device_count())
 
-    # We want the parameters to be identical so we use the main_key here
-    main_key, subkey = jax.random.split(main_key)
-    params = wf.init(subkey)
-    logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jtu.tree_leaves(params))}")
-
     # We want to initialize differently per process so we use the proc_key here
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
     mcmc_step = make_mcmc(wf, mcmc_steps)
     mcmc_width_scheduler = make_width_scheduler()
+
+    # We want the parameters to be identical so we use the main_key here
+    main_key, subkey = jax.random.split(main_key)
+    params = wf.init(subkey, electrons[0], wf.get_static_input(electrons), method="_signed")
+    logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jtu.tree_leaves(params))}")
 
     trainer = make_trainer(
         wf,

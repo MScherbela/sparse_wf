@@ -1,10 +1,11 @@
-from typing import NamedTuple, cast, Sequence
+from typing import NamedTuple, cast
 import einops
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
 import numpy as np
 import pyscf
+from jaxtyping import PRNGKeyArray
 
 from sparse_wf.api import (
     Charges,
@@ -15,6 +16,7 @@ from sparse_wf.api import (
     ParameterizedWaveFunction,
     Parameters,
     SignedLogAmplitude,
+    LogAmplitude,
     SlaterMatrices,
 )
 from sparse_wf.hamiltonian import make_local_energy
@@ -54,6 +56,9 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     n_envelopes: int
     nuc_mlp_depth: int
 
+    def init(self, key: PRNGKeyArray, electrons: Electrons, static: StaticInput) -> Parameters:
+        return super().init(key, electrons, static)  # type: ignore
+
     def setup(self):
         self.to_orbitals = nn.Dense(self.n_determinants * self.n_electrons, name="lin_orbitals")
         self.envelope = IsotropicEnvelope(self.n_determinants * self.n_electrons)
@@ -64,7 +69,7 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)])
 
     @classmethod
-    def from_pyscf(
+    def create(
         cls,
         mol: pyscf.gto.Mole,
         cutoff: float,
@@ -89,23 +94,24 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
             use_e_e_cusp=use_e_e_cusp,
         )
 
-    def _embedding(self, electrons: Electrons, static: StaticInput) -> jax.Array: ...
+    def _embedding(self, electrons: Electrons, static: StaticInput) -> jax.Array:
+        raise NotImplementedError
 
     def _orbitals(self, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
         h = self._embedding(electrons, static)
-        dist_en_full = jnp.linalg.norm(electrons[None, :] - self.R, axis=-1)
+        dist_en_full = jnp.linalg.norm(electrons[:, None, :] - self.R, axis=-1)
         orbitals = self.to_orbitals(h) * self.envelope(dist_en_full)
-        return (einops.rearrange(orbitals, "el (det orb) -> det el orb"),)
+        return (einops.rearrange(orbitals, "el (det orb) -> det el orb", det=self.n_determinants),)
 
     def _signed(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         orbitals = self._orbitals(electrons, static)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
-        if self.use_e_e_cusp:
-            logpsi += self.el_el_cusp(electrons)
+        if self.e_e_cusp:
+            logpsi += self.e_e_cusp(electrons)
         return signpsi, logpsi
 
-    def __call__(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
-        return self._signed(electrons, static)
+    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude:
+        return cast(LogAmplitude, self.apply(params, electrons, static, method=self._signed)[1])
 
     def get_static_input(self, electrons: Electrons) -> StaticInput:
         raise NotImplementedError

@@ -102,7 +102,7 @@ class FermiLayer(nn.Module):
 class FermiNetOrbitals(nn.Module):
     mol: pyscf.gto.Mole
     n_determinants: int = 4
-    hidden_dims: Sequence[tuple[int, int]] = [(256, 32), (256, 32), (256, 32), (256, 32)]
+    hidden_dims: Sequence[tuple[int, int]] = ((256, 32), (256, 32), (256, 32), (256, 32))
     activation: str = "silu"
 
     @nn.compact
@@ -145,8 +145,8 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode)
     def create(cls, mol: pyscf.gto.Mole):
         return cls(mol, FermiNetOrbitals(mol))
 
-    def init(self, key: PRNGKeyArray) -> FermiNetParams:
-        return cast(FermiNetParams, self.ferminet.init(key, np.zeros((self.mol.nelectron, 3), dtype=np.float32), None))
+    def init(self, key: PRNGKeyArray, electrons: Electrons, static) -> FermiNetParams:
+        return cast(FermiNetParams, self.ferminet.init(key, electrons, static))
 
     def orbitals(self, params: FermiNetParams, electrons: Electrons, static) -> SlaterMatrices:
         return self.ferminet.apply(params, electrons, static)  # type: ignore

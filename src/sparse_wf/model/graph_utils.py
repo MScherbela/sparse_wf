@@ -252,10 +252,16 @@ def densify_jacobian_by_zero_padding(h: FwdLaplArray, n_deps_out):
 def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: NeighbourIndices, spins: Spins):
     # [n_el  x n_neighbouring_electrons] - spin of each adjacent electron for each electron
     spin_nb_ee = get_with_fill(spins, idx_nb.ee, 0.0)
+
     # [n_el  x n_neighbouring_electrons x 3] - position of each adjacent electron for each electron
     r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)
+
+    # [n_nuc  x n_neighbouring_electrons] - spin of each adjacent electron for each nucleus
+    spin_nb_ne = get_with_fill(spins, idx_nb.ne, 0.0)
+
     # [n_nuc x n_neighbouring_electrons x 3] - position of each adjacent electron for each nuclei
     r_nb_ne = get_with_fill(electrons, idx_nb.ne, NO_NEIGHBOUR)
+
     # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron
     R_nb_en = get_with_fill(R, idx_nb.en, NO_NEIGHBOUR)
-    return spin_nb_ee, r_nb_ee, r_nb_ne, R_nb_en
+    return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en

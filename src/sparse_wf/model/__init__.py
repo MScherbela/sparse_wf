@@ -1,2 +1,2 @@
 # ruff: noqa: F401
-from sparse_wf.model.moon import SparseMoonWavefunction
+# from sparse_wf.model.moon_old import SparseMoonWavefunction
