@@ -178,12 +178,16 @@ class IsotropicEnvelope(nn.Module):
     envelope_size: int
     cutoff: Optional[float] = None
 
+    def _sigma_initializer(self, key, shape, dtype=jnp.float32):
+        assert shape[-1] == self.envelope_size
+        scale = jnp.geomspace(0.2, 10.0, self.envelope_size)
+        scale *= jax.random.truncated_normal(key, 0.5, 1.5, shape, dtype)
+        return scale
+
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = self.param(
-            "sigma", truncated_normal_with_mean_initializer(1, 0.2), (n_nuc, self.envelope_size), jnp.float32
-        )
+        sigma = self.param("sigma", self._sigma_initializer, (n_nuc, self.envelope_size))
         sigma = nn.softplus(sigma)
         # pi = self.param(
         #     "pi", jnn.initializers.lecun_normal, (n_nuc, self.n_orbitals * self.n_determinants, self.envelope_size), jnp.float32
