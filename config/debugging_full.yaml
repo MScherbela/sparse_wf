@@ -59,7 +59,7 @@ optimization:
     cg_args:
       damping: 0.001
       maxiter: 100
-    preconditioner: svd
+    preconditioner: spring
     spring_args:
       damping: 0.001
       decay_factor: 0.99

@@ -182,7 +182,9 @@ class IsotropicEnvelope(nn.Module):
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
         sigma = nn.softplus(
-            self.param("sigma", truncated_normal_with_mean_initializer(1), (n_nuc, self.envelope_size), jnp.float32)
+            self.param(
+                "sigma", truncated_normal_with_mean_initializer(1, 0.2), (n_nuc, self.envelope_size), jnp.float32
+            )
         )
         pi = self.param(
             "pi", jnn.initializers.ones, (n_nuc, self.n_orbitals * self.n_determinants, self.envelope_size), jnp.float32

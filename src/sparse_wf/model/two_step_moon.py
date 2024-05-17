@@ -29,6 +29,10 @@ def contract(Gamma, edge, neighbour=None):
     return jnp.einsum("jf,jf->f", Gamma, jax.nn.silu(edge))
 
 
+def zeros_initializer(rng, shape):
+    return jnp.zeros(shape, dtype=jnp.float32)
+
+
 class DynamicParams(NamedTuple):
     filter: DynamicFilterParams
     edge_kernel: jax.Array
@@ -74,11 +78,15 @@ class TwoStepMoon(MoonLikeWaveFunction):
         return DynamicParams(
             filter=DynamicFilterParams(
                 scales=self.param(f"{name}_scales", scale_init, shape_filter_scales),
-                kernel=self.param(f"{name}_kernel", jax.nn.initializers.lecun_normal(), shape_filter_kernel),
-                bias=self.param(f"{name}_bias", jax.nn.initializers.zeros, shape_filter_bias),
+                kernel=self.param(
+                    f"{name}_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), shape_filter_kernel
+                ),
+                bias=self.param(f"{name}_bias", zeros_initializer, shape_filter_bias),
             ),
-            edge_kernel=self.param(f"{name}_edge_kernel", jax.nn.initializers.lecun_normal(), shape_edge_kernel),
-            edge_bias=self.param(f"{name}_edge_bias", jax.nn.initializers.zeros, shape_edge_bias),
+            edge_kernel=self.param(
+                f"{name}_edge_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), shape_edge_kernel
+            ),
+            edge_bias=self.param(f"{name}_edge_bias", zeros_initializer, shape_edge_bias),
         )
 
     def setup(self):
