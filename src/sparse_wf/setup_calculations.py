@@ -50,7 +50,9 @@ def convert_to_default_datatype(config_dict, default_dict):
             config_dict[key] = convert_to_default_datatype(value, default_dict[key])
     elif isinstance(config_dict, list):
         for i, value in enumerate(config_dict):
-            config_dict[i] = convert_to_default_datatype(value, default_dict[i])
+            config_dict[i] = convert_to_default_datatype(value, default_dict[0])
+    elif config_dict is None:
+        pass
     else:
         config_dict = type(default_dict)(config_dict)
     return config_dict
@@ -134,7 +136,7 @@ def get_slurm_defaults(cluster, queue):
     if cluster == "hgx":
         return dict(time="30-00:00:00", n_gpus=1)
     elif cluster == "vsc5":
-        defaults = dict(time="3-00:00:00", n_gpus=2)
+        defaults = dict(time="3-00:00:00", n_gpus=2, nodes=1)
         if queue == "a100":
             defaults["partition"] = "zen3_0512_a100x2"
             defaults["qos"] = "zen3_0512_a100x2"

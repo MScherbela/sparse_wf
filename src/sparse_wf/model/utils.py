@@ -24,18 +24,28 @@ class MLP(nn.Module):
     activate_final: bool = False
     activation: Callable = jax.nn.silu
     residual: bool = False
+    use_bias: bool = True
+    output_bias: bool = True
 
     @nn.compact
     def __call__(self, x: Float[Array, "*batch_dims _"]) -> Float[Array, "*batch_dims _"]:
         depth = len(self.widths)
         for ind_layer, out_width in enumerate(self.widths):
-            y = nn.Dense(out_width)(x)
-            if (ind_layer < depth - 1) or self.activate_final:
+            is_output_layer = ind_layer == (depth - 1)
+
+            if is_output_layer:
+                y = nn.Dense(out_width, use_bias=self.output_bias)(x)
+            else:
+                y = nn.Dense(out_width, use_bias=self.use_bias)(x)
+
+            if (not is_output_layer) or self.activate_final:
                 y = self.activation(y)
+
             if self.residual and (x.shape[-1] == out_width):
                 x = x + y
             else:
                 x = y
+
         return x
 
 
@@ -114,25 +124,80 @@ def param_initializer(value: float):
     return init
 
 
+def truncated_normal_with_mean_initializer(mean: float, stddev=0.01):
+    def init(key, shape, dtype) -> Array:
+        return mean + nn.initializers.truncated_normal(stddev)(key, shape, dtype)
+
+    return init
+
+
+class JastrowFactor(nn.Module):
+    embedding_n_hidden: Optional[Sequence[int]]
+    soe_n_hidden: Optional[Sequence[int]]
+    init_with_zero: bool = False
+
+    @nn.compact
+    def __call__(self, embeddings):
+        """
+        There are three options here (i is the electron index):
+        (1) J_i = MLP_[embedding_n_hidden, 1](embeddings) , J=sum(J_i)
+        (2) J_i = MLP_[embedding_n_hidden](embeddings), J=MLP_[soe_n_hidden, 1](sum(J_i))
+        (3) J=MLP_[soe_n_hidden, 1](sum(embeddings_i))
+        """
+        if self.embedding_n_hidden is None and self.soe_n_hidden is None:
+            raise KeyError("Either embedding_n_hidden or soe_n_hidden must be specified when using mlp jastrow.")
+
+        if self.embedding_n_hidden is not None:
+            if self.soe_n_hidden is None:  # Option (1)
+                jastrow = jnp.squeeze(
+                    MLP([*self.embedding_n_hidden, 1], activate_final=False, residual=False, output_bias=False)(
+                        embeddings
+                    ),
+                    axis=-1,
+                )
+                jastrow = jnp.sum(jastrow, axis=-1)
+            else:  # Option (2) part 1
+                jastrow = MLP(self.embedding_n_hidden, activate_final=False, residual=False, output_bias=False)(
+                    embeddings
+                )
+        else:  # Option (3) part 2
+            jastrow = embeddings
+
+        if self.soe_n_hidden is not None:  # Option (2 or 3)
+            jastrow = jnp.sum(jastrow, axis=-2)  # Sum over electrons.
+            jastrow = jnp.squeeze(
+                MLP([*self.soe_n_hidden, 1], activate_final=False, residual=False, output_bias=False)(jastrow), axis=-1
+            )
+
+        return jastrow
+
+
 class IsotropicEnvelope(nn.Module):
-    out_dim: int
+    n_determinants: int
+    n_orbitals: int
+    envelope_size: int
     cutoff: Optional[float] = None
 
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = nn.softplus(self.param("sigma", jnn.initializers.ones, (n_nuc, self.out_dim), jnp.float32))
-        pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.out_dim), jnp.float32)
+        sigma = nn.softplus(
+            self.param("sigma", truncated_normal_with_mean_initializer(1), (n_nuc, self.envelope_size), jnp.float32)
+        )
+        pi = self.param(
+            "pi", jnn.initializers.ones, (n_nuc, self.n_orbitals * self.n_determinants, self.envelope_size), jnp.float32
+        )
         scaled_dists = dists[..., None] * sigma
         env = jnp.exp(-scaled_dists)
         if self.cutoff is not None:
             env *= cutoff_function(dists / self.cutoff)
-        out = env * pi
-        return out.sum(axis=-2)  # sum over atom positions
+        out = jnp.einsum("JKe,Je->K", pi, env)  # J = atom, K = orbital x determinant, e = envelope size
+        return out
 
 
 class SlaterOrbitals(nn.Module):
     n_determinants: int
+    envelope_size: int
     spins: tuple[int, int]
 
     @nn.compact
@@ -140,7 +205,7 @@ class SlaterOrbitals(nn.Module):
         n_el = h_one.shape[-2]
         spins = np.array(self.spins)
         orbitals = nn.Dense(self.n_determinants * n_el)(h_one)
-        orbitals *= IsotropicEnvelope(self.n_determinants * n_el)(dists)
+        orbitals *= IsotropicEnvelope(self.n_determinants, n_el, self.envelope_size)(dists)
         orbitals = einops.rearrange(
             orbitals, "... el (det orb) -> ... det el orb", el=n_el, orb=n_el, det=self.n_determinants
         )

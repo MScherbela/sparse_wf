@@ -11,7 +11,7 @@ logging_args:
   smoothing: 500
   wandb:
     entity: tum_daml_nicholas
-    project: svd_preconditioner
+    project: debug
     use: false
 mcmc_steps: 20
 metadata:
@@ -20,15 +20,18 @@ metadata:
   experiment_name: debug
 model: moon2step
 model_args:
-  cutoff: 20.0
+  cutoff: 10.0
   feature_dim: 256
-  n_determinants: 4
   nuc_mlp_depth: 3
-  pair_mlp_widths:
-  - 16
-  - 8
+  pair_mlp_widths: [16, 8]
   pair_n_envelopes: 32
-  use_e_e_cusp: true
+  n_determinants: 4
+  n_envelopes: 8
+  use_e_e_cusp: True
+  mlp_jastrow:
+    use: false
+    embedding_n_hidden: [40,40]
+    soe_n_hidden:
 molecule_args:
   args:
     atom: Li 0 0 0; H 3 0 0

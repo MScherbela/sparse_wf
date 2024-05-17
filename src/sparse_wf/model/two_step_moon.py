@@ -64,7 +64,7 @@ class ElectronOutputMLP(nn.Module):
 class TwoStepMoon(MoonLikeWaveFunction):
     def build_dynamic_params(self, name: str, input_dim: int, cutoff: float, n_nuc: Optional[int] = None):
         hidden_dim = self.pair_mlp_widths[0]
-        shape_filter_scales = (n_nuc, self.n_envelopes) if n_nuc else (self.n_envelopes,)
+        shape_filter_scales = (n_nuc, self.pair_n_envelopes) if n_nuc else (self.pair_n_envelopes,)
         shape_filter_kernel = (n_nuc, input_dim, hidden_dim) if n_nuc else (input_dim, hidden_dim)
         shape_filter_bias = (n_nuc, hidden_dim) if n_nuc else (hidden_dim,)
         shape_edge_kernel = (n_nuc, input_dim, self.feature_dim) if n_nuc else (input_dim, self.feature_dim)

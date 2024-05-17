@@ -63,7 +63,7 @@ class HFOrbitalFn(Protocol):
 class ParameterizedWaveFunction(Protocol[P, S]):
     def init(self, key: PRNGKeyArray, electrons: Electrons, static: S) -> P: ...
     def get_static_input(self, electrons: Electrons) -> S: ...
-    def orbitals(self, params: P, electrons: Electrons, static: S) -> SlaterMatrices: ...
+    def orbitals(self, params: P, electrons: Electrons, static: S, embeddings) -> SlaterMatrices: ...
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices: ...
     def local_energy(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
     def local_energy_dense(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
@@ -265,6 +265,12 @@ class Logger(Protocol):
 ############################################################################
 
 
+class JastrowArgs(TypedDict):
+    use: bool
+    embedding_n_hidden: Optional[Sequence[int]]
+    soe_n_hidden: Optional[Sequence[int]]
+
+
 class ModelArgs(TypedDict):
     cutoff: float
     feature_dim: int
@@ -272,7 +278,9 @@ class ModelArgs(TypedDict):
     pair_mlp_widths: tuple[int, int]
     pair_n_envelopes: int
     n_determinants: int
+    n_envelopes: int
     use_e_e_cusp: bool
+    mlp_jastrow: JastrowArgs
 
 
 class SpringArgs(TypedDict):

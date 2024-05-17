@@ -5,7 +5,6 @@ import jax.numpy as jnp
 import flax.linen as nn
 import numpy as np
 import pyscf
-from jaxtyping import PRNGKeyArray
 
 from sparse_wf.api import (
     Charges,
@@ -18,12 +17,14 @@ from sparse_wf.api import (
     SignedLogAmplitude,
     LogAmplitude,
     SlaterMatrices,
+    JastrowArgs,
 )
 from sparse_wf.hamiltonian import make_local_energy
-from sparse_wf.jax_utils import vectorize
+from sparse_wf.jax_utils import vectorize, nn_vmap
 from sparse_wf.model.graph_utils import NrOfNeighbours
 from sparse_wf.model.utils import (
     ElElCusp,
+    JastrowFactor,
     IsotropicEnvelope,
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
@@ -49,20 +50,27 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     n_up: int
     # Model
     n_determinants: int
+    n_envelopes: int
     cutoff: float
     use_e_e_cusp: bool
     feature_dim: int
     pair_mlp_widths: tuple[int, int]
+    pair_n_envelopes: int
     n_envelopes: int
     nuc_mlp_depth: int
+    jastrow_args: JastrowArgs
 
     def setup(self):
         self.to_orbitals = nn.Dense(self.n_determinants * self.n_electrons, name="lin_orbitals")
-        self.envelope = IsotropicEnvelope(self.n_determinants * self.n_electrons)
+        self.envelope = IsotropicEnvelope(self.n_determinants, self.n_electrons, self.n_envelopes)
         if self.use_e_e_cusp:
             self.e_e_cusp = ElElCusp(self.n_electrons)
         else:
             self.e_e_cusp = None
+        if self.jastrow_args["use"]:
+            self.mlp_jastrow = JastrowFactor(self.jastrow_args["embedding_n_hidden"], self.jastrow_args["soe_n_hidden"])
+        else:
+            self.mlp_jastrow = None
         self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)])
 
     @classmethod
@@ -75,7 +83,9 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         pair_mlp_widths: tuple[int, int],
         pair_n_envelopes: int,
         n_determinants: int,
+        n_envelopes: int,
         use_e_e_cusp: bool,
+        mlp_jastrow: JastrowArgs,
     ):
         return cls(
             R=np.asarray(mol.atom_coords()),
@@ -83,12 +93,14 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
             n_electrons=mol.nelectron,
             n_up=mol.nelec[0],
             n_determinants=n_determinants,
+            n_envelopes=n_envelopes,
             cutoff=cutoff,
             feature_dim=feature_dim,
             pair_mlp_widths=pair_mlp_widths,
-            n_envelopes=pair_n_envelopes,
+            pair_n_envelopes=pair_n_envelopes,
             nuc_mlp_depth=nuc_mlp_depth,
             use_e_e_cusp=use_e_e_cusp,
+            jastrow_args=mlp_jastrow,
         )
 
     def _embedding(self, electrons: Electrons, static: StaticInput) -> jax.Array:
@@ -97,7 +109,7 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     def _orbitals(self, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
         h = self._embedding(electrons, static)
         dist_en_full = jnp.linalg.norm(electrons[:, None, :] - self.R, axis=-1)
-        orbitals = self.to_orbitals(h) * self.envelope(dist_en_full)
+        orbitals = self.to_orbitals(h) * nn_vmap(self.envelope)(dist_en_full)
         return (einops.rearrange(orbitals, "el (det orb) -> det el orb", det=self.n_determinants),)
 
     def _signed(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
