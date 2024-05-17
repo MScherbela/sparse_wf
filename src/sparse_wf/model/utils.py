@@ -181,19 +181,22 @@ class IsotropicEnvelope(nn.Module):
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = nn.softplus(
-            self.param(
-                "sigma", truncated_normal_with_mean_initializer(1, 0.2), (n_nuc, self.envelope_size), jnp.float32
-            )
+        sigma = self.param(
+            "sigma", truncated_normal_with_mean_initializer(1, 0.2), (n_nuc, self.envelope_size), jnp.float32
         )
-        pi = self.param(
-            "pi", jnn.initializers.ones, (n_nuc, self.n_orbitals * self.n_determinants, self.envelope_size), jnp.float32
-        )
+        sigma = nn.softplus(sigma)
+        # pi = self.param(
+        #     "pi", jnn.initializers.lecun_normal, (n_nuc, self.n_orbitals * self.n_determinants, self.envelope_size), jnp.float32
+        # )
         scaled_dists = dists[..., None] * sigma
         env = jnp.exp(-scaled_dists)
         if self.cutoff is not None:
             env *= cutoff_function(dists / self.cutoff)
-        out = jnp.einsum("JKe,Je->K", pi, env)  # J = atom, K = orbital x determinant, e = envelope size
+        env = env.reshape(-1)  # [atom x envelopes] => [atom*envelopes]
+        out = nn.Dense(
+            self.n_orbitals * self.n_determinants,
+            use_bias=False,
+        )(env)
         return out
 
 
