@@ -24,7 +24,7 @@ model_args:
   use_e_e_cusp: True
 
 logging_args:
-  smoothing: 500
+  smoothing: 5000
   wandb:
     use: true
     entity: tum_daml_nicholas

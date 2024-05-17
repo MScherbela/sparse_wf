@@ -104,7 +104,8 @@ def main(
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
     params = wf.init(subkey, electrons[0], wf.get_static_input(electrons), method="_signed")
-    logging.info(f"Number of parameters: {sum(jnp.size(p) for p in jtu.tree_leaves(params))}")
+    n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params))
+    loggers.log_config(dict(n_params=n_params))
 
     trainer = make_trainer(
         wf,

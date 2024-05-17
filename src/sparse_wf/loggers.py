@@ -76,6 +76,12 @@ class MultiLogger(Logger):
     def smoothen_data(self, data: dict) -> dict:
         # This implementation is a bit ugly, but does the job for now
         smoothed_data = {}
+
+        step = data.get("opt_step")
+        if step is not None:
+            smoothing_length = int(np.minimum(step * 0.1, self.smoothing_length))
+        else:
+            smoothing_length = self.smoothing_length
         for key, val in data.items():
             if key not in self.METRICS_TO_SMOOTH:
                 continue
@@ -83,7 +89,7 @@ class MultiLogger(Logger):
                 self.smoothing_history[key] = np.ones(self.smoothing_length) * np.nan
             self.smoothing_history[key] = np.roll(self.smoothing_history[key], 1)
             self.smoothing_history[key][0] = val
-            smoothed_data[key + "_smooth"] = np.nanmean(self.smoothing_history[key])
+            smoothed_data[key + "_smooth"] = np.nanmean(self.smoothing_history[key][:smoothing_length])
         data.update(smoothed_data)
         return data
 
