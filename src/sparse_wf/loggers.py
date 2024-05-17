@@ -79,9 +79,10 @@ class MultiLogger(Logger):
 
         step = data.get("opt_step")
         if step is not None:
-            smoothing_length = int(np.minimum(step * 0.1, self.smoothing_length))
+            smoothing_length = int(np.clip(step * 0.1, 1, self.smoothing_length))
         else:
             smoothing_length = self.smoothing_length
+
         for key, val in data.items():
             if key not in self.METRICS_TO_SMOOTH:
                 continue
