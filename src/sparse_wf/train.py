@@ -25,6 +25,7 @@ from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.scf import make_hf_orbitals
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
+import time
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -146,17 +147,10 @@ def main(
     with tqdm.trange(optimization["steps"]) as pbar:
         for opt_step in pbar:
             static = wf.get_static_input(state.electrons)
+            t0 = time.perf_counter()
             state, _, aux_data = trainer.step(state, static)
-            # TODO: remove
-            # if opt_step % 1000 == 0:
-            #     gradients = get_gradients(wf.__call__, state.params, state.electrons, static)
-            #     _, s, Vt = jnp.linalg.svd(gradients, compute_uv=True, full_matrices=False)
-            #     params = jtu.tree_map(lambda x: x[0], state.params)
-            #     Vt = jax.vmap(lambda v: vector_to_tree_like(v, params))(Vt[0])
-            #     with open(f"grad_{opt_step:06d}.msgpk", "wb") as f:
-            #         f.write(flax.serialization.to_bytes(dict(Vt=Vt, s=s[0], params=params, gradients=gradients)))
-
-            aux_data = to_log_data(aux_data)
+            t1 = time.perf_counter()
+            aux_data = to_log_data(aux_data | {"opt/t_step": t1 - t0})
             loggers.log(dict(opt_step=opt_step, **aux_data))
             if np.isnan(aux_data["opt/E"]):
                 raise ValueError("NaN in energy")
