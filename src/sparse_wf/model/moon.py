@@ -329,7 +329,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
     ):
         n_up, n_dn = mol.nelec
         n_el = n_up + n_dn
-        R = mol.atom_coords()
+        R = jnp.array(mol.atom_coords(), dtype=jnp.float32)
         Z = mol.atom_charges()
         return cls(
             R=R,

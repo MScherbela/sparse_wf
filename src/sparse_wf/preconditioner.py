@@ -98,7 +98,7 @@ def make_spring_preconditioner(
         dE_dlogpsi: EnergyCotangent,
         natgrad_state: PreconditionerState[P],
     ):
-        dtype = dE_dlogpsi.dtype
+        dtype = jnp.float64
         n_dev = jax.device_count()
         local_batch_size = dE_dlogpsi.size
         N = local_batch_size * n_dev
@@ -154,6 +154,7 @@ def make_spring_preconditioner(
 
         natgrad = centered_vjp(jnp.linalg.solve(T, cotangent).reshape(n_dev, -1)[pidx()])
         natgrad = tree_add(natgrad, decayed_last_grad)
+        natgrad = jax.tree_util.tree_map(lambda x: jnp.astype(x, jnp.float32), natgrad)
         return natgrad, PreconditionerState(last_grad=natgrad), {}
 
     return Preconditioner(init, precondition)
