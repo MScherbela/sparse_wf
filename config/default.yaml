@@ -35,7 +35,7 @@ model_args:
     soe_n_hidden: [40,40]
 
 logging_args:
-  smoothing: 500
+  smoothing: 5000
   wandb:
     use: true
     entity: tum_daml_nicholas
