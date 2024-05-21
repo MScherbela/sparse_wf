@@ -21,8 +21,10 @@ model_args:
   pair_mlp_widths: [16, 8]
   pair_n_envelopes: 32
   n_determinants: 4
-  n_envelopes: 8
-  use_el_el_cusp: True
+  smaller_envelopes:
+    use: false
+    n_envelopes: 8
+  use_el_el_cusp: true
   mlp_jastrow:
     use: false
     embedding_n_hidden: [40,40]
@@ -65,6 +67,7 @@ optimization:
     spring_args:
       damping: 1.e-3
       decay_factor: 0.99
+      dtype: float64
     cg_args:
       damping: 1.e-3
       maxiter: 100

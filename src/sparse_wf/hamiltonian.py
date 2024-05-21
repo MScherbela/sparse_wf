@@ -13,8 +13,8 @@ P, S = TypeVar("P"), TypeVar("S")
 def potential_energy(r: Electrons, R: Nuclei, Z: Charges):
     """Compute the potential energy of the system"""
     dist_ee = jnp.triu(jnp.linalg.norm(r[:, None] - r, axis=-1), k=1)
-    dist_en = jnp.linalg.norm(r[:, None] - R, axis=-1)
-    dist_nn = jnp.linalg.norm(R[:, None, :] - R, axis=-1)
+    dist_en = jnp.linalg.norm(r[:, None] - R, axis=-1).astype(jnp.float32)
+    dist_nn = jnp.linalg.norm(R[:, None, :] - R, axis=-1).astype(jnp.float32)
 
     E_ee = jnp.sum(jnp.triu(1 / dist_ee, k=1))
     E_en = -jnp.sum(Z / dist_en)

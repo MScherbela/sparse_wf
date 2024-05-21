@@ -23,6 +23,7 @@ from sparse_wf.api import (
     Spins,
     SignedLogAmplitude,
     JastrowArgs,
+    SmallerEnvelopeArgs,
 )
 from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import fwd_lap, jit, vectorize
@@ -322,7 +323,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             cls,
             mol: pyscf.gto.Mole,
             n_determinants: int,
-            n_envelopes: int,
+            smaller_envelopes: SmallerEnvelopeArgs,
             cutoff: float,
             feature_dim: int,
             nuc_mlp_depth: int,
@@ -367,7 +368,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
             mlp_nuc=MLP(widths=[feature_dim] * nuc_mlp_depth, name="mlp_nuc"),
             lin_h0=nn.Dense(feature_dim, use_bias=True, name="lin_h0"),
             lin_orbitals=nn.Dense(n_determinants * n_el, name="lin_orbitals"),
-            envelopes=IsotropicEnvelope(n_determinants, n_el, n_envelopes),
+            envelopes=IsotropicEnvelope(n_determinants, n_el, smaller_envelopes["use"], smaller_envelopes["n_envelopes"]),
             el_el_cusp=ElElCusp(n_up),
             use_el_el_cusp=use_el_el_cusp,
             use_mlp_jastrow=mlp_jastrow["use"],
@@ -409,7 +410,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         return self.signed(params, electrons, static)[1]
 
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
-    def local_energy(self, params: MoonParams, electrons: Electrons, static: StaticInput):
+    def local_energy_sparse(self, params: MoonParams, electrons: Electrons, static: StaticInput):
         raise NotImplementedError("Sparse energy not implemented for cusps")
         log_psi = self._logpsi_with_fwd_lap(params, electrons, static)
         E_kin = -0.5 * (log_psi.laplacian + jnp.vdot(log_psi.jacobian.data, log_psi.jacobian.data))
@@ -417,7 +418,7 @@ class SparseMoonWavefunction(PyTreeNode, ParameterizedWaveFunction[MoonParams, S
         return E_pot + E_kin
 
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
-    def local_energy_dense(self, params: MoonParams, electrons: Electrons, static: StaticInput):
+    def local_energy(self, params: MoonParams, electrons: Electrons, static: StaticInput):
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
 
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))

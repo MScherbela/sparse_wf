@@ -69,7 +69,7 @@ def make_cg_preconditioner(
         _, vjp = jax.vjp(log_p_closure, params)
         _, jvp = jax.linearize(log_p_closure, params)
 
-        grad = psum(vjp(dE_dlogpsi / jnp.sqrt(N))[0])
+        grad = psum(vjp(dE_dlogpsi / jnp.sqrt(N).astype(jnp.float32))[0])
 
         def Fisher_matmul(v: P):
             w = jvp(v)
@@ -87,7 +87,14 @@ def make_spring_preconditioner(
     wave_function: ParameterizedWaveFunction[P, S],
     damping: float = 1e-3,
     decay_factor: float = 0.99,
+    dtype="float64",
 ):
+    if dtype == "float64":
+        dtype = jnp.float64
+    elif dtype == "float32":
+        dtype = jnp.float32
+    else:
+        raise ValueError("'float64' and 'float32' are available as data types for the spring preconditioner.")
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params))
 
@@ -98,7 +105,6 @@ def make_spring_preconditioner(
         dE_dlogpsi: EnergyCotangent,
         natgrad_state: PreconditionerState[P],
     ):
-        # dtype = dE_dlogpsi.dtype
         n_dev = jax.device_count()
         local_batch_size = dE_dlogpsi.size
         N = local_batch_size * n_dev
@@ -113,14 +119,13 @@ def make_spring_preconditioner(
         jacobians = jtu.tree_map(lambda x: x.reshape(local_batch_size, -1), jacobians)
 
         # Compute T
-        t_dtype = jnp.float64
-        T = jnp.zeros((N, N), t_dtype)
+        T = jnp.zeros((N, N), dtype)
         for jac in jacobians:
             if jac.shape[-1] % n_dev != 0:
                 jac = jnp.concatenate(
                     [
                         jac,
-                        jnp.zeros((jac.shape[0], n_dev - jac.shape[-1] % n_dev), t_dtype),
+                        jnp.zeros((jac.shape[0], n_dev - jac.shape[-1] % n_dev), dtype),
                     ],
                     axis=-1,
                 )
