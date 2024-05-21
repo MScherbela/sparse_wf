@@ -175,7 +175,7 @@ class Moon(MoonLikeWaveFunction):
                 "en_scales",
                 scale_initializer,
                 self.cutoff,
-                (n_nuc, self.n_envelopes),
+                (n_nuc, self.pair_n_envelopes),
             ),
             kernel=self.param("en_kernel", jax.nn.initializers.lecun_normal(), (n_nuc, 5, self.pair_mlp_widths[0])),
             bias=self.param("en_bias", jax.nn.initializers.zeros, (n_nuc, self.pair_mlp_widths[0])),
@@ -188,21 +188,21 @@ class Moon(MoonLikeWaveFunction):
             cutoff=self.cutoff,
             filter_dims=self.pair_mlp_widths,
             feature_dim=self.feature_dim,
-            n_envelopes=self.n_envelopes,
+            n_envelopes=self.pair_n_envelopes,
         )
         self.gamma_en = MoonNucToElecGamma(
             R=self.R,
             cutoff=self.cutoff,
             filter_dims=self.pair_mlp_widths,
             feature_dim=self.feature_dim,
-            n_envelopes=self.n_envelopes,
+            n_envelopes=self.pair_n_envelopes,
         )
         self.elec_elec_emb = MoonElecEmb(
             R=self.R,
             cutoff=self.cutoff,
             filter_dims=self.pair_mlp_widths,
             feature_dim=self.feature_dim,
-            n_envelopes=self.n_envelopes,
+            n_envelopes=self.pair_n_envelopes,
         )
         self.nuc_mlp = MLP([self.feature_dim] * self.nuc_mlp_depth, True)
         self.elec_out = MoonElecOut()

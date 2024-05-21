@@ -17,6 +17,7 @@ from sparse_wf.api import (
     SlaterMatrices,
 )
 from sparse_wf.hamiltonian import make_local_energy
+from sparse_wf.jax_utils import vectorize
 from sparse_wf.model.utils import ElecInp, SlaterOrbitals, hf_orbitals_to_fulldet_orbitals, signed_logpsi_from_orbitals
 
 PairInp = Float[Array, "*batch n_electrons n_electrns n_pair_in"]
@@ -102,6 +103,7 @@ class FermiLayer(nn.Module):
 class FermiNetOrbitals(nn.Module):
     mol: pyscf.gto.Mole
     n_determinants: int = 16
+    n_envelopes: int = 16
     hidden_dims: Sequence[tuple[int, int]] = ((256, 32), (256, 32), (256, 32), (256, 32))
     activation: str = "tanh"
 
@@ -128,7 +130,7 @@ class FermiNetOrbitals(nn.Module):
             h_one, h_two = residual(h_one_new, h_one), residual(h_two_new, h_two)
         dist_im = r_im[..., -1]
 
-        return SlaterOrbitals(self.n_determinants, spins)(h_one, dist_im)
+        return SlaterOrbitals(self.n_determinants, self.n_envelopes, spins)(h_one, dist_im)
 
 
 FermiNetParams = dict[str, "FermiNetParams"] | Array
@@ -145,8 +147,8 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode)
     def create(cls, mol: pyscf.gto.Mole):
         return cls(mol, FermiNetOrbitals(mol))
 
-    def init(self, key: PRNGKeyArray, electrons: Electrons, static) -> FermiNetParams:
-        return cast(FermiNetParams, self.ferminet.init(key, electrons, static))
+    def init(self, key: PRNGKeyArray, electrons: Electrons) -> FermiNetParams:
+        return cast(FermiNetParams, self.ferminet.init(key, electrons, self.get_static_input(electrons)))
 
     def orbitals(self, params: FermiNetParams, electrons: Electrons, static) -> SlaterMatrices:
         return self.ferminet.apply(params, electrons, static)  # type: ignore
@@ -161,5 +163,10 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode)
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
+    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy(self, params: FermiNetParams, electrons: Electrons, static):
+        return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)
+
+    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
+    def local_energy_dense(self, params: FermiNetParams, electrons: Electrons, static):
         return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)
