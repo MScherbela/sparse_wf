@@ -30,6 +30,7 @@ from sparse_wf.model.utils import (
     JastrowFactor,
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
+    swap_bottom_blocks,
 )
 
 
@@ -114,7 +115,8 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         h = self._embedding(electrons, static)
         dist_en_full = jnp.linalg.norm(electrons[:, None, :] - self.R, axis=-1)
         orbitals = self.to_orbitals(h) * nn_vmap(self.envelope)(dist_en_full)
-        return (einops.rearrange(orbitals, "el (det orb) -> det el orb", det=self.n_determinants),)
+        orbitals = einops.rearrange(orbitals, "el (det orb) -> det el orb", det=self.n_determinants)
+        return (swap_bottom_blocks(orbitals, self.n_up),)
 
     def _signed(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         orbitals = self._orbitals(electrons, static)
