@@ -85,7 +85,12 @@ def jit(
     return inner_jit(fun)
 
 
-def nn_multi_vmap(module, in_axes: Sequence[int | None | Sequence[int | None]], out_axes: int | Sequence[int] = 0):
+M = TypeVar("M", bound=nn.Module)
+
+
+def nn_multi_vmap(
+    module: M, in_axes: Sequence[int | None | Sequence[int | None]], out_axes: int | Sequence[int] = 0
+) -> M:
     if isinstance(out_axes, int):
         out_axes = [out_axes] * len(in_axes)
     assert len(in_axes) == len(out_axes)
@@ -101,10 +106,10 @@ def nn_multi_vmap(module, in_axes: Sequence[int | None | Sequence[int | None]], 
             in_axes=in_ax,  # type: ignore # too restrictive typing by flax
             out_axes=out_ax,
         )
-    return functools.partial(call_module, module)
+    return cast(M, functools.partial(call_module, module))
 
 
-def nn_vmap(module, in_axes: int | None | Sequence[int | None] = 0, out_axes: int = 0):
+def nn_vmap(module: M, in_axes: int | None | Sequence[int | None] = 0, out_axes: int = 0) -> M:
     return nn_multi_vmap(module, [in_axes], [out_axes])
 
 

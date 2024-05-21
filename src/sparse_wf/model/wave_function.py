@@ -1,8 +1,9 @@
 from typing import NamedTuple, cast
+
 import einops
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import numpy as np
 import pyscf
 
@@ -10,22 +11,23 @@ from sparse_wf.api import (
     Charges,
     Electrons,
     HFOrbitals,
+    JastrowArgs,
     LocalEnergy,
+    LogAmplitude,
     Nuclei,
     ParameterizedWaveFunction,
     Parameters,
+    PRNGKeyArray,
     SignedLogAmplitude,
-    LogAmplitude,
     SlaterMatrices,
-    JastrowArgs,
 )
 from sparse_wf.hamiltonian import make_local_energy
-from sparse_wf.jax_utils import vectorize, nn_vmap
+from sparse_wf.jax_utils import nn_vmap, vectorize
 from sparse_wf.model.graph_utils import NrOfNeighbours
 from sparse_wf.model.utils import (
     ElElCusp,
-    JastrowFactor,
     IsotropicEnvelope,
+    JastrowFactor,
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
 )
@@ -56,7 +58,6 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     feature_dim: int
     pair_mlp_widths: tuple[int, int]
     pair_n_envelopes: int
-    n_envelopes: int
     nuc_mlp_depth: int
     jastrow_args: JastrowArgs
 
@@ -72,6 +73,9 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         else:
             self.mlp_jastrow = None
         self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)])
+
+    def init(self, rng: PRNGKeyArray, electrons: Electrons) -> Parameters:  # type: ignore
+        return nn.Module.init(self, rng, electrons, self.get_static_input(electrons), method=self._signed)  # type: ignore
 
     @classmethod
     def create(

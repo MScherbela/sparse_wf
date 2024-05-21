@@ -256,7 +256,7 @@ class DynamicFilterParams(NamedTuple):
     bias: jax.Array
 
 
-def scale_initializer(cutoff, rng, shape, dtype=jnp.float32):
+def scale_initializer(rng, cutoff, shape, dtype=jnp.float32):
     n_scales = shape[-1]
     scale = jnp.linspace(0, cutoff, n_scales, dtype=dtype)
     scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
