@@ -329,3 +329,51 @@ def get_diff_features(
 
 
 get_diff_features_vmapped = jax.vmap(get_diff_features, in_axes=(None, 0, None, 0))
+
+
+class FixedScalingFactor(nn.Module):
+    """
+    A Flax module that scales the input tensor by a fixed factor to achieve a target standard deviation.
+
+    Attributes:
+        target_std (float): The target standard deviation to achieve.
+        element_wise (bool): Whether to scale each element of the input tensor independently.
+    """
+
+    target_std: float = 1.0
+    element_wise: bool = False
+
+    @nn.compact
+    def __call__(self, x: jax.Array, weighting: jax.Array | None = None) -> jax.Array:
+        """
+        Scales the input tensor by a fixed factor to achieve a target standard deviation.
+
+        Args:
+            x (jax.Array): The input tensor.
+            weighting (Optional[jax.Array]): The weighting to apply to the input tensor.
+
+        Returns:
+            jax.Array: The scaled input tensor.
+        """
+        is_initialized = self.has_variable("scaling_factors", "scale")
+        if self.element_wise:
+            scaling = self.variable("scaling_factors", "scale", jnp.ones, (x.shape[-1],), jnp.float32)
+        else:
+            scaling = self.variable("scaling_factors", "scale", jnp.ones, (), jnp.float32)
+        if not is_initialized:
+            if x.size > 1:
+                # Sum over all but the last dim
+                axes = tuple(range(x.ndim - 1)) if self.element_wise else tuple(range(x.ndim))
+                if weighting is None:
+                    weighting = jnp.ones((), dtype=x.dtype)
+                weighting = jnp.broadcast_to(weighting, x.shape)
+                weighting /= weighting.sum(axes)
+
+                # Weighted Std computation
+                x_mean = (x * weighting).sum(axes)
+
+                x_std = ((x - x_mean) ** 2 * weighting).sum(axes) ** 0.5
+                value = self.target_std / x_std
+                value = jnp.where(jnp.logical_or(jnp.isnan(value), jnp.isinf(value)), 1, value)
+                scaling.value = value.astype(jnp.float32)
+        return x * scaling.value

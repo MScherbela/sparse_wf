@@ -101,8 +101,8 @@ def nn_multi_vmap(
     for in_ax, out_ax in zip(in_axes, out_axes):
         call_module = nn.vmap(
             call_module,
-            variable_axes={"params": None},
-            split_rngs={"params": False},
+            variable_axes={"params": None, "scaling_factors": None},
+            split_rngs={"params": False, "scaling_factors": False},
             in_axes=in_ax,  # type: ignore # too restrictive typing by flax
             out_axes=out_ax,
         )

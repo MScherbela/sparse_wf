@@ -17,8 +17,8 @@ from sparse_wf.model.graph_utils import (
     round_to_next_step,
 )
 from sparse_wf.model.utils import (
-    MLP,
     DynamicFilterParams,
+    FixedScalingFactor,
     PairwiseFilter,
     contract,
     get_diff_features,
@@ -65,13 +65,18 @@ class MoonElecEmb(nn.Module):
             kernel=self.param(
                 "ee_kernel", jax.nn.initializers.lecun_normal(), (features_ee.shape[-1], self.filter_dims[0])
             ),
-            bias=self.param("ee_bias", jax.nn.initializers.zeros, (self.filter_dims[0])),
+            bias=self.param("ee_bias", jax.nn.initializers.normal(2), (self.filter_dims[0],)),
         )
         beta_ee = beta(features_ee, dynamic_params_ee)
         gamma_ee = nn.Dense(self.feature_dim, use_bias=False)(beta_ee)
 
-        feat_ee = self.activation(nn.Dense(self.feature_dim)(features_ee))
-        return jnp.einsum("...id,...id->...d", feat_ee, gamma_ee)
+        # logarithmic rescaling
+        inp_ee = features_ee / features_ee[..., :1] * jnp.log1p(features_ee[..., :1])
+        feat_ee = self.activation(nn.Dense(self.feature_dim)(inp_ee))
+        result = jnp.einsum("...id,...id->...d", feat_ee, gamma_ee)
+        result = nn.Dense(self.feature_dim)(result)
+        result = nn.silu(result)
+        return result
 
 
 class MoonElecToNucGamma(nn.Module):
@@ -100,13 +105,15 @@ class MoonElecToNucGamma(nn.Module):
             kernel=self.param(
                 "ne_kernel", jax.nn.initializers.lecun_normal(), (n_nuc, features_ne.shape[-1], self.filter_dims[0])
             ),
-            bias=self.param("ne_bias", jax.nn.initializers.zeros, (n_nuc, self.filter_dims[0])),
+            bias=self.param("ne_bias", jax.nn.initializers.normal(2), (n_nuc, self.filter_dims[0])),
         )
         beta_ne = filter_ne(features_ne, dynamic_params_ne)
         gamma_ne = nn.Dense(self.feature_dim, use_bias=False)(beta_ne)
 
         z_n = self.param("z_n", jax.nn.initializers.normal(1.0), (n_nuc, self.feature_dim))
-        edge_ne = nn.Dense(self.feature_dim)(features_ne) + z_n[:, None]
+        # logarithmic rescaling
+        inp_ne = features_ne / features_ne[..., :1] * jnp.log1p(features_ne[..., :1])
+        edge_ne = nn.Dense(self.feature_dim)(inp_ne) + z_n[:, None]
         return gamma_ne, edge_ne
 
 
@@ -141,7 +148,7 @@ class MoonNucToElecGamma(nn.Module):
             kernel=self.param(
                 "en_kernel", jax.nn.initializers.lecun_normal(), (n_nuc, features_en.shape[-1], self.filter_dims[0])
             ),
-            bias=self.param("en_bias", jax.nn.initializers.zeros, (n_nuc, self.filter_dims[0])),
+            bias=self.param("en_bias", jax.nn.initializers.normal(2), (n_nuc, self.filter_dims[0])),
         )
         dynamic_params_en = jax.vmap(tree_idx, in_axes=(None, 0))(dynamic_params_en, idx_en)
         beta_en = filter_en(features_en, dynamic_params_en)
@@ -149,20 +156,45 @@ class MoonNucToElecGamma(nn.Module):
         gamma_en_init = nn.Dense(self.feature_dim, use_bias=False)(beta_en)
         gamma_en_out = nn.Dense(self.feature_dim, use_bias=False)(beta_en)
 
-        edge_en = nn.Dense(self.feature_dim)(features_en)
+        # logarithmic rescaling
+        inp_en = features_en / features_en[..., :1] * jnp.log1p(features_en[..., :1])
+        edge_en = nn.Dense(self.feature_dim)(inp_en)
         nuc_emb = self.param("z_n", jax.nn.initializers.normal(1.0), (n_nuc, self.feature_dim))
         edge_en += nuc_emb[idx_en]
 
         return gamma_en_init, gamma_en_out, edge_en
 
 
+class MoonNucLayer(nn.Module):
+    @nn.compact
+    def __call__(self, H_up, H_down):
+        dim = H_up.shape[-1]
+        same_dense = nn.Dense(dim)
+        diff_dense = nn.Dense(dim, use_bias=False)
+        return (
+            (nn.silu(same_dense(H_up) + diff_dense(H_down)) + H_up) / jnp.sqrt(2),
+            (nn.silu(same_dense(H_down) + diff_dense(H_up)) + H_down) / jnp.sqrt(2),
+        )
+
+
+class MoonNucMLP(nn.Module):
+    n_layers: int
+
+    @nn.compact
+    def __call__(self, H_up, H_down):
+        for _ in range(self.n_layers):
+            H_up, H_down = MoonNucLayer()(H_up, H_down)
+        return H_up, H_down
+
+
 class MoonElecOut(nn.Module):
     @nn.compact
     def __call__(self, elec, msg):
-        dim = msg.shape[-1]
+        dim = elec.shape[-1]
+        elec = nn.silu(nn.Dense(dim)(elec))
         out = nn.silu(nn.Dense(dim)(elec) + msg)
         out = nn.silu(nn.Dense(dim)(out))
-        return out + elec
+        return FixedScalingFactor()(out + elec)
 
 
 class Moon(MoonLikeWaveFunction):
@@ -204,8 +236,16 @@ class Moon(MoonLikeWaveFunction):
             feature_dim=self.feature_dim,
             n_envelopes=self.pair_n_envelopes,
         )
-        self.nuc_mlp = MLP([self.feature_dim] * self.nuc_mlp_depth, True)
+        self.nuc_mlp = MoonNucMLP(self.nuc_mlp_depth)
         self.elec_out = MoonElecOut()
+
+        # scalings
+        self.h0_scale = FixedScalingFactor()
+        self.H1_up_scale = FixedScalingFactor()
+        self.H1_down_scale = FixedScalingFactor()
+        self.h1_scale = FixedScalingFactor()
+        self.msg_scale = FixedScalingFactor()
+        self.nuc_scale = FixedScalingFactor()
 
     def _embedding(self, electrons: Electrons, static: StaticInput) -> Electrons:
         idx_nb = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff)
@@ -215,22 +255,32 @@ class Moon(MoonLikeWaveFunction):
 
         # initial electron embedding
         h0 = nn_vmap(self.elec_elec_emb)(electrons, r_nb_ee, self.spins, spin_nb_ee)
+        h0 = self.h0_scale(h0)
 
         # construct nuclei embeddings
         Gamma_ne, edge_ne_emb = self.gamma_ne(r_nb_ne)
         h0_nb_ne = get_with_fill(h0, idx_nb.ne, 0)
         edge_ne_emb = nn.silu(h0_nb_ne + edge_ne_emb)
-        H1 = contract(edge_ne_emb, Gamma_ne)
+        edge_ne_up = jnp.where(spin_nb_ne[..., None] > 0, edge_ne_emb, 0)
+        edge_ne_down = jnp.where(spin_nb_ne[..., None] < 0, edge_ne_emb, 0)
+        H1_up = contract(edge_ne_up, Gamma_ne)
+        H1_down = contract(edge_ne_down, Gamma_ne)
+        H1_up = self.H1_up_scale(H1_up)
+        H1_down = self.H1_down_scale(H1_down)
 
         # construct electron embedding
         gamma_en_init, gamma_en_out, edge_en_emb = self.gamma_en(electrons, R_nb_en, idx_nb.en)
         edge_en_emb = nn.silu(h0[:, None] + edge_en_emb)
         h1 = contract(edge_en_emb, gamma_en_init)
+        h1 = self.h1_scale(h1)
 
         # update electron embedding
-        HL = self.nuc_mlp(H1)
-        HL_nb_en = get_with_fill(HL, idx_nb.en, 0)
+        HL_up, HL_down = self.nuc_mlp(H1_up, H1_down)
+        HL_up_nb_en = get_with_fill(HL_up, idx_nb.en, 0)
+        HL_down_nb_en = get_with_fill(HL_down, idx_nb.en, 0)
+        HL_nb_en = jnp.where(self.spins[..., None, None] > 0, HL_up_nb_en, HL_down_nb_en)
         m = contract(HL_nb_en, gamma_en_out)
+        m = self.msg_scale(m)
         # readout
         hL = self.elec_out(h1, m)
         return hL
