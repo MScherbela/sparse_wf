@@ -11,7 +11,7 @@ import jax.tree_util as jtu
 import numpy as np
 import tqdm
 from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
-from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap
+from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, get_from_main_process
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 
@@ -109,7 +109,10 @@ def main(
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
     params = wf.init(subkey, electrons[0])
-    n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params))
+    # params can still be different per process due to different sample, leading to different normalizations
+    # Use the params from the main process across all devices
+    params = get_from_main_process(params)
+    n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params["params"]))
     loggers.log_config(dict(n_params=n_params))
 
     trainer = make_trainer(

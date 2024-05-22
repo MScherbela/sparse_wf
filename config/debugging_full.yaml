@@ -18,7 +18,7 @@ metadata:
   commit: ''
   cwd: ''
   experiment_name: debug
-model: moon2step
+model: moon
 model_args:
   cutoff: 10.0
   feature_dim: 256
