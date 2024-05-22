@@ -56,7 +56,7 @@ class MoonElecEmb(nn.Module):
         r: Float[Array, "dim=3"],
         r_nb: Float[Array, "*neighbours dim=3"],
         s: Optional[Int] = None,
-        s_nb: Optional[Integer[Array, "*neighbors"]] = None,
+        s_nb: Optional[Integer[Array, " *neighbors"]] = None,
     ):
         features_ee = get_diff_features_vmapped(r, r_nb, s, s_nb)
         beta = PairwiseFilter(self.cutoff, self.filter_dims[1], name="beta_ee")
