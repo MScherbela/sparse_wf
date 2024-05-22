@@ -1,0 +1,22 @@
+seml:
+  executable: train_with_seml.py
+  project_root_dir: ../../
+  output_dir: ~/slurm-output/
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    gres: gpu:1
+    cpus-per-task: 4
+
+fixed:
+  molecule_args.args.atom: "N 0 0 0; N 2.068 0 0"
+  batch_size: 2048
+
+grid:
+  model:
+    type: choice
+    options:
+      - moon
+      - moon2step
+      - ferminet

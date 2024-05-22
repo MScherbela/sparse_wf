@@ -85,7 +85,12 @@ def jit(
     return inner_jit(fun)
 
 
-def nn_multi_vmap(module, in_axes: Sequence[int | None | Sequence[int | None]], out_axes: int | Sequence[int] = 0):
+M = TypeVar("M", bound=nn.Module)
+
+
+def nn_multi_vmap(
+    module: M, in_axes: Sequence[int | None | Sequence[int | None]], out_axes: int | Sequence[int] = 0
+) -> M:
     if isinstance(out_axes, int):
         out_axes = [out_axes] * len(in_axes)
     assert len(in_axes) == len(out_axes)
@@ -96,15 +101,15 @@ def nn_multi_vmap(module, in_axes: Sequence[int | None | Sequence[int | None]], 
     for in_ax, out_ax in zip(in_axes, out_axes):
         call_module = nn.vmap(
             call_module,
-            variable_axes={"params": None},
-            split_rngs={"params": False},
+            variable_axes={"params": None, "scaling_factors": None},
+            split_rngs={"params": False, "scaling_factors": False},
             in_axes=in_ax,  # type: ignore # too restrictive typing by flax
             out_axes=out_ax,
         )
-    return functools.partial(call_module, module)
+    return cast(M, functools.partial(call_module, module))
 
 
-def nn_vmap(module, in_axes: int | None | Sequence[int | None] = 0, out_axes: int = 0):
+def nn_vmap(module: M, in_axes: int | None | Sequence[int | None] = 0, out_axes: int = 0) -> M:
     return nn_multi_vmap(module, [in_axes], [out_axes])
 
 
@@ -269,3 +274,18 @@ def assert_identical_copies(x, threshold=1e-8):
 
     is_okay, delta = check_tree_identity(x)
     assert is_okay.any().item(), f"Tensors are not identical! Delta is {delta.ravel()[0].item()}"
+
+
+def get_from_main_process(data, has_device_axis=False):
+    if not has_device_axis:
+        data = jax.tree_util.tree_map(lambda x: x.reshape((1, *x.shape)), data)
+        data = jax.tree_util.tree_map(lambda x: jnp.tile(x, [jax.local_device_count()] + [1] * (x.ndim - 1)), data)
+
+    def get_from_main(x):
+        return pgather(x, axis=0)[0]
+
+    data_on_main = pmap(lambda x: jax.tree_util.tree_map(get_from_main, x))(data)
+
+    if not has_device_axis:
+        data_on_main = jax.tree_util.tree_map(lambda x: x[0], data_on_main)
+    return data_on_main

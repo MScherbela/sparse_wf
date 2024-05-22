@@ -35,6 +35,8 @@ exclude = ["src/sparse_wf/preliminary_experiments/*"]
 
 [tool.ruff.lint]
 # jaxtyping violates F722: https://docs.kidger.site/jaxtyping/faq/#flake8-or-ruff-are-throwing-an-error
+# Do NOT ignore F821, because this can mask other legitimate errors. Instead use leading spaces in jaxtyping annotations to avoid this
+# https://docs.kidger.site/jaxtyping/faq/#flake8-or-ruff-are-throwing-an-error
 ignore = ["F722"]
 
 [tool.mypy]

@@ -20,7 +20,6 @@ import jax
 from typing import Optional, NamedTuple
 import jax.tree_util as jtu
 import jax.numpy as jnp
-import functools
 
 
 def contract(Gamma, edge, neighbour=None):
@@ -74,10 +73,9 @@ class TwoStepMoon(MoonLikeWaveFunction):
         shape_edge_kernel = (n_nuc, input_dim, self.feature_dim) if n_nuc else (input_dim, self.feature_dim)
         shape_edge_bias = (n_nuc, self.feature_dim) if n_nuc else (self.feature_dim,)
 
-        scale_init = functools.partial(scale_initializer, cutoff)
         return DynamicParams(
             filter=DynamicFilterParams(
-                scales=self.param(f"{name}_scales", scale_init, shape_filter_scales),
+                scales=self.param(f"{name}_scales", scale_initializer, cutoff, shape_filter_scales),
                 kernel=self.param(
                     f"{name}_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), shape_filter_kernel
                 ),

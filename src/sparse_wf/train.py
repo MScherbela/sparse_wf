@@ -11,13 +11,14 @@ import jax.tree_util as jtu
 import numpy as np
 import tqdm
 from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
-from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap
+from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, get_from_main_process
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 
 # from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
+from sparse_wf.model.moon import Moon
 from sparse_wf.model.two_step_moon import TwoStepMoon
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
@@ -78,14 +79,15 @@ def main(
     logging.info(f'Run name: {loggers.args["name"]}')
     logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
 
-    # if model == "moon":
-    #     wf = SparseMoonWavefunction.create(mol, **model_args)
-    if model == "moon2step":
-        wf = TwoStepMoon.create(mol, **model_args)
-    elif model == "ferminet":
-        wf = DenseFermiNet.create(mol)
-    else:
-        raise ValueError(f"Invalid model: {model}")
+    match model.lower().strip():
+        case "moon":
+            wf = Moon.create(mol, **model_args)
+        case "moon2step":
+            wf = TwoStepMoon.create(mol, **model_args)
+        case "ferminet":
+            wf = DenseFermiNet.create(mol)
+        case _:
+            raise ValueError(f"Invalid model: {model}")
 
     # Setup random keys
     # the main key will always be identitcal on all processes
@@ -106,8 +108,11 @@ def main(
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
-    params = wf.init(subkey, electrons[0], wf.get_static_input(electrons), method="_signed")
-    n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params))
+    params = wf.init(subkey, electrons[0])
+    # params can still be different per process due to different sample, leading to different normalizations
+    # Use the params from the main process across all devices
+    params = get_from_main_process(params)
+    n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params["params"]))
     loggers.log_config(dict(n_params=n_params))
 
     trainer = make_trainer(
