@@ -73,7 +73,7 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
             self.mlp_jastrow = JastrowFactor(self.jastrow_args["embedding_n_hidden"], self.jastrow_args["soe_n_hidden"])
         else:
             self.mlp_jastrow = None
-        self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)])
+        self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
 
     def init(self, rng: PRNGKeyArray, electrons: Electrons) -> Parameters:  # type: ignore
         return nn.Module.init(self, rng, electrons, self.get_static_input(electrons), method=self._signed)  # type: ignore
@@ -93,7 +93,7 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         mlp_jastrow: JastrowArgs,
     ):
         return cls(
-            R=np.asarray(mol.atom_coords()),
+            R=np.asarray(mol.atom_coords(), dtype=jnp.float32),
             Z=np.asarray(mol.atom_charges()),
             n_electrons=mol.nelectron,
             n_up=mol.nelec[0],
@@ -111,18 +111,23 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     def _embedding(self, electrons: Electrons, static: StaticInput) -> jax.Array:
         raise NotImplementedError
 
-    def _orbitals(self, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
-        h = self._embedding(electrons, static)
+    def _orbitals(self, electrons: Electrons, static: StaticInput, embeddings=None) -> SlaterMatrices:
+        if embeddings is None:
+            embeddings = self._embedding(electrons, static)
         dist_en_full = jnp.linalg.norm(electrons[:, None, :] - self.R, axis=-1)
-        orbitals = self.to_orbitals(h) * nn_vmap(self.envelope)(dist_en_full)
+        orbitals = self.to_orbitals(embeddings) * nn_vmap(self.envelope)(dist_en_full)
         orbitals = einops.rearrange(orbitals, "el (det orb) -> det el orb", det=self.n_determinants)
         return (swap_bottom_blocks(orbitals, self.n_up),)
 
     def _signed(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
-        orbitals = self._orbitals(electrons, static)
+        if self.mlp_jastrow:
+            embeddings = self._embedding(electrons, static)
+        orbitals = self._orbitals(electrons, static, embeddings)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
         if self.e_e_cusp:
             logpsi += self.e_e_cusp(electrons)
+        if self.mlp_jastrow:
+            logpsi += self.mlp_jastrow(embeddings)
         return signpsi, logpsi
 
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude:

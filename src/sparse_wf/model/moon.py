@@ -63,9 +63,9 @@ class MoonElecEmb(nn.Module):
         dynamic_params_ee = DynamicFilterParams(
             scales=self.param("ee_scales", scale_initializer, self.cutoff, (self.n_envelopes,)),
             kernel=self.param(
-                "ee_kernel", jax.nn.initializers.lecun_normal(), (features_ee.shape[-1], self.filter_dims[0])
+                "ee_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (features_ee.shape[-1], self.filter_dims[0])
             ),
-            bias=self.param("ee_bias", jax.nn.initializers.normal(2), (self.filter_dims[0],)),
+            bias=self.param("ee_bias", jax.nn.initializers.normal(2, dtype=jnp.float32), (self.filter_dims[0],)),
         )
         beta_ee = beta(features_ee, dynamic_params_ee)
         gamma_ee = nn.Dense(self.feature_dim, use_bias=False)(beta_ee)
@@ -103,14 +103,14 @@ class MoonElecToNucGamma(nn.Module):
                 (n_nuc, self.n_envelopes),
             ),
             kernel=self.param(
-                "ne_kernel", jax.nn.initializers.lecun_normal(), (n_nuc, features_ne.shape[-1], self.filter_dims[0])
+                "ne_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (n_nuc, features_ne.shape[-1], self.filter_dims[0])
             ),
-            bias=self.param("ne_bias", jax.nn.initializers.normal(2), (n_nuc, self.filter_dims[0])),
+            bias=self.param("ne_bias", jax.nn.initializers.normal(2, dtype=jnp.float32), (n_nuc, self.filter_dims[0])),
         )
         beta_ne = filter_ne(features_ne, dynamic_params_ne)
         gamma_ne = nn.Dense(self.feature_dim, use_bias=False)(beta_ne)
 
-        z_n = self.param("z_n", jax.nn.initializers.normal(1.0), (n_nuc, self.feature_dim))
+        z_n = self.param("z_n", jax.nn.initializers.normal(1.0, dtype=jnp.float32), (n_nuc, self.feature_dim))
         # logarithmic rescaling
         inp_ne = features_ne / features_ne[..., :1] * jnp.log1p(features_ne[..., :1])
         edge_ne = nn.Dense(self.feature_dim)(inp_ne) + z_n[:, None]
@@ -146,9 +146,9 @@ class MoonNucToElecGamma(nn.Module):
                 (n_nuc, self.n_envelopes),
             ),
             kernel=self.param(
-                "en_kernel", jax.nn.initializers.lecun_normal(), (n_nuc, features_en.shape[-1], self.filter_dims[0])
+                "en_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (n_nuc, features_en.shape[-1], self.filter_dims[0])
             ),
-            bias=self.param("en_bias", jax.nn.initializers.normal(2), (n_nuc, self.filter_dims[0])),
+            bias=self.param("en_bias", jax.nn.initializers.normal(2,dtype=jnp.float32), (n_nuc, self.filter_dims[0])),
         )
         dynamic_params_en = jax.vmap(tree_idx, in_axes=(None, 0))(dynamic_params_en, idx_en)
         beta_en = filter_en(features_en, dynamic_params_en)
@@ -159,7 +159,7 @@ class MoonNucToElecGamma(nn.Module):
         # logarithmic rescaling
         inp_en = features_en / features_en[..., :1] * jnp.log1p(features_en[..., :1])
         edge_en = nn.Dense(self.feature_dim)(inp_en)
-        nuc_emb = self.param("z_n", jax.nn.initializers.normal(1.0), (n_nuc, self.feature_dim))
+        nuc_emb = self.param("z_n", jax.nn.initializers.normal(1.0, dtype=jnp.float32), (n_nuc, self.feature_dim))
         edge_en += nuc_emb[idx_en]
 
         return gamma_en_init, gamma_en_out, edge_en
@@ -209,8 +209,8 @@ class Moon(MoonLikeWaveFunction):
                 self.cutoff,
                 (n_nuc, self.pair_n_envelopes),
             ),
-            kernel=self.param("en_kernel", jax.nn.initializers.lecun_normal(), (n_nuc, 5, self.pair_mlp_widths[0])),
-            bias=self.param("en_bias", jax.nn.initializers.zeros, (n_nuc, self.pair_mlp_widths[0])),
+            kernel=self.param("en_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (n_nuc, 5, self.pair_mlp_widths[0])),
+            bias=self.param("en_bias", jax.nn.initializers.zeros, (n_nuc, self.pair_mlp_widths[0])).astype(jnp.float32),
         )
         self.filter_en = PairwiseFilter(
             self.cutoff, self.pair_mlp_widths[1], name="beta_en"

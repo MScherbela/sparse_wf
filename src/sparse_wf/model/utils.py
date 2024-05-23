@@ -187,7 +187,7 @@ class IsotropicEnvelope(nn.Module):
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = self.param("sigma", self._sigma_initializer, (n_nuc, self.envelope_size))
+        sigma = self.param("sigma", self._sigma_initializer, (n_nuc, self.envelope_size)).astype(jnp.float32)
         sigma = nn.softplus(sigma)
         # pi = self.param(
         #     "pi", jnn.initializers.lecun_normal, (n_nuc, self.n_orbitals * self.n_determinants, self.envelope_size), jnp.float32
@@ -260,7 +260,7 @@ def scale_initializer(rng, cutoff, shape, dtype=jnp.float32):
     n_scales = shape[-1]
     scale = jnp.linspace(0, cutoff, n_scales, dtype=dtype)
     scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
-    return scale
+    return scale.astype(jnp.float32)
 
 
 class PairwiseFilter(nn.Module):
