@@ -25,7 +25,8 @@ import jax.numpy as jnp
 def contract(Gamma, edge, neighbour=None):
     if neighbour is not None:
         edge += neighbour
-    return jnp.einsum("jf,jf->f", Gamma, jax.nn.silu(edge))
+    # return jnp.einsum("jf,jf->f", Gamma, jax.nn.silu(edge))
+    return (Gamma * jax.nn.silu(edge)).sum(axis=-2)
 
 
 def zeros_initializer(rng, shape):
