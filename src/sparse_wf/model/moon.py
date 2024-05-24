@@ -24,6 +24,7 @@ from sparse_wf.model.utils import (
     get_diff_features,
     get_diff_features_vmapped,
     scale_initializer,
+    zeros_initializer,
 )
 from sparse_wf.model.wave_function import MoonLikeWaveFunction, NrOfDependencies, StaticInput
 from sparse_wf.tree_utils import tree_idx
@@ -211,7 +212,7 @@ class Moon(MoonLikeWaveFunction):
                 (n_nuc, self.pair_n_envelopes),
             ),
             kernel=self.param("en_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (n_nuc, 5, self.pair_mlp_widths[0])),
-            bias=self.param("en_bias", jax.nn.initializers.zeros, (n_nuc, self.pair_mlp_widths[0])).astype(jnp.float32),
+            bias=self.param("en_bias", zeros_initializer(jnp.float32), (n_nuc, self.pair_mlp_widths[0])),
         )
         self.filter_en = PairwiseFilter(
             self.cutoff, self.pair_mlp_widths[1], name="beta_en"
