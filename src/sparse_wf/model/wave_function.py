@@ -73,6 +73,10 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
             self.mlp_jastrow = JastrowFactor(self.jastrow_args["embedding_n_hidden"], self.jastrow_args["soe_n_hidden"])
         else:
             self.mlp_jastrow = None
+        # if self.jastrow_args["use"]:
+        #     self.mlp_jastrow = JastrowFactor(self.jastrow_args["embedding_n_hidden"], self.jastrow_args["soe_n_hidden"])
+        # else:
+        #     self.mlp_jastrow = None
         self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
 
     def init(self, rng: PRNGKeyArray, electrons: Electrons) -> Parameters:  # type: ignore

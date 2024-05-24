@@ -69,7 +69,7 @@ def make_cg_preconditioner(
         _, vjp = jax.vjp(log_p_closure, params)
         _, jvp = jax.linearize(log_p_closure, params)
 
-        grad = psum(vjp(dE_dlogpsi / jnp.sqrt(N))[0])
+        grad = psum(vjp(dE_dlogpsi / jnp.sqrt(N).astype(jnp.float32))[0])
 
         def Fisher_matmul(v: P):
             w = jvp(v)

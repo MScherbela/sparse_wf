@@ -148,7 +148,7 @@ class MoonNucToElecGamma(nn.Module):
             kernel=self.param(
                 "en_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (n_nuc, features_en.shape[-1], self.filter_dims[0])
             ),
-            bias=self.param("en_bias", jax.nn.initializers.normal(2,dtype=jnp.float32), (n_nuc, self.filter_dims[0])),
+            bias=self.param("en_bias", jax.nn.initializers.normal(2,dtype=jnp.float32), (n_nuc, self.filter_dims[0])).astype(jnp.float32),
         )
         dynamic_params_en = jax.vmap(tree_idx, in_axes=(None, 0))(dynamic_params_en, idx_en)
         beta_en = filter_en(features_en, dynamic_params_en)
@@ -202,6 +202,7 @@ class Moon(MoonLikeWaveFunction):
         super().setup()
 
         n_nuc = len(self.R)
+        # TODO Here there is also float64 sometimes
         self.dynamic_params_en = DynamicFilterParams(
             scales=self.param(
                 "en_scales",

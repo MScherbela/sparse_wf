@@ -187,6 +187,7 @@ class IsotropicEnvelope(nn.Module):
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
+        # TODO: this adds float64 sometimes and i dont know why
         sigma = self.param("sigma", self._sigma_initializer, (n_nuc, self.envelope_size)).astype(jnp.float32)
         sigma = nn.softplus(sigma)
         # pi = self.param(
