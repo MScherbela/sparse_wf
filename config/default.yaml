@@ -6,10 +6,11 @@ metadata:
 seed: 0
 
 molecule_args:
-  method: from_str
+  method: database
   args:
-    atom: "Be 0 0 0"
-    spin: 0
+    hash:
+    name:
+    comment: "molecules_file_Ethene_C2H4"
   basis: sto-6g
 
 model: moon

@@ -17,7 +17,8 @@ def from_str(atom: str, spin: int = 0):
 
 def database(hash: str | None = None, name: str | None = None, comment: str | None = None):
     assert hash is not None or name is not None or comment is not None
-    with open("./data/geometries.json") as inp:
+    from os import path
+    with open(path.dirname(path.realpath(__file__)) + "/../../data/geometries.json") as inp:
         geometries_by_hash = json.load(inp)
     if hash:
         geom = geometries_by_hash[hash]
