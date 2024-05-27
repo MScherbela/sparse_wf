@@ -203,7 +203,6 @@ class Moon(MoonLikeWaveFunction):
         super().setup()
 
         n_nuc = len(self.R)
-        # TODO Here there is also float64 sometimes
         self.dynamic_params_en = DynamicFilterParams(
             scales=self.param(
                 "en_scales",

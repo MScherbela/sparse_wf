@@ -32,7 +32,7 @@ import time
 jax.config.update("jax_default_matmul_precision", "float32")
 jax.config.update(
     "jax_enable_x64", True
-)  # TODO: revert and instead add assertions that data is float32 where it should be
+)
 
 
 def to_log_data(aux_data: AuxData) -> dict[str, float]:

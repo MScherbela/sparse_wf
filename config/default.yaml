@@ -10,6 +10,9 @@ molecule_args:
   args:
     atom: "Be 0 0 0"
     spin: 0
+    hash: "087ac555dace46f4bb58f5b42646c10d"
+    name: "C2H4"
+    comment: "molecules_file_Ethene_C2H4"
   basis: sto-6g
 
 model: moon
