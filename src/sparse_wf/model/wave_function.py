@@ -126,6 +126,8 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     def _signed(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
         if self.mlp_jastrow:
             embeddings = self._embedding(electrons, static)
+        else:
+            embeddings = None
         orbitals = self._orbitals(electrons, static, embeddings)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
         if self.e_e_cusp:
