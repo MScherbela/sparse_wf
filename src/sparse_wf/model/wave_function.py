@@ -60,7 +60,8 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     pair_mlp_widths: tuple[int, int]
     pair_n_envelopes: int
     nuc_mlp_depth: int
-    jastrow_args: JastrowArgs
+    mlp_jastrow_args: JastrowArgs
+    log_jastrow_args: JastrowArgs
 
     def setup(self):
         self.to_orbitals = nn.Dense(self.n_determinants * self.n_electrons, name="lin_orbitals")
@@ -69,14 +70,14 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
             self.e_e_cusp = ElElCusp(self.n_electrons)
         else:
             self.e_e_cusp = None
-        if self.jastrow_args["use"]:
-            self.mlp_jastrow = JastrowFactor(self.jastrow_args["embedding_n_hidden"], self.jastrow_args["soe_n_hidden"])
+        if self.mlp_jastrow_args["use"]:
+            self.mlp_jastrow = JastrowFactor(self.mlp_jastrow_args["embedding_n_hidden"], self.mlp_jastrow_args["soe_n_hidden"])
         else:
             self.mlp_jastrow = None
-        # if self.jastrow_args["use"]:
-        #     self.mlp_jastrow = JastrowFactor(self.jastrow_args["embedding_n_hidden"], self.jastrow_args["soe_n_hidden"])
-        # else:
-        #     self.mlp_jastrow = None
+        if self.log_jastrow_args["use"]:
+            self.log_jastrow = JastrowFactor(self.log_jastrow_args["embedding_n_hidden"], self.log_jastrow_args["soe_n_hidden"])
+        else:
+            self.log_jastrow = None
         self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
 
     def init(self, rng: PRNGKeyArray, electrons: Electrons) -> Parameters:  # type: ignore
@@ -95,6 +96,7 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         n_envelopes: int,
         use_e_e_cusp: bool,
         mlp_jastrow: JastrowArgs,
+        log_jastrow: JastrowArgs
     ):
         return cls(
             R=np.asarray(mol.atom_coords(), dtype=jnp.float32),
@@ -109,7 +111,8 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
             pair_n_envelopes=pair_n_envelopes,
             nuc_mlp_depth=nuc_mlp_depth,
             use_e_e_cusp=use_e_e_cusp,
-            jastrow_args=mlp_jastrow,
+            mlp_jastrow_args=mlp_jastrow,
+            log_jastrow_args=log_jastrow,
         )
 
     def _embedding(self, electrons: Electrons, static: StaticInput) -> jax.Array:
@@ -124,7 +127,7 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         return (swap_bottom_blocks(orbitals, self.n_up),)
 
     def _signed(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
-        if self.mlp_jastrow:
+        if self.mlp_jastrow or self.log_jastrow:
             embeddings = self._embedding(electrons, static)
         else:
             embeddings = None
@@ -134,6 +137,8 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
             logpsi += self.e_e_cusp(electrons)
         if self.mlp_jastrow:
             logpsi += self.mlp_jastrow(embeddings)
+        if self.log_jastrow:
+            logpsi += jnp.log(jnp.abs(self.log_jastrow(embeddings)))
         return signpsi, logpsi
 
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude:

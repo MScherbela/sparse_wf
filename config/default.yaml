@@ -25,13 +25,13 @@ model_args:
   n_envelopes: 16
   use_e_e_cusp: True
   mlp_jastrow:
+    use: true
+    embedding_n_hidden: [40,40]
+    soe_n_hidden: [40,40]
+  log_jastrow:
     use: false
     embedding_n_hidden: [40,40]
-    soe_n_hidden:
-  # log_jastrow:
-  #   use: false
-  #   embedding_n_hidden: [40,40]
-  #   soe_n_hidden: [40,40]
+    soe_n_hidden: [40,40]
 
 logging_args:
   smoothing: 5000
