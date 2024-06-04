@@ -31,6 +31,7 @@ from sparse_wf.model.utils import (
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
     swap_bottom_blocks,
+    YakuwaJastrow,
 )
 
 
@@ -62,14 +63,19 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     nuc_mlp_depth: int
     mlp_jastrow_args: JastrowArgs
     log_jastrow_args: JastrowArgs
+    use_yukawa_jastrow: bool
 
     def setup(self):
         self.to_orbitals = nn.Dense(self.n_determinants * self.n_electrons, name="lin_orbitals")
         self.envelope = IsotropicEnvelope(self.n_determinants, self.n_electrons, self.n_envelopes)
         if self.use_e_e_cusp:
-            self.e_e_cusp = ElElCusp(self.n_electrons)
+            self.e_e_cusp = ElElCusp(self.n_up)
         else:
             self.e_e_cusp = None
+        if self.use_yukawa_jastrow:
+            self.yakuwa_jastrow = YakuwaJastrow(self.n_up)
+        else:
+            self.yakuwa_jastrow = None
         if self.mlp_jastrow_args["use"]:
             self.mlp_jastrow = JastrowFactor(self.mlp_jastrow_args["embedding_n_hidden"], self.mlp_jastrow_args["soe_n_hidden"])
         else:
@@ -96,8 +102,11 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         n_envelopes: int,
         use_e_e_cusp: bool,
         mlp_jastrow: JastrowArgs,
-        log_jastrow: JastrowArgs
+        log_jastrow: JastrowArgs,
+        use_yukawa_jastrow: bool,
     ):
+        if use_e_e_cusp and use_yukawa_jastrow:
+            raise KeyError("Use either electron-electron cusp or Yukawa")
         return cls(
             R=np.asarray(mol.atom_coords(), dtype=jnp.float32),
             Z=np.asarray(mol.atom_charges()),
@@ -113,6 +122,7 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
             use_e_e_cusp=use_e_e_cusp,
             mlp_jastrow_args=mlp_jastrow,
             log_jastrow_args=log_jastrow,
+            use_yukawa_jastrow=use_yukawa_jastrow,
         )
 
     def _embedding(self, electrons: Electrons, static: StaticInput) -> jax.Array:
@@ -135,6 +145,8 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
         if self.e_e_cusp:
             logpsi += self.e_e_cusp(electrons)
+        if self.yakuwa_jastrow:
+            logpsi += self.yakuwa_jastrow(electrons)
         if self.mlp_jastrow:
             logpsi += self.mlp_jastrow(embeddings)
         if self.log_jastrow:
