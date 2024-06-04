@@ -279,7 +279,8 @@ class DynamicFilterParams(NamedTuple):
 
 def scale_initializer(rng, cutoff, shape, dtype=jnp.float32):
     n_scales = shape[-1]
-    scale = jnp.linspace(0, cutoff, n_scales, dtype=dtype)
+    max_length_scale = min(20, cutoff)
+    scale = jnp.linspace(0, max_length_scale, n_scales, dtype=dtype)
     scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
     return scale.astype(jnp.float32)
 
