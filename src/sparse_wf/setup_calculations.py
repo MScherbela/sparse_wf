@@ -134,7 +134,7 @@ def submit_to_slurm(run_dir, slurm_config, dry_run=False):
 
 def get_slurm_defaults(cluster, queue):
     if cluster == "hgx":
-        return dict(time="30-00:00:00", n_gpus=1)
+        return dict(time="30-00:00:00", n_gpus=1, qos="normal")
     elif cluster == "vsc5":
         defaults = dict(time="3-00:00:00", n_gpus=2, nodes=1)
         if queue == "a100":

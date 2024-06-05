@@ -167,7 +167,11 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
 
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
-        return self.local_energy_dense(params, electrons, static)
+        if electrons.batch_dim > 0:
+            from folx import batched_vmap
+            return batched_vmap(self.local_energy_dense(params, electrons, static), max_batch_size=64, in_axes=(None, 0, None))
+        else:
+            return self.local_energy_dense(params, electrons, static)
 
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
