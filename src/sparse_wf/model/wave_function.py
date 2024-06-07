@@ -77,14 +77,21 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         else:
             self.yakuwa_jastrow = None
         if self.mlp_jastrow_args["use"]:
-            self.mlp_jastrow = JastrowFactor(self.mlp_jastrow_args["embedding_n_hidden"], self.mlp_jastrow_args["soe_n_hidden"])
+            self.mlp_jastrow = JastrowFactor(
+                self.mlp_jastrow_args["embedding_n_hidden"], self.mlp_jastrow_args["soe_n_hidden"]
+            )
         else:
             self.mlp_jastrow = None
         if self.log_jastrow_args["use"]:
-            self.log_jastrow = JastrowFactor(self.log_jastrow_args["embedding_n_hidden"], self.log_jastrow_args["soe_n_hidden"])
+            self.log_jastrow = JastrowFactor(
+                self.log_jastrow_args["embedding_n_hidden"], self.log_jastrow_args["soe_n_hidden"]
+            )
         else:
             self.log_jastrow = None
-        self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
+        self.spins = self.get_spins()
+
+    def get_spins(self):
+        return jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
 
     def init(self, rng: PRNGKeyArray, electrons: Electrons) -> Parameters:  # type: ignore
         return nn.Module.init(self, rng, electrons, self.get_static_input(electrons), method=self._signed)  # type: ignore
@@ -169,7 +176,10 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
         if electrons.batch_dim > 0:
             from folx import batched_vmap
-            return batched_vmap(self.local_energy_dense(params, electrons, static), max_batch_size=64, in_axes=(None, 0, None))
+
+            return batched_vmap(
+                self.local_energy_dense(params, electrons, static), max_batch_size=64, in_axes=(None, 0, None)
+            )
         else:
             return self.local_energy_dense(params, electrons, static)
 
