@@ -159,8 +159,9 @@ def main(
             t1 = time.perf_counter()
             aux_data = to_log_data(aux_data | {"opt/t_step": t1 - t0})
             loggers.log(dict(opt_step=opt_step, **aux_data))
-            if np.isnan(aux_data["opt/E"]):
-                raise ValueError("NaN in energy")
+            for k, v in aux_data.items():
+                if np.isnan(v):
+                    raise ValueError(f"NaN in {k}")
             set_postfix(pbar, aux_data)
     assert_identical_copies(state.params)
     loggers.store_blob(state.serialize(), "chkpt_final.msgpk")
