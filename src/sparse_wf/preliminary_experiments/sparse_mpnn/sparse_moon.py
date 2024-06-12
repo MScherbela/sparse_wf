@@ -2,11 +2,6 @@
 import functools
 import itertools
 import os
-
-# ruff: noqa: E402 # Allow setting environment variables before importing jax
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
-
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -82,6 +77,10 @@ def to_zero_padded(x, dependencies):
 
 
 if __name__ == "__main__":
+    rng = jax.random.PRNGKey(0)
+
     model, electrons, params, static_args = setup_inputs(jnp.float32)
-    embedding_int, dependencies = model._embedding_with_fwd_lap(params, electrons, static_args)
-    embedding_ext = fwd_lap(lambda r: model._embedding(params, r, static_args))(electrons)
+    params = model.init(rng, electrons)
+    h = model.embedding(params.embedding, electrons, static_args)
+    # embedding_int, dependencies = model._embedding_with_fwd_lap(params, electrons, static_args)
+    embedding_ext = fwd_lap(lambda r: model.embedding(params, r, static_args))(electrons)

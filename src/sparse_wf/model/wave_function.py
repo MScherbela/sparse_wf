@@ -1,4 +1,4 @@
-from typing import NamedTuple, cast
+from typing import NamedTuple, cast, Optional
 
 import einops
 import flax.linen as nn
@@ -22,17 +22,16 @@ from sparse_wf.api import (
     SlaterMatrices,
 )
 from sparse_wf.hamiltonian import make_local_energy
-from sparse_wf.jax_utils import nn_vmap, vectorize
+from sparse_wf.jax_utils import vectorize
 from sparse_wf.model.graph_utils import NrOfNeighbours
 from sparse_wf.model.utils import (
     ElElCusp,
     IsotropicEnvelope,
-    JastrowFactor,
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
     swap_bottom_blocks,
-    YakuwaJastrow,
 )
+from flax.struct import PyTreeNode
 
 
 class NrOfDependencies(NamedTuple):
@@ -46,13 +45,20 @@ class StaticInput(NamedTuple):
     n_deps: NrOfDependencies
 
 
-class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, StaticInput]):
+class MoonLikeParams(NamedTuple):
+    embedding: Parameters
+    to_orbitals: Parameters
+    envelope: Parameters
+    e_e_cusp: Optional[Parameters]
+
+
+class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], PyTreeNode):
     # Configuration
     R: Nuclei
     Z: Charges
     n_electrons: int
     n_up: int
-    # Model
+    # Model hyperparams
     n_determinants: int
     n_envelopes: int
     cutoff: float
@@ -61,40 +67,39 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     pair_mlp_widths: tuple[int, int]
     pair_n_envelopes: int
     nuc_mlp_depth: int
+
+    # TODO: refactor
     mlp_jastrow_args: JastrowArgs
     log_jastrow_args: JastrowArgs
     use_yukawa_jastrow: bool
 
-    def setup(self):
-        self.to_orbitals = nn.Dense(self.n_determinants * self.n_electrons, name="lin_orbitals")
-        self.envelope = IsotropicEnvelope(self.n_determinants, self.n_electrons, self.n_envelopes)
-        if self.use_e_e_cusp:
-            self.e_e_cusp = ElElCusp(self.n_up)
-        else:
-            self.e_e_cusp = None
-        if self.use_yukawa_jastrow:
-            self.yakuwa_jastrow = YakuwaJastrow(self.n_up)
-        else:
-            self.yakuwa_jastrow = None
-        if self.mlp_jastrow_args["use"]:
-            self.mlp_jastrow = JastrowFactor(
-                self.mlp_jastrow_args["embedding_n_hidden"], self.mlp_jastrow_args["soe_n_hidden"]
-            )
-        else:
-            self.mlp_jastrow = None
-        if self.log_jastrow_args["use"]:
-            self.log_jastrow = JastrowFactor(
-                self.log_jastrow_args["embedding_n_hidden"], self.log_jastrow_args["soe_n_hidden"]
-            )
-        else:
-            self.log_jastrow = None
-        self.spins = self.get_spins()
+    # Submodules
+    to_orbitals: nn.Dense
+    envelope: IsotropicEnvelope
+    e_e_cusp: Optional[ElElCusp]
+    # TODO: refactor that all jastrow variants are in one class
+    # jastrow_factor: JastrowFactor
+    # yakuwa_jastrow: YakuwaJastrow
+    # mlp_jastrow: JastrowFactor
+    # log_jastrow: JastrowFactor
 
-    def get_spins(self):
+    @property
+    def n_nuclei(self):
+        return len(self.R)
+
+    @property
+    def spins(self):
         return jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
 
     def init(self, rng: PRNGKeyArray, electrons: Electrons) -> Parameters:  # type: ignore
-        return nn.Module.init(self, rng, electrons, self.get_static_input(electrons), method=self._signed)  # type: ignore
+        rngs = jax.random.split(rng, 4)
+        params = MoonLikeParams(
+            embedding=self.init_embedding(rngs[0], electrons, self.get_static_input(electrons)),
+            to_orbitals=self.to_orbitals.init(rngs[1], jnp.zeros((self.feature_dim,))),
+            envelope=self.envelope.init(rngs[2], jnp.zeros([self.n_nuclei])),
+            e_e_cusp=self.e_e_cusp.init(rngs[3], electrons) if self.e_e_cusp else None,
+        )
+        return params
 
     @classmethod
     def create(
@@ -130,51 +135,56 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
             mlp_jastrow_args=mlp_jastrow,
             log_jastrow_args=log_jastrow,
             use_yukawa_jastrow=use_yukawa_jastrow,
+            to_orbitals=nn.Dense(n_determinants * mol.nelectron, name="lin_orbitals"),
+            envelope=IsotropicEnvelope(n_determinants, mol.nelectron, n_envelopes),
+            e_e_cusp=ElElCusp(mol.nelec[0]) if use_e_e_cusp else None,
         )
 
-    def _embedding(self, electrons: Electrons, static: StaticInput) -> jax.Array:
+    def init_embedding(self, rng: PRNGKeyArray, electrons: Electrons, static: StaticInput) -> Parameters:
+        return NotImplementedError
+
+    def embedding(self, params: Parameters, electrons: Electrons, static: StaticInput) -> jax.Array:
         raise NotImplementedError
 
-    def _orbitals(self, electrons: Electrons, static: StaticInput, embeddings=None) -> SlaterMatrices:
-        if embeddings is None:
-            embeddings = self._embedding(electrons, static)
+    def _orbitals(self, params: MoonLikeParams, electrons: Electrons, embeddings) -> SlaterMatrices:
         dist_en_full = jnp.linalg.norm(electrons[:, None, :] - self.R, axis=-1)
-        orbitals = self.to_orbitals(embeddings) * nn_vmap(self.envelope)(dist_en_full)
-        orbitals = einops.rearrange(orbitals, "el (det orb) -> det el orb", det=self.n_determinants)
+        orbitals = self.to_orbitals.apply(params.to_orbitals, embeddings)
+        envelopes = jax.vmap(lambda d: self.envelope.apply(params.envelope, d))(dist_en_full)
+        orbitals = einops.rearrange(orbitals * envelopes, "el (det orb) -> det el orb", det=self.n_determinants)
         return (swap_bottom_blocks(orbitals, self.n_up),)
 
-    def _signed(self, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
-        if self.mlp_jastrow or self.log_jastrow:
-            embeddings = self._embedding(electrons, static)
-        else:
-            embeddings = None
-        orbitals = self._orbitals(electrons, static, embeddings)
+    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
+    def signed(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
+        embeddings = self.embedding(params, electrons, static)
+        orbitals = self._orbitals(params, electrons, embeddings)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
         if self.e_e_cusp:
             logpsi += self.e_e_cusp(electrons)
-        if self.yakuwa_jastrow:
-            logpsi += self.yakuwa_jastrow(electrons)
-        if self.mlp_jastrow:
-            logpsi += self.mlp_jastrow(embeddings)
-        if self.log_jastrow:
-            logpsi += jnp.log(jnp.abs(self.log_jastrow(embeddings)))
+        # if self.yakuwa_jastrow:
+        #     logpsi += self.yakuwa_jastrow(electrons)
+        # if self.mlp_jastrow:
+        #     logpsi += self.mlp_jastrow(embeddings)
+        # if self.log_jastrow:
+        #     logpsi += jnp.log(jnp.abs(self.log_jastrow(embeddings)))
         return signpsi, logpsi
 
+    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
+        embeddings = self.embedding(params, electrons, static)
+        orbitals = self._orbitals(params, electrons, embeddings)
+        return cast(SlaterMatrices, orbitals)
+
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude:
-        return cast(LogAmplitude, self.apply(params, electrons, static, method=self._signed)[1])
+        return self.signed(params, electrons, static)[1]
 
     def get_static_input(self, electrons: Electrons) -> StaticInput:
         raise NotImplementedError
-
-    def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
-        return cast(SlaterMatrices, self.apply(params, electrons, static, method=self._orbitals))
 
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
-        if electrons.batch_dim > 0:
+        if electrons.batch_dim > 0:  # TODO: jnp arrays have property batch_dim???
             from folx import batched_vmap
 
             return batched_vmap(
@@ -186,7 +196,3 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
-
-    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
-    def signed(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
-        return cast(SignedLogAmplitude, self.apply(params, electrons, static, method=self._signed))
