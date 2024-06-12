@@ -236,7 +236,6 @@ class MoonScales(TypedDict):
     H1_dn: Optional[ScalingParam]
     h1: Optional[ScalingParam]
     msg: Optional[ScalingParam]
-    nuc: Optional[ScalingParam]
 
 
 class MoonParams(PyTreeNode):
@@ -332,7 +331,7 @@ class Moon(MoonLikeWaveFunction):
             elec_out=self.elec_out.init(rngs[6], features_dummy, features_dummy),
             dynamic_params_en=dynamic_params_en,
             dynamic_params_ne=dynamic_params_ne,
-            scales=MoonScales(h0=None, H1_up=None, H1_dn=None, h1=None, msg=None, nuc=None),
+            scales=MoonScales(h0=None, H1_up=None, H1_dn=None, h1=None, msg=None),
         )
         _, scales = self.embedding(params, electrons, static, return_scales=True)
         params = params.replace(scales=scales)
@@ -344,9 +343,9 @@ class Moon(MoonLikeWaveFunction):
             filter=DynamicFilterParams(
                 scales=scale_initializer(rngs[0], self.cutoff, (self.n_nuclei, self.pair_n_envelopes)),
                 kernel=lecun_normal(rngs[1], (self.n_nuclei, 4, self.pair_mlp_widths[0])),
-                bias=jax.random.normal(rngs[2], (self.n_nuclei, self.pair_mlp_widths[0])) * 2.0,
+                bias=jax.random.normal(rngs[2], (self.n_nuclei, self.pair_mlp_widths[0]), jnp.float32) * 2.0,
             ),
-            nuc_embedding=jax.random.normal(rngs[3], (self.n_nuclei, self.feature_dim)),
+            nuc_embedding=jax.random.normal(rngs[3], (self.n_nuclei, self.feature_dim), jnp.float32),
         )
 
     def embedding(

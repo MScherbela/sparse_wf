@@ -32,6 +32,11 @@ model_args:
     use: false
     embedding_n_hidden: [40,40]
     soe_n_hidden:
+  log_jastrow:
+    use: false
+    embedding_n_hidden: [40,40]
+    soe_n_hidden:
+  use_yukawa_jastrow: false
 molecule_args:
   args:
     atom: Li 0 0 0; H 3 0 0

@@ -30,9 +30,7 @@ import time
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
-jax.config.update(
-    "jax_enable_x64", True
-)
+jax.config.update("jax_enable_x64", True)
 
 
 def to_log_data(aux_data: AuxData) -> dict[str, float]:
@@ -112,7 +110,7 @@ def main(
     # params can still be different per process due to different sample, leading to different normalizations
     # Use the params from the main process across all devices
     params = get_from_main_process(params)
-    n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params["params"]))
+    n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params))
     loggers.log_config(dict(n_params=n_params))
 
     trainer = make_trainer(

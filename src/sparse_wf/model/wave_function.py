@@ -153,13 +153,13 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         orbitals = einops.rearrange(orbitals * envelopes, "el (det orb) -> det el orb", det=self.n_determinants)
         return (swap_bottom_blocks(orbitals, self.n_up),)
 
-    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
+    @vectorize(signature="(nel,dim)->(),()", excluded=(0, 1, 3))
     def signed(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
-        embeddings = self.embedding(params, electrons, static)
+        embeddings = self.embedding(params.embedding, electrons, static)
         orbitals = self._orbitals(params, electrons, embeddings)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
-        if self.e_e_cusp:
-            logpsi += self.e_e_cusp(electrons)
+        # if self.e_e_cusp:
+        #     logpsi += self.e_e_cusp.apply(params.e_e_cusp, electrons)
         # if self.yakuwa_jastrow:
         #     logpsi += self.yakuwa_jastrow(electrons)
         # if self.mlp_jastrow:
@@ -169,7 +169,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         return signpsi, logpsi
 
     def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
-        embeddings = self.embedding(params, electrons, static)
+        embeddings = self.embedding(params.embedding, electrons, static)
         orbitals = self._orbitals(params, electrons, embeddings)
         return cast(SlaterMatrices, orbitals)
 
@@ -182,17 +182,8 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
-    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
-        if electrons.batch_dim > 0:  # TODO: jnp arrays have property batch_dim???
-            from folx import batched_vmap
+        return self.local_energy_dense(params, electrons, static)
 
-            return batched_vmap(
-                self.local_energy_dense(params, electrons, static), max_batch_size=64, in_axes=(None, 0, None)
-            )
-        else:
-            return self.local_energy_dense(params, electrons, static)
-
-    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
