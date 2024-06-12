@@ -34,6 +34,8 @@ from sparse_wf.model.utils import (
     scale_initializer,
     IsotropicEnvelope,
     ElElCusp,
+    JastrowFactor,
+    YukawaJastrow,
 )
 from sparse_wf.model.wave_function import MoonLikeWaveFunction, NrOfDependencies, StaticInput
 from sparse_wf.tree_utils import tree_idx
@@ -281,13 +283,14 @@ class Moon(MoonLikeWaveFunction):
     ):
         R = np.asarray(mol.atom_coords(), dtype=jnp.float32)
         Z = np.asarray(mol.atom_charges())
+        n_up = mol.nelec[0]
         if use_e_e_cusp and use_yukawa_jastrow:
             raise KeyError("Use either electron-electron cusp or Yukawa")
         return cls(
             R=R,
             Z=Z,
             n_electrons=mol.nelectron,
-            n_up=mol.nelec[0],
+            n_up=n_up,
             n_determinants=n_determinants,
             n_envelopes=n_envelopes,
             cutoff=cutoff,
@@ -299,6 +302,9 @@ class Moon(MoonLikeWaveFunction):
             mlp_jastrow_args=mlp_jastrow,
             log_jastrow_args=log_jastrow,
             use_yukawa_jastrow=use_yukawa_jastrow,
+            mlp_jastrow=JastrowFactor(**mlp_jastrow) if mlp_jastrow else None,
+            log_jastrow=JastrowFactor(**log_jastrow) if log_jastrow else None,
+            yukawa_jastrow=YukawaJastrow(n_up) if use_yukawa_jastrow else None,
             to_orbitals=nn.Dense(n_determinants * mol.nelectron, name="lin_orbitals"),
             envelope=IsotropicEnvelope(n_determinants, mol.nelectron, n_envelopes),
             e_e_cusp=ElElCusp(mol.nelec[0]) if use_e_e_cusp else None,

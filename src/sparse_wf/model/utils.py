@@ -138,6 +138,7 @@ class JastrowFactor(nn.Module):
     embedding_n_hidden: Optional[Sequence[int]]
     soe_n_hidden: Optional[Sequence[int]]
     init_with_zero: bool = False
+    use: bool = True
 
     @nn.compact
     def __call__(self, embeddings):
@@ -175,20 +176,20 @@ class JastrowFactor(nn.Module):
         return jastrow
 
 
-class YakuwaJastrow(nn.Module):
+class YukawaJastrow(nn.Module):
     n_up: int
 
     @nn.compact
     def __call__(self, electrons: Electrons) -> Float[Array, " *batch_dims"]:
         A_same = jax.nn.softplus(self.param("A_same", nn.initializers.ones, (), jnp.float32))
-        F_same = jnp.sqrt(2*A_same)
+        F_same = jnp.sqrt(2 * A_same)
         A_diff = jax.nn.softplus(self.param("A_diff", nn.initializers.ones, (), jnp.float32))
-        F_diff = jnp.sqrt(2*A_diff)
+        F_diff = jnp.sqrt(2 * A_diff)
 
         dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
         # Supposed to be a minus in front of the whole jastrow, but I use expm1 instead of 1-exp, so it should work out
-        u_same = A_same*jnp.sum(1/dist_same * jnp.expm1(-dist_same/F_same), axis=-1)
-        u_diff = A_diff*jnp.sum(1/dist_diff * jnp.expm1(-dist_diff/F_diff), axis=-1)
+        u_same = A_same * jnp.sum(1 / dist_same * jnp.expm1(-dist_same / F_same), axis=-1)
+        u_diff = A_diff * jnp.sum(1 / dist_diff * jnp.expm1(-dist_diff / F_diff), axis=-1)
 
         return u_same + u_diff
 
@@ -284,9 +285,11 @@ def scale_initializer(rng, cutoff, shape, dtype=jnp.float32):
     scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
     return scale.astype(jnp.float32)
 
+
 def zeros_initializer(dtype=jnp.float32):
     def init_function(rng, shape):
         return jnp.zeros(shape, dtype=dtype)
+
     return init_function
 
 

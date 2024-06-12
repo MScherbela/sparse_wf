@@ -4,7 +4,6 @@ import einops
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import numpy as np
 import pyscf
 
 from sparse_wf.api import (
@@ -30,6 +29,8 @@ from sparse_wf.model.utils import (
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
     swap_bottom_blocks,
+    JastrowFactor,
+    YukawaJastrow,
 )
 from flax.struct import PyTreeNode
 
@@ -78,10 +79,9 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
     envelope: IsotropicEnvelope
     e_e_cusp: Optional[ElElCusp]
     # TODO: refactor that all jastrow variants are in one class
-    # jastrow_factor: JastrowFactor
-    # yakuwa_jastrow: YakuwaJastrow
-    # mlp_jastrow: JastrowFactor
-    # log_jastrow: JastrowFactor
+    yukawa_jastrow: Optional[YukawaJastrow]
+    mlp_jastrow: Optional[JastrowFactor]
+    log_jastrow: Optional[JastrowFactor]
 
     @property
     def n_nuclei(self):
@@ -117,28 +117,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         log_jastrow: JastrowArgs,
         use_yukawa_jastrow: bool,
     ):
-        if use_e_e_cusp and use_yukawa_jastrow:
-            raise KeyError("Use either electron-electron cusp or Yukawa")
-        return cls(
-            R=np.asarray(mol.atom_coords(), dtype=jnp.float32),
-            Z=np.asarray(mol.atom_charges()),
-            n_electrons=mol.nelectron,
-            n_up=mol.nelec[0],
-            n_determinants=n_determinants,
-            n_envelopes=n_envelopes,
-            cutoff=cutoff,
-            feature_dim=feature_dim,
-            pair_mlp_widths=pair_mlp_widths,
-            pair_n_envelopes=pair_n_envelopes,
-            nuc_mlp_depth=nuc_mlp_depth,
-            use_e_e_cusp=use_e_e_cusp,
-            mlp_jastrow_args=mlp_jastrow,
-            log_jastrow_args=log_jastrow,
-            use_yukawa_jastrow=use_yukawa_jastrow,
-            to_orbitals=nn.Dense(n_determinants * mol.nelectron, name="lin_orbitals"),
-            envelope=IsotropicEnvelope(n_determinants, mol.nelectron, n_envelopes),
-            e_e_cusp=ElElCusp(mol.nelec[0]) if use_e_e_cusp else None,
-        )
+        return NotImplementedError
 
     def init_embedding(self, rng: PRNGKeyArray, electrons: Electrons, static: StaticInput) -> Parameters:
         return NotImplementedError
@@ -158,14 +137,14 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         embeddings = self.embedding(params.embedding, electrons, static)
         orbitals = self._orbitals(params, electrons, embeddings)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
-        # if self.e_e_cusp:
-        #     logpsi += self.e_e_cusp.apply(params.e_e_cusp, electrons)
-        # if self.yakuwa_jastrow:
-        #     logpsi += self.yakuwa_jastrow(electrons)
-        # if self.mlp_jastrow:
-        #     logpsi += self.mlp_jastrow(embeddings)
-        # if self.log_jastrow:
-        #     logpsi += jnp.log(jnp.abs(self.log_jastrow(embeddings)))
+        if self.e_e_cusp:
+            logpsi += self.e_e_cusp.apply(params.e_e_cusp, electrons)
+        if self.yukawa_jastrow:
+            logpsi += self.yukawa_jastrow(electrons)
+        if self.mlp_jastrow:
+            logpsi += self.mlp_jastrow(embeddings)
+        if self.log_jastrow:
+            logpsi += jnp.log(jnp.abs(self.log_jastrow(embeddings)))
         return signpsi, logpsi
 
     def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
