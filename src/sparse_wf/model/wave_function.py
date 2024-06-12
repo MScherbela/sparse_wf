@@ -51,6 +51,9 @@ class MoonLikeParams(NamedTuple):
     to_orbitals: Parameters
     envelope: Parameters
     e_e_cusp: Optional[Parameters]
+    yukawa_jastrow: Optional[Parameters]
+    mlp_jastrow: Optional[Parameters]
+    log_jastrow: Optional[Parameters]
 
 
 class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], PyTreeNode):
@@ -92,12 +95,16 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         return jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
 
     def init(self, rng: PRNGKeyArray, electrons: Electrons) -> Parameters:  # type: ignore
-        rngs = jax.random.split(rng, 4)
+        rngs = jax.random.split(rng, 7)
+        dummy_embeddings = jnp.zeros([electrons.shape[-2], self.feature_dim])
         params = MoonLikeParams(
             embedding=self.init_embedding(rngs[0], electrons, self.get_static_input(electrons)),
-            to_orbitals=self.to_orbitals.init(rngs[1], jnp.zeros((self.feature_dim,))),
+            to_orbitals=self.to_orbitals.init(rngs[1], dummy_embeddings),
             envelope=self.envelope.init(rngs[2], jnp.zeros([self.n_nuclei])),
             e_e_cusp=self.e_e_cusp.init(rngs[3], electrons) if self.e_e_cusp else None,
+            yukawa_jastrow=self.yukawa_jastrow.init(rngs[4], electrons) if self.yukawa_jastrow else None,
+            mlp_jastrow=self.mlp_jastrow.init(rngs[5], dummy_embeddings) if self.mlp_jastrow else None,
+            log_jastrow=self.log_jastrow.init(rngs[6], dummy_embeddings) if self.log_jastrow else None,
         )
         return params
 
@@ -140,11 +147,11 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         if self.e_e_cusp:
             logpsi += self.e_e_cusp.apply(params.e_e_cusp, electrons)
         if self.yukawa_jastrow:
-            logpsi += self.yukawa_jastrow(electrons)
+            logpsi += self.yukawa_jastrow.apply(params.yukawa_jastrow, electrons)
         if self.mlp_jastrow:
-            logpsi += self.mlp_jastrow(embeddings)
+            logpsi += self.mlp_jastrow.apply(params.mlp_jastrow, embeddings)
         if self.log_jastrow:
-            logpsi += jnp.log(jnp.abs(self.log_jastrow(embeddings)))
+            logpsi += jnp.log(jnp.abs(self.log_jastrow.apply(params.log_jastrow, embeddings)))
         return signpsi, logpsi
 
     def orbitals(self, params: Parameters, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
