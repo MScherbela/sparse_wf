@@ -1,14 +1,13 @@
 import json
-from typing import Any
-
 import pyscf
+from sparse_wf.api import MoleculeArgs
 
 
 def chain(element: str, distance: float, n: int):
     atom_strings = []
     for i in range(n):
         atom_strings.append(f"{element} {i * distance} 0 0")
-    return pyscf.got.M(atom="; ".join(atom_strings), unit="bohr")
+    return pyscf.gto.M(atom="; ".join(atom_strings), unit="bohr")
 
 
 def from_str(atom: str, spin: int = 0):
@@ -18,6 +17,7 @@ def from_str(atom: str, spin: int = 0):
 def database(hash: str | None = None, name: str | None = None, comment: str | None = None):
     assert hash is not None or name is not None or comment is not None
     from os import path
+
     with open(path.dirname(path.realpath(__file__)) + "/../../data/geometries.json") as inp:
         geometries_by_hash = json.load(inp)
     if hash:
@@ -33,10 +33,12 @@ def database(hash: str | None = None, name: str | None = None, comment: str | No
     return pyscf.gto.M(atom=atom, spin=geom["spin"], charge=geom["charge"], unit="bohr")
 
 
-def get_molecule(method: str, args: dict[str, Any], basis: str) -> pyscf.gto.Mole:
+def get_molecule(molecule_args: MoleculeArgs) -> pyscf.gto.Mole:
+    method = molecule_args["method"]
+    basis = molecule_args["basis"]
     constructor = globals().get(method)
     assert constructor is not None, f"Coult not find constructor for method {method}."
-    molecule = constructor(**args)
+    molecule = constructor(**molecule_args[method + "_args"])
     molecule.basis = basis
     molecule.build()
     return molecule

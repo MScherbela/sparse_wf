@@ -7,10 +7,17 @@ seed: 0
 
 molecule_args:
   method: database
-  args:
-    hash: 087ac555dace46f4bb58f5b42646c10d
-    name: C2H4
-    comment: "molecules_file_Ethene_C2H4"
+  database_args:
+    hash: ""
+    name: ""
+    comment: ""
+  from_str_args:
+    atom: ""
+    spin: 0
+  chain_args:
+    element: ""
+    distance: 2.0
+    n: 10
   basis: sto-6g
 
 model: moon

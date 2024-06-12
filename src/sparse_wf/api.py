@@ -367,7 +367,26 @@ class PretrainingArgs(TypedDict):
     optimizer_args: OptimizerArgs
 
 
+class MoleculeDatabaseArgs(TypedDict):
+    hash: str
+    name: str
+    comment: str
+
+
+class MoleculeFromStrArgs(TypedDict):
+    atom: str
+    spin: int
+
+
+class MoleculeChainArgs(TypedDict):
+    element: str
+    distance: float
+    n: int
+
+
 class MoleculeArgs(TypedDict):
     method: str
-    args: dict[str, Any]
+    from_str_args: MoleculeFromStrArgs
+    chain_args: MoleculeChainArgs
+    database_args: MoleculeDatabaseArgs
     basis: str

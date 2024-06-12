@@ -67,7 +67,7 @@ def main(
 ):
     config = locals()
 
-    mol = get_molecule(**molecule_args)
+    mol = get_molecule(molecule_args)
 
     loggers = MultiLogger(logging_args)
     loggers.log_config(config)

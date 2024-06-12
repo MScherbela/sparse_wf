@@ -68,7 +68,7 @@ def seml_main(
     seed: int,
     logging_args: LoggingArgs,
 ):
-    mol = get_molecule(**molecule_args)
+    mol = get_molecule(molecule_args)
     logging_args = update_logging_configuration(mol, logging_args["collection"], logging_args, locals())
     main(
         molecule_args=molecule_args,
