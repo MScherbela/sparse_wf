@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pyscf
+from folx import batched_vmap
 
 from sparse_wf.api import (
     Charges,
@@ -165,15 +166,10 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
-    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
-        if electrons.batch_dim > 0:
-            from folx import batched_vmap
-            return batched_vmap(self.local_energy_dense(params, electrons, static), max_batch_size=64, in_axes=(None, 0, None))
-        else:
-            return self.local_energy_dense(params, electrons, static)
+        return self.local_energy_dense(params, electrons, static)
 
-    @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
+    # @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
 
