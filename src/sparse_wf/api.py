@@ -360,6 +360,7 @@ class OptimizationArgs(TypedDict):
     optimizer_args: OptimizerArgs
     preconditioner_args: PreconditionerArgs
     clipping: ClippingArgs
+    max_batch_size: int
 
 
 class PretrainingArgs(TypedDict):

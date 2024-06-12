@@ -122,6 +122,7 @@ def main(
         make_optimizer(**optimization["optimizer_args"]),
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
+        optimization["max_batch_size"]
     )
     # The state will only be fed into pmapped functions, i.e., we need a per device key
     state = trainer.init(device_keys, params, electrons, jnp.array(init_width))
