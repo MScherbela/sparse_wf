@@ -12,8 +12,8 @@ from jax import config as jax_config
 from pyscf.gto import Mole
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.mcmc import init_electrons
-from sparse_wf.model.moon import Moon
-from sparse_wf.api import JastrowArgs
+from sparse_wf.model.wave_function import MoonLikeWaveFunction
+from sparse_wf.api import JastrowArgs, EmbeddingArgs, JastrowFactorArgs
 
 jax_config.update("jax_enable_x64", False)
 jax_config.update("jax_default_matmul_precision", "highest")
@@ -27,19 +27,22 @@ def build_atom_chain(n_nuc, Z):
 
 
 def build_model(mol):
-    return Moon.create(
+    return MoonLikeWaveFunction.create(
         mol,
+        embedding=EmbeddingArgs(
         cutoff=2.0,
         feature_dim=256,
         nuc_mlp_depth=2,
         pair_mlp_widths=(16, 8),
         pair_n_envelopes=32,
+        ),
         n_envelopes=8,
         n_determinants=2,
+        jastrow=JastrowArgs(
         use_e_e_cusp=True,
-        mlp_jastrow=JastrowArgs(use=False),
-        log_jastrow=JastrowArgs(use=False),
-        use_yukawa_jastrow=False
+        mlp=JastrowFactorArgs(use=False, embedding_n_hidden=None, soe_n_hidden=None),
+        log=JastrowFactorArgs(use=False, embedding_n_hidden=None, soe_n_hidden=None),
+        use_yukawa_jastrow=False)
     )
 
 
@@ -81,6 +84,6 @@ if __name__ == "__main__":
 
     model, electrons, params, static_args = setup_inputs(jnp.float32)
     params = model.init(rng, electrons)
-    h = model.embedding(params.embedding, electrons, static_args)
+    h = model.embedding.apply(params.embedding, electrons, static_args)
     # embedding_int, dependencies = model._embedding_with_fwd_lap(params, electrons, static_args)
     embedding_ext = fwd_lap(lambda r: model.embedding(params, r, static_args))(electrons)

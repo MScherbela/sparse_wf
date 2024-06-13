@@ -1,13 +1,10 @@
 from typing import Callable, Optional, NamedTuple, cast, TypedDict
-import numpy as np
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float, Integer
-import pyscf.gto
-from sparse_wf.api import JastrowArgs
 
-from sparse_wf.api import Electrons, Int, Nuclei, Parameters
+from sparse_wf.api import Electrons, Int, Nuclei, Parameters, Charges, StaticInput
 from sparse_wf.jax_utils import jit
 from sparse_wf.model.graph_utils import (
     DistanceMatrix,
@@ -32,12 +29,7 @@ from sparse_wf.model.utils import (
     get_diff_features,
     get_diff_features_vmapped,
     scale_initializer,
-    IsotropicEnvelope,
-    ElElCusp,
-    JastrowFactor,
-    YukawaJastrow,
 )
-from sparse_wf.model.wave_function import MoonLikeWaveFunction, NrOfDependencies, StaticInput
 from sparse_wf.tree_utils import tree_idx
 import functools
 import jax.tree_util as jtu
@@ -53,6 +45,12 @@ def lecun_normal(rng, shape):
 class NucleusDependentParams(NamedTuple):
     filter: DynamicFilterParams
     nuc_embedding: jnp.ndarray
+
+
+class NrOfDependencies(NamedTuple):
+    h_el_initial: int
+    H_nuc: int
+    h_el_out: int
 
 
 @jit
@@ -240,7 +238,7 @@ class MoonScales(TypedDict):
     msg: Optional[ScalingParam]
 
 
-class MoonParams(PyTreeNode):
+class MoonEmbeddingParams(PyTreeNode):
     elec_elec_emb: Parameters
     Gamma_ne: Parameters
     Gamma_en: Parameters
@@ -258,7 +256,21 @@ def normalize(x, scale: ScalingParam | None):
     return x * scale, scale
 
 
-class Moon(MoonLikeWaveFunction):
+class MoonEmbedding(PyTreeNode):
+    # Molecule
+    R: Nuclei
+    Z: Charges
+    n_electrons: int
+    n_up: int
+
+    # Hyperparams
+    cutoff: float
+    feature_dim: int
+    pair_mlp_widths: tuple[int, int]
+    pair_n_envelopes: int
+    nuc_mlp_depth: int
+
+    # Submodules
     elec_elec_emb: MoonElecEmb
     Gamma_ne: MoonEdgeFeatures
     Gamma_en: MoonEdgeFeatures
@@ -268,46 +280,26 @@ class Moon(MoonLikeWaveFunction):
     @classmethod
     def create(
         cls,
-        mol: pyscf.gto.Mole,
+        R: Nuclei,
+        Z: Charges,
+        n_electrons: int,
+        n_up: int,
         cutoff: float,
         feature_dim: int,
         nuc_mlp_depth: int,
         pair_mlp_widths: tuple[int, int],
         pair_n_envelopes: int,
-        n_determinants: int,
-        n_envelopes: int,
-        use_e_e_cusp: bool,
-        mlp_jastrow: JastrowArgs,
-        log_jastrow: JastrowArgs,
-        use_yukawa_jastrow: bool,
     ):
-        R = np.asarray(mol.atom_coords(), dtype=jnp.float32)
-        Z = np.asarray(mol.atom_charges())
-        n_up = mol.nelec[0]
-        if use_e_e_cusp and use_yukawa_jastrow:
-            raise KeyError("Use either electron-electron cusp or Yukawa")
         return cls(
             R=R,
             Z=Z,
-            n_electrons=mol.nelectron,
+            n_electrons=n_electrons,
             n_up=n_up,
-            n_determinants=n_determinants,
-            n_envelopes=n_envelopes,
             cutoff=cutoff,
             feature_dim=feature_dim,
             pair_mlp_widths=pair_mlp_widths,
             pair_n_envelopes=pair_n_envelopes,
             nuc_mlp_depth=nuc_mlp_depth,
-            use_e_e_cusp=use_e_e_cusp,
-            mlp_jastrow_args=mlp_jastrow,
-            log_jastrow_args=log_jastrow,
-            use_yukawa_jastrow=use_yukawa_jastrow,
-            mlp_jastrow=JastrowFactor(**mlp_jastrow) if mlp_jastrow else None,
-            log_jastrow=JastrowFactor(**log_jastrow) if log_jastrow else None,
-            yukawa_jastrow=YukawaJastrow(n_up) if use_yukawa_jastrow else None,
-            to_orbitals=nn.Dense(n_determinants * mol.nelectron, name="lin_orbitals"),
-            envelope=IsotropicEnvelope(n_determinants, mol.nelectron, n_envelopes),
-            e_e_cusp=ElElCusp(mol.nelec[0]) if use_e_e_cusp else None,
             elec_elec_emb=MoonElecEmb(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
             Gamma_ne=MoonEdgeFeatures(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
             Gamma_en=MoonEdgeFeatures(
@@ -317,8 +309,16 @@ class Moon(MoonLikeWaveFunction):
             elec_out=MoonElecOut(),
         )
 
-    def init_embedding(self, rng: Array, electrons: Array, static: StaticInput) -> Parameters:
-        rngs = jax.random.split(rng, 5)
+    @property
+    def n_nuclei(self):
+        return len(self.R)
+
+    @property
+    def spins(self):
+        return jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
+
+    def init(self, rng: Array, electrons: Array, static: StaticInput) -> Parameters:
+        rngs = jax.random.split(rng, 7)
         r_dummy = jnp.zeros([3])
         r_nb_dummy = jnp.zeros([1, 3])
         spin_dummy = jnp.zeros([])
@@ -329,17 +329,17 @@ class Moon(MoonLikeWaveFunction):
         dynamic_params_ne = self._init_nuc_dependant_params(rngs[1])
         dummy_dyn_param = jtu.tree_map(lambda x: x[1:], dynamic_params_en)
 
-        params = MoonParams(
+        params = MoonEmbeddingParams(
+            dynamic_params_en=dynamic_params_en,
+            dynamic_params_ne=dynamic_params_ne,
             elec_elec_emb=self.elec_elec_emb.init(rngs[2], r_dummy, r_nb_dummy, spin_dummy, spin_nb_dummy),
             Gamma_ne=self.Gamma_ne.init(rngs[3], r_dummy, r_dummy, dummy_dyn_param),
             Gamma_en=self.Gamma_en.init(rngs[4], r_dummy, r_dummy, dummy_dyn_param),
             nuc_mlp=self.nuc_mlp.init(rngs[5], features_dummy, features_dummy),
             elec_out=self.elec_out.init(rngs[6], features_dummy, features_dummy),
-            dynamic_params_en=dynamic_params_en,
-            dynamic_params_ne=dynamic_params_ne,
             scales=MoonScales(h0=None, H1_up=None, H1_dn=None, h1=None, msg=None),
         )
-        _, scales = self.embedding(params, electrons, static, return_scales=True)
+        _, scales = self.apply(params, electrons, static, return_scales=True)
         params = params.replace(scales=scales)
         return params
 
@@ -354,8 +354,8 @@ class Moon(MoonLikeWaveFunction):
             nuc_embedding=jax.random.normal(rngs[3], (self.n_nuclei, self.feature_dim), jnp.float32),
         )
 
-    def embedding(
-        self, params: MoonParams, electrons: Electrons, static: StaticInput, return_scales=False
+    def apply(
+        self, params: MoonEmbeddingParams, electrons: Electrons, static: StaticInput, return_scales=False
     ) -> Electrons:
         idx_nb = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff)
         spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en = get_neighbour_coordinates(
@@ -389,8 +389,8 @@ class Moon(MoonLikeWaveFunction):
         edge_ne_emb = nn.silu(h0_nb_ne + edge_ne_emb)
         edge_ne_up = jnp.where(spin_nb_ne[..., None] > 0, edge_ne_emb, 0)
         edge_ne_dn = jnp.where(spin_nb_ne[..., None] < 0, edge_ne_emb, 0)
-        H1_up = contract(edge_ne_up, Gamma_ne)
-        H1_dn = contract(edge_ne_dn, Gamma_ne)
+        H1_up = contract(edge_ne_up, Gamma_ne)  # type: ignore
+        H1_dn = contract(edge_ne_dn, Gamma_ne)  # type: ignore
         H1_up, params.scales["H1_up"] = normalize(h0, params.scales["H1_up"])
         H1_dn, params.scales["H1_dn"] = normalize(h0, params.scales["H1_dn"])
 

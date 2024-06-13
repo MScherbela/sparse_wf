@@ -1,5 +1,5 @@
-from sparse_wf.api import Electrons
-from sparse_wf.model.wave_function import MoonLikeWaveFunction, StaticInput
+from sparse_wf.api import Electrons, StaticInput
+from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.model.utils import (
     PairwiseFilter,
     DynamicFilterParams,
