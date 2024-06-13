@@ -85,5 +85,5 @@ if __name__ == "__main__":
     model, electrons, params, static_args = setup_inputs(jnp.float32)
     params = model.init(rng, electrons)
     h = model.embedding.apply(params.embedding, electrons, static_args)
-    # embedding_int, dependencies = model._embedding_with_fwd_lap(params, electrons, static_args)
-    embedding_ext = fwd_lap(lambda r: model.embedding(params, r, static_args))(electrons)
+    embedding_int, dependencies = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
+    # embedding_ext = fwd_lap(lambda r: model.embedding(params, r, static_args))(electrons)

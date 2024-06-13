@@ -23,23 +23,25 @@ molecule_args:
 model: moon
 
 model_args:
-  cutoff: 10.0
-  feature_dim: 256
-  nuc_mlp_depth: 3
-  pair_mlp_widths: [16, 8]
-  pair_n_envelopes: 32
   n_determinants: 16
   n_envelopes: 16
-  use_e_e_cusp: True
-  use_yukawa_jastrow: False
-  mlp_jastrow:
-    use: true
-    embedding_n_hidden: [40,40]
-    soe_n_hidden: [40,40]
-  log_jastrow:
-    use: false
-    embedding_n_hidden: [40,40]
-    soe_n_hidden: [40,40]
+  embedding:
+    cutoff: 10.0
+    feature_dim: 256
+    nuc_mlp_depth: 3
+    pair_mlp_widths: [16, 8]
+    pair_n_envelopes: 32
+  jastrow:
+    use_e_e_cusp: True
+    use_yukawa_jastrow: False
+    mlp:
+      use: true
+      embedding_n_hidden: [40,40]
+      soe_n_hidden: [40,40]
+    log:
+      use: false
+      embedding_n_hidden: [40,40]
+      soe_n_hidden: [40,40]
 
 logging_args:
   smoothing: 5000

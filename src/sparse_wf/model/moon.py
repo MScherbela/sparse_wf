@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float, Integer
 
-from sparse_wf.api import Electrons, Int, Nuclei, Parameters, Charges, StaticInput
+from sparse_wf.api import Electrons, Int, Nuclei, Parameters, Charges
 from sparse_wf.jax_utils import jit
 from sparse_wf.model.graph_utils import (
     DistanceMatrix,
@@ -20,6 +20,7 @@ from sparse_wf.model.graph_utils import (
     DependencyMap,
     merge_dependencies,
     get_dependency_map,
+    NrOfNeighbours,
 )
 from sparse_wf.model.utils import (
     DynamicFilterParams,
@@ -34,6 +35,8 @@ from sparse_wf.tree_utils import tree_idx
 import functools
 import jax.tree_util as jtu
 from flax.struct import PyTreeNode
+from folx.api import FwdLaplArray, FwdJacobian
+from sparse_wf.jax_utils import fwd_lap
 
 
 def lecun_normal(rng, shape):
@@ -51,6 +54,11 @@ class NrOfDependencies(NamedTuple):
     h_el_initial: int
     H_nuc: int
     h_el_out: int
+
+
+class StaticInputMoon(NamedTuple):
+    n_deps: NrOfDependencies
+    n_neighbours: NrOfNeighbours
 
 
 @jit
@@ -317,7 +325,7 @@ class MoonEmbedding(PyTreeNode):
     def spins(self):
         return jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
 
-    def init(self, rng: Array, electrons: Array, static: StaticInput) -> Parameters:
+    def init(self, rng: Array, electrons: Array, static: StaticInputMoon) -> Parameters:
         rngs = jax.random.split(rng, 7)
         r_dummy = jnp.zeros([3])
         r_nb_dummy = jnp.zeros([1, 3])
@@ -355,7 +363,7 @@ class MoonEmbedding(PyTreeNode):
         )
 
     def apply(
-        self, params: MoonEmbeddingParams, electrons: Electrons, static: StaticInput, return_scales=False
+        self, params: MoonEmbeddingParams, electrons: Electrons, static: StaticInputMoon, return_scales=False
     ) -> Electrons:
         idx_nb = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff)
         spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en = get_neighbour_coordinates(
@@ -417,40 +425,74 @@ class MoonEmbedding(PyTreeNode):
             return hL, params.scales  # type: ignore
         return hL
 
-    # def _embedding_with_fwd_lap(
-    #     self, params, electrons: Electrons, static: StaticInput
+    # def apply_with_fwd_lap(
+    #     self, params, electrons: Electrons, static: StaticInputMoon
     # ) -> tuple[FwdLaplArray, Dependency]:
-    #     spins = self.get_spins()
     #     idx_nb = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff)
-    #     spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en = get_neighbour_coordinates(electrons, self.R, idx_nb, spins)
+    #     spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en = get_neighbour_coordinates(
+    #         electrons, self.R, idx_nb, self.spins
+    #     )
     #     deps, dep_maps = get_all_dependencies(idx_nb, static.n_deps)
 
     #     @functools.partial(jax.vmap, in_axes=0, out_axes=-2)  # vmap over center electrons
     #     @functools.partial(fwd_lap, argnums=(0, 1))
-    #     def h0_apply(r, r_nb, s, s_nb):
-    #         h0 = self.apply(params, r, r_nb, s, s_nb, method=self._apply_elec_elec_emb)
-    #         h0 = self.apply(params, "h0", h0, method=self._apply_scale)
-    #         return h0
+    #     def get_h0(r, r_nb, s, s_nb):
+    #         return cast(jax.Array, self.elec_elec_emb.apply(params.elec_elec_emb, r, r_nb, s, s_nb))
 
-    #     h0 = h0_apply(electrons, r_nb_ee, spins, spin_nb_ee)
-    #     h0 += self.test
+    #     @functools.partial(jax.vmap, in_axes=0, out_axes=  # vmap over centers (nuclei)
+    #     @functools.partial(jax.vmap, in_axes=(None, 0, None))  # vmap over neighbours (electrons)
+    #     @functools.partial(fwd_lap, argnums=1)
+    #     def get_Gamma_ne(R, r_ne, dyn_params):
+    #         Gamma, edge_features = self.Gamma_ne.apply(params.Gamma_ne, R, r_ne, dyn_params)
+    #         return cast(tuple[jax.Array, jax.Array], (Gamma, edge_features))
 
-    #     @functools.partial(jax.vmap, in_axes=0, out_axes=-3)  # vmap over center nuclei
-    #     @functools.partial(jax.vmap, in_axes=0, out_axes=-2)  # vmap over neighbouring electrons
-    #     @fwd_lap
-    #     def get_Gamma_ne(r_ne):
-    #         return self.apply(params, r_ne, method=self._apply_Gamma_ne)
+    #     @jax.vmap
+    #     @functools.partial(jax.vmap, in_axes=(None, 0, 0))
+    #     @functools.partial(fwd_lap, argnums=0)
+    #     def get_Gamma_en(r, R_nb_en, dyn_params):
+    #         Gamma, edge_features = self.Gamma_en.apply(params.Gamma_en, r, R_nb_en, dyn_params)
+    #         Gamma, edge_features = cast(tuple[jax.Array, jax.Array], (Gamma, edge_features))
+    #         return Gamma[: self.feature_dim], Gamma[self.feature_dim :], edge_features
 
-    #     Gamma_ne, edge_ne_emb = get_Gamma_ne(r_nb_ne)
+    #     normalize_with_fwd_lap = fwd_lap(lambda x, s: normalize(x, s)[0], argnums=0)
 
+    #     # initial electron embedding
+    #     h0 = get_h0(electrons, r_nb_ee, self.spins, spin_nb_ee)
+    #     h0 = normalize_with_fwd_lap(h0, params.scales["h0"])
+
+    #     # construct nuclei embeddings
+    #     Gamma_ne, edge_ne_emb = get_Gamma_ne(self.R, r_nb_ne, params.dynamic_params_ne)
     #     h0_nb_ne = get_with_fill(h0, idx_nb.ne, 0)
     #     edge_ne_emb = nn.silu(h0_nb_ne + edge_ne_emb)
-    #     # edge_ne_up = jnp.where(spin_nb_ne[..., None] > 0, edge_ne_emb, 0)
-    #     # edge_ne_down = jnp.where(spin_nb_ne[..., None] < 0, edge_ne_emb, 0)
+    #     edge_ne_up = jnp.where(spin_nb_ne[..., None] > 0, edge_ne_emb, 0)
+    #     edge_ne_dn = jnp.where(spin_nb_ne[..., None] < 0, edge_ne_emb, 0)
+    #     H1_up = contract(edge_ne_up, Gamma_ne)  # type: ignore
+    #     H1_dn = contract(edge_ne_dn, Gamma_ne)  # type: ignore
+    #     H1_up = normalize_with_fwd_lap(h0, params.scales["H1_up"])
+    #     H1_dn = normalize_with_fwd_lap(h0, params.scales["H1_dn"])
 
-    #     return h0, deps.h0
+    #     # construct electron embedding
+    #     dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en)
+    #     gamma_en_init, gamma_en_out, edge_en_emb = get_Gamma_en(electrons, R_nb_en, dyn_params)
+    #     edge_en_emb = nn.silu(h0[:, None] + edge_en_emb)
+    #     h1 = contract(edge_en_emb, gamma_en_init)
+    #     h1 = normalize_with_fwd_lap(h1, params.scales["h1"])
 
-    def get_static_input(self, electrons: Array) -> StaticInput:
+    #     # update electron embedding
+    #     HL_up, HL_down = self.nuc_mlp.apply(params.nuc_mlp, H1_up, H1_dn)
+    #     HL_up, HL_down = cast(tuple[jax.Array, jax.Array], (HL_up, HL_down))
+    #     HL_up_nb_en = get_with_fill(HL_up, idx_nb.en, 0)
+    #     HL_down_nb_en = get_with_fill(HL_down, idx_nb.en, 0)
+    #     HL_nb_en = jnp.where(self.spins[..., None, None] > 0, HL_up_nb_en, HL_down_nb_en)
+    #     msg = contract(HL_nb_en, gamma_en_out)
+    #     msg = normalize_with_fwd_lap(msg, params.scales["msg"])
+
+    #     # readout
+    #     hL = self.elec_out.apply(params.elec_out, h1, msg)
+    #     hL = cast(jax.Array, hL)
+    #     return hL
+
+    def get_static_input(self, electrons: Array) -> StaticInputMoon:
         def round_fn(x):
             return int(round_to_next_step(x, 1.2, 1, self.n_electrons))
 
@@ -462,4 +504,4 @@ class MoonEmbedding(PyTreeNode):
         n_deps_H_padded = round_fn(n_deps_H)
         n_deps_hout_padded = round_fn(n_deps_hout)
         n_deps = NrOfDependencies(n_deps_h0_padded, n_deps_H_padded, n_deps_hout_padded)
-        return StaticInput(n_neighbours=n_neighbours, n_deps=n_deps)
+        return StaticInputMoon(n_neighbours=n_neighbours, n_deps=n_deps)
