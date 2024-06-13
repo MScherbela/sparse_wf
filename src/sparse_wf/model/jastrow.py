@@ -97,7 +97,7 @@ class Jastrow(nn.Module):
         if self.mlp["use"]:
             logpsi += JastrowFactor(**self.mlp, name="mlp_jastrow")(embeddings)
         if self.log["use"]:
-            j = JastrowFactor(**self.log, name="mlp_jastrow")(embeddings)
+            j = JastrowFactor(**self.log, name="log_jastrow")(embeddings)
             logpsi += jnp.log(jnp.abs(j))
         if self.use_e_e_cusp:
             logpsi += ElElCusp(self.n_up)(electrons)
