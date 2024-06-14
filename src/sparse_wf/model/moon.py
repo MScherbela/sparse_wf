@@ -123,8 +123,7 @@ class MoonEdgeFeatures(nn.Module):
     filter_dims: tuple[int, int]
     feature_dim: int
     n_envelopes: int
-    pair_feature_dim: int = 4
-    gamma_dim: Optional[int] = None
+    n_gamma: int = 1
 
     @nn.compact
     def __call__(
@@ -135,10 +134,11 @@ class MoonEdgeFeatures(nn.Module):
     ):
         features = get_diff_features(r_center, r_neighbour)
         beta = PairwiseFilter(self.cutoff, self.filter_dims[1])(features, dynamic_params.filter)
-        gamma = nn.Dense(self.gamma_dim if self.gamma_dim else self.feature_dim, use_bias=False)(beta)
+        gamma = nn.Dense(self.n_gamma * self.feature_dim, use_bias=False)(beta)
+        gamma = jnp.split(gamma, self.n_gamma, axis=-1)
         scaled_features = features / features[..., :1] * jnp.log1p(features[..., :1])
         edge_embedding = nn.Dense(self.feature_dim, use_bias=False)(scaled_features) + dynamic_params.nuc_embedding
-        return gamma, edge_embedding
+        return (*gamma, edge_embedding)
 
 
 class MoonNucLayer(nn.Module):
@@ -316,10 +316,8 @@ class MoonEmbedding(PyTreeNode):
             pair_n_envelopes=pair_n_envelopes,
             nuc_mlp_depth=nuc_mlp_depth,
             elec_elec_emb=MoonElecEmb(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
-            Gamma_ne=MoonEdgeFeatures(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
-            Gamma_en=MoonEdgeFeatures(
-                R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, gamma_dim=2 * feature_dim
-            ),
+            Gamma_ne=MoonEdgeFeatures(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_gamma=1),
+            Gamma_en=MoonEdgeFeatures(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_gamma=2),
             nuc_mlp=MoonNucMLP(nuc_mlp_depth),
             elec_out=MoonElecOut(),
         )
@@ -369,6 +367,22 @@ class MoonEmbedding(PyTreeNode):
             nuc_embedding=jax.random.normal(rngs[3], (self.n_nuclei, self.feature_dim), jnp.float32),
         )
 
+    def _get_Gamma_ne(self, params, R, r_nb_ne, dynamic_params, with_fwd_lap=False):
+        get_gamma = functools.partial(self.Gamma_ne.apply, params)
+        if with_fwd_lap:
+            get_gamma = fwd_lap(get_gamma, argnums=1)
+        get_gamma = jax.vmap(get_gamma, in_axes=(None, 0, None), out_axes=-2)  # vmap over neighbours (electrons)
+        get_gamma = jax.vmap(get_gamma, in_axes=0, out_axes=-3)  # vmap over centers (nuclei)
+        return get_gamma(R, r_nb_ne, dynamic_params)
+
+    def _get_Gamma_en(self, params, r, R_nb_en, dynamic_params, with_fwd_lap=False):
+        get_gamma = functools.partial(self.Gamma_en.apply, params)
+        if with_fwd_lap:
+            get_gamma = fwd_lap(get_gamma, argnums=0)
+        get_gamma = jax.vmap(get_gamma, in_axes=(None, 0, 0), out_axes=-2)  # vmap over neighbours (nuclei)
+        get_gamma = jax.vmap(get_gamma, in_axes=0, out_axes=-3)  # vmap over centers (electrons)
+        return get_gamma(r, R_nb_en, dynamic_params)
+
     def apply(
         self, params: MoonEmbeddingParams, electrons: Electrons, static: StaticInputMoon, return_scales=False
     ) -> Electrons:
@@ -381,25 +395,12 @@ class MoonEmbedding(PyTreeNode):
         def get_h0(r, r_nb, s, s_nb):
             return cast(jax.Array, self.elec_elec_emb.apply(params.elec_elec_emb, r, r_nb, s, s_nb))
 
-        @jax.vmap  # vmap over centers (nuclei)
-        @functools.partial(jax.vmap, in_axes=(None, 0, None))  # vmap over neighbours (electrons)
-        def get_Gamma_ne(R, r_ne, dyn_params):
-            Gamma, edge_features = self.Gamma_ne.apply(params.Gamma_ne, R, r_ne, dyn_params)
-            return cast(tuple[jax.Array, jax.Array], (Gamma, edge_features))
-
-        @jax.vmap
-        @functools.partial(jax.vmap, in_axes=(None, 0, 0))
-        def get_Gamma_en(r, R_nb_en, dyn_params):
-            Gamma, edge_features = self.Gamma_en.apply(params.Gamma_en, r, R_nb_en, dyn_params)
-            Gamma, edge_features = cast(tuple[jax.Array, jax.Array], (Gamma, edge_features))
-            return Gamma[: self.feature_dim], Gamma[self.feature_dim :], edge_features
-
         # initial electron embedding
         h0 = get_h0(electrons, r_nb_ee, self.spins, spin_nb_ee)
         h0, params.scales["h0"] = normalize(h0, params.scales["h0"], True)
 
         # construct nuclei embeddings
-        Gamma_ne, edge_ne_emb = get_Gamma_ne(self.R, r_nb_ne, params.dynamic_params_ne)
+        Gamma_ne, edge_ne_emb = self._get_Gamma_ne(params.Gamma_ne, self.R, r_nb_ne, params.dynamic_params_ne)
         h0_nb_ne = get_with_fill(h0, idx_nb.ne, 0)
         edge_ne_emb = nn.silu(h0_nb_ne + edge_ne_emb)
         edge_ne_up = jnp.where(spin_nb_ne[..., None] > 0, edge_ne_emb, 0)
@@ -411,7 +412,7 @@ class MoonEmbedding(PyTreeNode):
 
         # construct electron embedding
         dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en)
-        gamma_en_init, gamma_en_out, edge_en_emb = get_Gamma_en(electrons, R_nb_en, dyn_params)
+        gamma_en_init, gamma_en_out, edge_en_emb = self._get_Gamma_en(params.Gamma_en, electrons, R_nb_en, dyn_params)  # type: ignore
         edge_en_emb = nn.silu(h0[:, None] + edge_en_emb)
         h1 = contract(edge_en_emb, gamma_en_init)
         h1, params.scales["h1"] = normalize(h1, params.scales["h1"], True)
@@ -428,9 +429,17 @@ class MoonEmbedding(PyTreeNode):
         # readout
         hL = self.elec_out.apply(params.elec_out, h1, msg)
         hL = cast(jax.Array, hL)
+
+        out = dict(
+            h0=h0,
+            h1=h1,
+            HL_nb_en=HL_nb_en,
+            msg=msg,
+            h_out=hL,
+        )
         if return_scales:
-            return hL, params.scales  # type: ignore
-        return hL
+            return out, params.scales  # type: ignore
+        return out
 
     def apply_with_fwd_lap(
         self, params: MoonEmbeddingParams, electrons: Electrons, static: StaticInputMoon
@@ -459,13 +468,6 @@ class MoonEmbedding(PyTreeNode):
         h0 = get_h0(electrons, r_nb_ee, self.spins, spin_nb_ee)
 
         # Step 2: Get features from electron -> nuclei
-        @functools.partial(jax.vmap, in_axes=0, out_axes=-3)  # vmap over centers (nuclei)
-        @functools.partial(jax.vmap, in_axes=(None, 0, None), out_axes=-2)  # vmap over neighbours (electrons)
-        @functools.partial(fwd_lap, argnums=1)
-        def get_Gamma_ne(R, r_ne, dyn_params):
-            Gamma, edge_features = self.Gamma_ne.apply(params.Gamma_ne, R, r_ne, dyn_params)
-            return cast(tuple[jax.Array, jax.Array], (Gamma, edge_features))
-
         @functools.partial(jax.vmap, in_axes=-3, out_axes=-3)
         @functools.partial(jax.vmap, in_axes=-2, out_axes=-2)
         @functools.partial(fwd_lap, argnums=(0, 1))
@@ -475,7 +477,7 @@ class MoonEmbedding(PyTreeNode):
             edge_ne_dn = jnp.where(spin_nb_ne < 0, edge_ne_emb, 0)
             return edge_ne_up, edge_ne_dn
 
-        Gamma_ne, edge_ne_emb = get_Gamma_ne(self.R, r_nb_ne, params.dynamic_params_ne)
+        Gamma_ne, edge_ne_emb = self._get_Gamma_ne(params.Gamma_ne, self.R, r_nb_ne, params.dynamic_params_ne, True)
         Gamma_ne = pad_pairwise_jacobian(Gamma_ne, dep_maps.Gamma_ne_to_Hnuc, static.n_deps.H_nuc)
         edge_ne_emb = pad_pairwise_jacobian(edge_ne_emb, dep_maps.Gamma_ne_to_Hnuc, static.n_deps.H_nuc)
         h0_nb_ne = get_neighbour_features(h0, idx_nb.ne)
@@ -494,20 +496,15 @@ class MoonEmbedding(PyTreeNode):
 
         # Step4: Get nucleus -> electron filters
         dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en)
-
-        @functools.partial(jax.vmap, in_axes=0, out_axes=-3)
-        @functools.partial(jax.vmap, in_axes=(None, 0, 0), out_axes=-2)
-        @functools.partial(fwd_lap, argnums=0)
-        def get_Gamma_en(r, R_nb_en, dyn_params):
-            Gamma, edge_features = self.Gamma_en.apply(params.Gamma_en, r, R_nb_en, dyn_params)
-            Gamma, edge_features = cast(tuple[jax.Array, jax.Array], (Gamma, edge_features))
-            return Gamma[: self.feature_dim], Gamma[self.feature_dim :], edge_features
-
-        gamma_en_init, gamma_en_out, edge_en_emb = get_Gamma_en(electrons, R_nb_en, dyn_params)
+        gamma_en_init, gamma_en_out, edge_en_emb = self._get_Gamma_en(
+            params.Gamma_en, electrons, R_nb_en, dyn_params, True
+        )
         gamma_en_out = zeropad_jacobian(gamma_en_out, 3 * n_deps_hout)
         gamma_en_init = zeropad_jacobian(gamma_en_init, 3 * n_deps_h0)
         edge_en_emb = zeropad_jacobian(edge_en_emb, 3 * n_deps_h0)
-        edge_en_emb = fwd_lap(lambda h, e: jax.nn.silu(h[:, None, :] + e))(h0, edge_en_emb)
+        edge_en_emb = jax.vmap(fwd_lap(lambda h, e: jax.nn.silu(h[None, :] + e)), in_axes=(-2, -3), out_axes=-3)(
+            h0, edge_en_emb
+        )
 
         # Step 5: Contract initial electron-nucleus features
         h1 = contract_and_normalize(edge_en_emb, gamma_en_init, params.scales["h1"])
@@ -520,9 +517,17 @@ class MoonEmbedding(PyTreeNode):
         msg = contract_and_normalize(HL_nb_en, gamma_en_out, params.scales["msg"])
 
         # readout
-        apply_elec_out = fwd_lap(lambda h, m: self.elec_out.apply(params.elec_out, h, m))
+        apply_elec_out = fwd_lap(lambda h, f: self.elec_out.apply(params.elec_out, h, m))
         apply_elec_out = jax.vmap(apply_elec_out, in_axes=-2, out_axes=-2)
         h_out = apply_elec_out(h1, msg)
+
+        return dict(
+            h0=h0.x,
+            h1=h1.x,
+            HL_nb_en=HL_nb_en.x,
+            msg=msg.x,
+            h_out=h_out.x,
+        )
         return h_out, deps.h_el_out
 
     def get_static_input(self, electrons: Array) -> StaticInputMoon:

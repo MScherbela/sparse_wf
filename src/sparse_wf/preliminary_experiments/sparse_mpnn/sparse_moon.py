@@ -1,7 +1,5 @@
 # %%
 import functools
-import itertools
-import os
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -31,10 +29,10 @@ def build_model(mol):
         mol,
         embedding=EmbeddingArgs(
         cutoff=2.0,
-        feature_dim=256,
+        feature_dim=25,
         nuc_mlp_depth=2,
-        pair_mlp_widths=(16, 8),
-        pair_n_envelopes=32,
+        pair_mlp_widths=(8, 4),
+        pair_n_envelopes=7,
         ),
         n_envelopes=8,
         n_determinants=2,
@@ -78,12 +76,33 @@ def to_zero_padded(x, dependencies):
     jac_out = jac_out.reshape([n_el * 3, *jac.shape[2:]])
     return FwdLaplArray(x.x, FwdJacobian(data=jac_out), x.laplacian)
 
+def print_diff(name, h_dense, h_sparse):
+    def _diff_string(a, b):
+        diff = jnp.linalg.norm(a - b)
+        return f"abs={diff:.1e} rel={diff / jnp.linalg.norm(a):.1e}"
+    print(f"Value:     {_diff_string(h_dense.x, h_sparse.x)}")
+    print(f"Jacobian:  {_diff_string(h_dense.jacobian.data, h_sparse.jacobian.data)}")
+    print(f"Laplacian: {_diff_string(h_dense.laplacian, h_sparse.laplacian)}")
+
 
 if __name__ == "__main__":
     rng = jax.random.PRNGKey(0)
 
     model, electrons, params, static_args = setup_inputs(jnp.float32)
     params = model.init(rng, electrons)
-    h = model.embedding.apply(params.embedding, electrons, static_args)
-    embedding_int, dependencies = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
-    # embedding_ext = fwd_lap(lambda r: model.embedding(params, r, static_args))(electrons)
+    print("Computing sparse")
+    # h_sparse, dependencies = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
+    # h_sparse = to_zero_padded(h_sparse, dependencies)
+    h_sparse = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
+
+    print("Computing dense")
+    # h_dense = fwd_lap(model.embedding.apply, argnums=1)(params.embedding, electrons, static_args)
+    h_dense = model.embedding.apply(params.embedding, electrons, static_args)
+
+    # diff = jnp.linalg.norm(h_dense - h_sparse)
+    # print(f"Diff: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense):.1e}")
+
+    for key in h_dense:
+        diff = jnp.linalg.norm(h_sparse[key] - h_dense{key})
+        print(f"{key:<10}: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense[key]):.1e}")
+    print("Done")
