@@ -218,7 +218,7 @@ class EfficientIsotropicEnvelopes(nn.Module):
         if self.cutoff is not None:
             env *= cutoff_function(dists / self.cutoff)
         out = jnp.einsum("...nde,ndeo->...do", env, pi)
-        return out
+        return out.reshape(*out.shape[:-2], -1)
 
 
 class SlaterOrbitals(nn.Module):
