@@ -25,8 +25,8 @@ from sparse_wf.hamiltonian import make_local_energy
 from sparse_wf.jax_utils import nn_vmap, vectorize
 from sparse_wf.model.graph_utils import NrOfNeighbours
 from sparse_wf.model.utils import (
+    EfficientIsotropicEnvelopes,
     ElElCusp,
-    IsotropicEnvelope,
     JastrowFactor,
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
@@ -65,17 +65,21 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
 
     def setup(self):
         self.to_orbitals = nn.Dense(self.n_determinants * self.n_electrons, name="lin_orbitals")
-        self.envelope = IsotropicEnvelope(self.n_determinants, self.n_electrons, self.n_envelopes)
+        self.envelope = EfficientIsotropicEnvelopes(self.n_determinants, self.n_electrons, self.n_envelopes)
         if self.use_e_e_cusp:
             self.e_e_cusp = ElElCusp(self.n_electrons)
         else:
             self.e_e_cusp = None
         if self.mlp_jastrow_args["use"]:
-            self.mlp_jastrow = JastrowFactor(self.mlp_jastrow_args["embedding_n_hidden"], self.mlp_jastrow_args["soe_n_hidden"])
+            self.mlp_jastrow = JastrowFactor(
+                self.mlp_jastrow_args["embedding_n_hidden"], self.mlp_jastrow_args["soe_n_hidden"]
+            )
         else:
             self.mlp_jastrow = None
         if self.log_jastrow_args["use"]:
-            self.log_jastrow = JastrowFactor(self.log_jastrow_args["embedding_n_hidden"], self.log_jastrow_args["soe_n_hidden"])
+            self.log_jastrow = JastrowFactor(
+                self.log_jastrow_args["embedding_n_hidden"], self.log_jastrow_args["soe_n_hidden"]
+            )
         else:
             self.log_jastrow = None
         self.spins = jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
@@ -96,7 +100,7 @@ class MoonLikeWaveFunction(nn.Module, ParameterizedWaveFunction[Parameters, Stat
         n_envelopes: int,
         use_e_e_cusp: bool,
         mlp_jastrow: JastrowArgs,
-        log_jastrow: JastrowArgs
+        log_jastrow: JastrowArgs,
     ):
         return cls(
             R=np.asarray(mol.atom_coords(), dtype=jnp.float32),
