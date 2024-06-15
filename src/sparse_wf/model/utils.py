@@ -210,7 +210,7 @@ class EfficientIsotropicEnvelopes(nn.Module):
         sigma = nn.softplus(sigma)
         pi = self.param(
             "pi",
-            jnn.initializers.normal(1 / jnp.sqrt(self.n_enveloeps)),
+            jnn.initializers.normal(1 / jnp.sqrt(self.n_envelopes)),
             (n_nuc, self.n_determinants, self.n_envelopes, self.n_orbitals),
         )
         scaled_dists = dists[..., None, None] * sigma
