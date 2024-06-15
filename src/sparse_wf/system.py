@@ -4,20 +4,21 @@ from typing import Any
 import pyscf
 
 
-def chain(element: str, distance: float, n: int):
+def chain(element: str, distance: float, n: int, **_):
     atom_strings = []
     for i in range(n):
         atom_strings.append(f"{element} {i * distance} 0 0")
     return pyscf.got.M(atom="; ".join(atom_strings), unit="bohr")
 
 
-def from_str(atom: str, spin: int = 0):
+def from_str(atom: str, spin: int = 0, **_):
     return pyscf.gto.M(atom=atom, spin=spin, unit="bohr")
 
 
-def database(hash: str | None = None, name: str | None = None, comment: str | None = None):
+def database(hash: str | None = None, name: str | None = None, comment: str | None = None, **_):
     assert hash is not None or name is not None or comment is not None
     from os import path
+
     with open(path.dirname(path.realpath(__file__)) + "/../../data/geometries.json") as inp:
         geometries_by_hash = json.load(inp)
     if hash:
