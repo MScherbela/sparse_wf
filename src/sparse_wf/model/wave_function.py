@@ -26,6 +26,7 @@ from sparse_wf.api import (
 from sparse_wf.api import StaticInput
 from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import vectorize, fwd_lap
+from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.jastrow import Jastrow
 from sparse_wf.model.graph_utils import zeropad_jacobian, slogdet_with_sparse_fwd_lap
 from sparse_wf.model.utils import (
@@ -143,7 +144,10 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         signs, logdets = jax.vmap(lambda o: slogdet_with_sparse_fwd_lap(o, dependencies), in_axes=-3, out_axes=-1)(
             orbitals
         )
-        return fwd_lap(lambda logdets_: jax.nn.logsumexp(logdets_, b=signs, return_sign=True)[0])(logdets)
+        logpsi = fwd_lap(lambda logdets_: jax.nn.logsumexp(logdets_, b=signs, return_sign=True)[0])(logdets)
+        logpsi_jastrow = self.jastrow.apply_with_fwd_lap(params.jastrow, electrons, embeddings, dependencies)
+        logpsi = tree_add(logpsi, logpsi_jastrow)
+        return logpsi
 
     @vectorize(signature="(nel,dim)->(),()", excluded=(0, 1, 3))
     def signed(self, params: MoonLikeParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:

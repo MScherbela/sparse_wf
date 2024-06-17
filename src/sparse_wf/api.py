@@ -8,6 +8,7 @@ from flax import struct
 from flax.serialization import to_bytes, from_bytes
 from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree
 from pyscf.scf.hf import SCF
+from typing import Literal
 
 AnyArray = Array | list | np.ndarray
 Int = Integer[Array, ""]
@@ -270,17 +271,12 @@ class EmbeddingArgs(TypedDict):
     pair_n_envelopes: int
 
 
-class JastrowFactorArgs(TypedDict):
-    use: bool
-    embedding_n_hidden: Optional[Sequence[int]]
-    soe_n_hidden: Optional[Sequence[int]]
-
-
 class JastrowArgs(TypedDict):
-    mlp: JastrowFactorArgs
-    log: JastrowFactorArgs
-    use_yukawa_jastrow: bool
-    use_e_e_cusp: bool
+    e_e_cusps: Literal["none", "psiformer", "yukawa"]
+    use_log_jastrow: bool
+    use_mlp_jastrow: bool
+    mlp_depth: int
+    mlp_width: int
 
 
 class ModelArgs(TypedDict):
