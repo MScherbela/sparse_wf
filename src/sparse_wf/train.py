@@ -18,7 +18,7 @@ from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 
 # from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
-from sparse_wf.model.moon import Moon
+from sparse_wf.model.my_moon import Moon
 from sparse_wf.model.two_step_moon import TwoStepMoon
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner

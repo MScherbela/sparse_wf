@@ -4,19 +4,31 @@ seml:
   output_dir: ~/slurm-output/
 
 slurm:
-  experiments_per_job: 1
-  sbatch_options:
-    gres: gpu:1
-    cpus-per-task: 4
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:1
+      cpus-per-task: 4
 
 fixed:
-  molecule_args.args.atom: "N 0 0 0; N 2.068 0 0"
   batch_size: 2048
+  model: moon
 
 grid:
-  model:
+  seed:
     type: choice
-    options:
-      - moon
-      - moon2step
-      - ferminet
+    options: [0, 1, 2]
+
+N2:
+  fixed:
+    molecule_args:
+      method: from_str
+      args.atom: "N 0 0 0; N 2.068 0 0"
+
+ethene:
+  fixed:
+    molecule_args:
+      method: database
+      args:
+        hash: 087ac555dace46f4bb58f5b42646c10d
+        name: C2H4
+        comment: "molecules_file_Ethene_C2H4"
