@@ -6,7 +6,7 @@ seml:
 slurm:
   - experiments_per_job: 1
     sbatch_options:
-      gres: gpu:1
+      gres: gpu:2
       cpus-per-task: 4
 
 fixed:
@@ -16,7 +16,7 @@ fixed:
 grid:
   seed:
     type: choice
-    options: [0, 1, 2]
+    options: [0, 1]
 
 N2:
   fixed:
