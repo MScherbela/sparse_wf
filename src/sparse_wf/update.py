@@ -119,6 +119,7 @@ def make_trainer(
         )
         aux_data.update(preconditioner_aux)
         aux_data["opt/update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
+        aux_data["opt/deps_hout"] = static.n_deps.h_el_out  # TODO: make this work for general models
 
         updates, opt = optimizer.update(natgrad, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)
