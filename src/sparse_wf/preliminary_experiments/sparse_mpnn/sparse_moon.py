@@ -13,7 +13,7 @@ from sparse_wf.mcmc import init_electrons
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.api import JastrowArgs, EmbeddingArgs, JastrowFactorArgs
 
-jax_config.update("jax_enable_x64", False)
+jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
 
 
@@ -28,19 +28,20 @@ def build_model(mol):
     return MoonLikeWaveFunction.create(
         mol,
         embedding=EmbeddingArgs(
-        cutoff=2.0,
-        feature_dim=25,
-        nuc_mlp_depth=2,
-        pair_mlp_widths=(8, 4),
-        pair_n_envelopes=7,
+            cutoff=2.0,
+            feature_dim=64,
+            nuc_mlp_depth=2,
+            pair_mlp_widths=(8, 4),
+            pair_n_envelopes=7,
         ),
         n_envelopes=8,
         n_determinants=2,
         jastrow=JastrowArgs(
-        use_e_e_cusp=True,
-        mlp=JastrowFactorArgs(use=False, embedding_n_hidden=None, soe_n_hidden=None),
-        log=JastrowFactorArgs(use=False, embedding_n_hidden=None, soe_n_hidden=None),
-        use_yukawa_jastrow=False)
+            mlp=JastrowFactorArgs(use=False, embedding_n_hidden=None, soe_n_hidden=None),
+            log=JastrowFactorArgs(use=False, embedding_n_hidden=None, soe_n_hidden=None),
+            use_e_e_cusp=False,
+            use_yukawa_jastrow=False
+        )
     )
 
 
@@ -88,18 +89,15 @@ def print_diff(h_dense, h_sparse):
 if __name__ == "__main__":
     rng = jax.random.PRNGKey(0)
 
-    model, electrons, params, static_args = setup_inputs(jnp.float32)
+    model, electrons, params, static = setup_inputs(jnp.float64)
     params = model.init(rng, electrons)
     print("Computing sparse")
-    h_sparse, dependencies = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
-    h_sparse = to_zero_padded(h_sparse, dependencies)
-    # h_sparse = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
+    logpsi_sparse = model._logpsi_with_fwd_lap(params, electrons, static)
 
     print("Computing dense")
-    h_dense = fwd_lap(model.embedding.apply, argnums=1)(params.embedding, electrons, static_args)
-    # h_dense = model.embedding.apply(params.embedding, electrons, static_args)
+    logpsi_dense = fwd_lap(lambda r: model(params, r, static))(electrons)
 
-    print_diff(h_dense, h_sparse)
+    print_diff(logpsi_dense, logpsi_sparse)
 
     # diff = jnp.linalg.norm(h_dense - h_sparse)
     # print(f"Diff: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense):.1e}")
@@ -107,4 +105,4 @@ if __name__ == "__main__":
     # for key in h_dense:
     #     diff = jnp.linalg.norm(h_sparse[key] - h_dense[key])
     #     print(f"{key:<10}: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense[key]):.1e}")
-    # print("Done")
+    print("Done")
