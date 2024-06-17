@@ -183,7 +183,7 @@ def zeropad_jacobian(x: FwdLaplArray, n_deps_out: int) -> FwdLaplArray:
 
 def pad_jacobian_to_dense(x: FwdLaplArray, dependencies, n_deps_out: int) -> FwdLaplArray:
     jac = _split_off_xyz_dim(x.jacobian.data)
-    jac_out = jnp.zeros([n_deps_out, 3, *jac.shape[2:]])
+    jac_out = jnp.zeros([n_deps_out, 3, *jac.shape[2:]], x.dtype)
     jac_out = jac_out.at[dependencies, ...].set(jac, mode="drop")
     jac_out = _merge_xyz_dim(jac_out)
     return FwdLaplArray(x=x.x, jacobian=FwdJacobian(jac_out), laplacian=x.laplacian)

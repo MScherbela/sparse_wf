@@ -90,7 +90,7 @@ def print_diff(h_dense, h_sparse):
 if __name__ == "__main__":
     rng = jax.random.PRNGKey(0)
 
-    model, electrons, params, static = setup_inputs(jnp.float64)
+    model, electrons, params, static = setup_inputs(jnp.float32)
     params = model.init(rng, electrons)
     print("Computing sparse")
     logpsi_sparse = model._logpsi_with_fwd_lap(params, electrons, static)

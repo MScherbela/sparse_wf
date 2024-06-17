@@ -90,7 +90,8 @@ class Jastrow(nn.Module):
         return self.pairwise_cusps(electrons)
 
     def apply_with_fwd_lap(self, params, electrons: Electrons, embeddings: FwdLaplArray, dependencies) -> jax.Array:
-        logpsi = FwdLaplArray(jnp.zeros([]), FwdJacobian(data=jnp.zeros([])), jnp.zeros([]))
+        zeros = jnp.zeros([], electrons.dtype)
+        logpsi = FwdLaplArray(zeros, FwdJacobian(data=zeros), zeros)
         if self.e_e_cusps != "none":
 
             @functools.partial(fwd_lap, sparsity_threshold=0.6)
@@ -111,7 +112,7 @@ class Jastrow(nn.Module):
             @fwd_lap
             def _get_logpsi(jastrows):
                 jastrows = jnp.sum(jastrows, axis=-2)  # sum over electrons
-                logpsi = jnp.zeros([])
+                logpsi = zeros
                 if self.use_mlp_jastrow:
                     logpsi += jastrows[0]
                 if self.use_log_jastrow:
