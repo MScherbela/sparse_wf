@@ -45,12 +45,9 @@ def update_logging_configuration(
 ) -> LoggingArgs:
     folder_name = db_collection if db_collection else os.environ.get("USER", "default")
     updates: dict[str, Any] = {}
-    if logging_args.get("collection", None) is None:
-        updates["collection"] = folder_name
-    if logging_args["wandb"].get("project", None) is None:
-        updates["wandb"] = dict(project=folder_name)
-    if logging_args.get("name", None) is None:
-        updates["name"] = get_run_name(mol, logging_args["name_keys"], config)
+    updates["collection"] = folder_name
+    updates["wandb"] = dict(project=folder_name)
+    updates["name"] = get_run_name(mol, logging_args["name_keys"], config)
     if logging_args.get("comment", None) is None:
         updates["comment"] = None
     return cast(LoggingArgs, merge_dicts(logging_args, updates))
