@@ -8,7 +8,7 @@ from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer, Shaped
 
 from sparse_wf.api import Electrons, Int, Nuclei, Spins
-from sparse_wf.jax_utils import jit, vectorize
+from sparse_wf.jax_utils import jit, vectorize, pmax_if_pmap
 import jax.tree_util as jtu
 
 NO_NEIGHBOUR = 1_000_000
@@ -61,35 +61,17 @@ def round_to_next_step(
     return jnp.minimum(result, n_neighbours_max)
 
 
-@jax.jit
-def _get_nr_of_neighbours(
-    dist_ee: DistanceMatrix,
-    dist_ne: DistanceMatrix,
-    cutoff: float,
-    padding_factor: float,
-    n_neighbours_min: int,
-):
-    n_el = dist_ee.shape[-1]
-    dist_ee += jnp.diag(jnp.ones(n_el, dist_ee.dtype) * jnp.inf)
-    n_ee = jnp.max(jnp.sum(dist_ee < cutoff, axis=-1))
-    n_ne = jnp.max(jnp.sum(dist_ne < cutoff, axis=-1))
-    n_en = jnp.max(jnp.sum(dist_ne < cutoff, axis=-2))
-
-    n_ee = round_to_next_step(n_ee, padding_factor, n_neighbours_min, n_el)
-    n_ne = round_to_next_step(n_ne, padding_factor, n_neighbours_min, n_el)
-    n_en = round_to_next_step(n_en, padding_factor, n_neighbours_min, n_el)
-    return n_ne, n_en, n_ee
-
-
 def get_nr_of_neighbours(
     dist_ee: DistanceMatrix,
     dist_ne: DistanceMatrix,
     cutoff: float,
-    padding_factor: float,
-    n_neighbours_min: int,
-) -> NrOfNeighbours:
-    n_ne, n_en, n_ee = _get_nr_of_neighbours(dist_ee, dist_ne, cutoff, padding_factor, n_neighbours_min)
-    return NrOfNeighbours(ee=int(n_ee), en=int(n_en), ne=int(n_ne))
+):
+    n_el = dist_ee.shape[-1]
+    dist_ee += jnp.diag(jnp.ones(n_el, dist_ee.dtype) * jnp.inf)
+    n_ee = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff, axis=-1)))
+    n_ne = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-1)))
+    n_en = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-2)))
+    return n_ne, n_en, n_ee
 
 
 @jit(static_argnames=("n_neighbours", "cutoff_en", "cutoff_ee"))
