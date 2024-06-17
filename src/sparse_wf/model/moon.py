@@ -64,7 +64,9 @@ class MoonElecEmb(nn.Module):
         dynamic_params_ee = DynamicFilterParams(
             scales=self.param("ee_scales", scale_initializer, self.cutoff, (self.n_envelopes,)),
             kernel=self.param(
-                "ee_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (features_ee.shape[-1], self.filter_dims[0])
+                "ee_kernel",
+                jax.nn.initializers.lecun_normal(dtype=jnp.float32),
+                (features_ee.shape[-1], self.filter_dims[0]),
             ),
             bias=self.param("ee_bias", jax.nn.initializers.normal(2, dtype=jnp.float32), (self.filter_dims[0],)),
         )
@@ -104,7 +106,9 @@ class MoonElecToNucGamma(nn.Module):
                 (n_nuc, self.n_envelopes),
             ),
             kernel=self.param(
-                "ne_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (n_nuc, features_ne.shape[-1], self.filter_dims[0])
+                "ne_kernel",
+                jax.nn.initializers.lecun_normal(dtype=jnp.float32),
+                (n_nuc, features_ne.shape[-1], self.filter_dims[0]),
             ),
             bias=self.param("ne_bias", jax.nn.initializers.normal(2, dtype=jnp.float32), (n_nuc, self.filter_dims[0])),
         )
@@ -147,9 +151,13 @@ class MoonNucToElecGamma(nn.Module):
                 (n_nuc, self.n_envelopes),
             ),
             kernel=self.param(
-                "en_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (n_nuc, features_en.shape[-1], self.filter_dims[0])
+                "en_kernel",
+                jax.nn.initializers.lecun_normal(dtype=jnp.float32),
+                (n_nuc, features_en.shape[-1], self.filter_dims[0]),
             ),
-            bias=self.param("en_bias", jax.nn.initializers.normal(2,dtype=jnp.float32), (n_nuc, self.filter_dims[0])).astype(jnp.float32),
+            bias=self.param(
+                "en_bias", jax.nn.initializers.normal(2, dtype=jnp.float32), (n_nuc, self.filter_dims[0])
+            ).astype(jnp.float32),
         )
         dynamic_params_en = jax.vmap(tree_idx, in_axes=(None, 0))(dynamic_params_en, idx_en)
         beta_en = filter_en(features_en, dynamic_params_en)
@@ -210,7 +218,9 @@ class Moon(MoonLikeWaveFunction):
                 self.cutoff,
                 (n_nuc, self.pair_n_envelopes),
             ),
-            kernel=self.param("en_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (n_nuc, 5, self.pair_mlp_widths[0])),
+            kernel=self.param(
+                "en_kernel", jax.nn.initializers.lecun_normal(dtype=jnp.float32), (n_nuc, 5, self.pair_mlp_widths[0])
+            ),
             bias=self.param("en_bias", zeros_initializer(jnp.float32), (n_nuc, self.pair_mlp_widths[0])),
         )
         self.filter_en = PairwiseFilter(
