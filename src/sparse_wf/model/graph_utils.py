@@ -58,7 +58,7 @@ def round_to_next_step(
     power_padded = jnp.log(n) / jnp.log(padding_factor)
     pad_else_result = jnp.maximum(n_neighbours_min, padding_factor ** jnp.ceil(power_padded))
     result = jnp.where(padding_factor == 1.0, pad_1_result, pad_else_result)
-    return jnp.minimum(result, n_neighbours_max)
+    return jnp.round(jnp.minimum(result, n_neighbours_max)).astype(int)
 
 
 def get_nr_of_neighbours(

@@ -517,7 +517,7 @@ class MoonEmbedding(PyTreeNode):
 
     def get_static_input(self, electrons: Array) -> StaticInputMoon:
         def round_fn(x):
-            return int(round_to_next_step(x, 1.2, 1, self.n_electrons))
+            return round_to_next_step(x, 1.2, 1, self.n_electrons)
 
         def _get_static(r):
             dist_ee, dist_ne = get_full_distance_matrices(r, self.R)
@@ -529,9 +529,11 @@ class MoonEmbedding(PyTreeNode):
             # [device x local_batch x el x 3] => electrons are split across gpus;
             n_neighbours, n_dependencies = pmap(_get_static)(electrons)
             # Data is synchronized across all devices, so we can just take the 0-th element
-            n_dependencies = [x[0] for x in n_dependencies]
-            n_neighbours = [x[0] for x in n_neighbours]
+            n_dependencies = [int(x[0]) for x in n_dependencies]
+            n_neighbours = [int(x[0]) for x in n_neighbours]
         else:
             n_neighbours, n_dependencies = jax.jit(_get_static)(electrons)
+            n_dependencies = [int(x) for x in n_dependencies]
+            n_neighbours = [int(x) for x in n_neighbours]
 
         return StaticInputMoon(n_neighbours=NrOfNeighbours(*n_neighbours), n_deps=NrOfDependencies(*n_dependencies))
