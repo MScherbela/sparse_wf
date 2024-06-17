@@ -523,20 +523,15 @@ class MoonEmbedding(PyTreeNode):
             dist_ee, dist_ne = get_full_distance_matrices(r, self.R)
             n_neighbors = get_nr_of_neighbours(dist_ee, dist_ne, self.cutoff)
             n_deps = get_max_nr_of_dependencies(dist_ee, dist_ne, self.cutoff)  # noqa: F821
-            return n_neighbors, n_deps
+            return jtu.tree_map(round_fn, (n_neighbors, n_deps))
 
         if electrons.ndim == 4:
             # [device x local_batch x el x 3] => electrons are split across gpus;
-            n_neighbours, n_deps = pmap(_get_static)(electrons)
+            n_neighbours, n_dependencies = pmap(_get_static)(electrons)
             # Data is synchronized across all devices, so we can just take the 0-th element
-            n_deps = [x[0] for x in n_deps]
+            n_dependencies = [x[0] for x in n_dependencies]
             n_neighbours = [x[0] for x in n_neighbours]
         else:
-            n_neighbours, n_deps = _get_static(electrons)
+            n_neighbours, n_dependencies = jax.jit(_get_static)(electrons)
 
-        n_deps_h0, n_deps_H, n_deps_hout = [round_fn(x) for x in n_deps]
-        n_ne, n_en, n_ee = [round_fn(x) for x in n_neighbours]
-
-        return StaticInputMoon(
-            n_neighbours=NrOfNeighbours(n_ee, n_en, n_ne), n_deps=NrOfDependencies(n_deps_h0, n_deps_H, n_deps_hout)
-        )
+        return StaticInputMoon(n_neighbours=NrOfNeighbours(*n_neighbours), n_deps=NrOfDependencies(*n_dependencies))

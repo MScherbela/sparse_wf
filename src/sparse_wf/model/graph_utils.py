@@ -71,7 +71,7 @@ def get_nr_of_neighbours(
     n_ee = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff, axis=-1)))
     n_ne = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-1)))
     n_en = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-2)))
-    return n_ne, n_en, n_ee
+    return n_ee, n_en, n_ne
 
 
 @jit(static_argnames=("n_neighbours", "cutoff_en", "cutoff_ee"))
