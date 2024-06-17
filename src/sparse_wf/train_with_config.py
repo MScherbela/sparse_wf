@@ -17,12 +17,12 @@ def get_git_commit():
 
 
 def train_with_config():
-    # log with logger-id, log-level and time-stamp; catch both stdout and stderr
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.StreamHandler()],
-    )
+    if int(os.environ.get("SLURM_PROCID", 0)) == 0:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            handlers=[logging.StreamHandler()],
+        )
     parser = argparse.ArgumentParser(description="Train a model from a config file")
     parser.add_argument("config", type=str, help="Path to the config file")
     args = parser.parse_args()
