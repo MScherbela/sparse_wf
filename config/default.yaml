@@ -87,6 +87,7 @@ optimization:
   clipping:
     clip_local_energy: 5.0
     stat: median
+  max_batch_size: 64
 
 pretraining:
   steps: 1_000

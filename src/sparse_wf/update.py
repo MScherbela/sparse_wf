@@ -68,6 +68,7 @@ def make_trainer(
     optimizer: optax.GradientTransformation,
     preconditioner: Preconditioner[P, S],
     clipping_args: ClippingArgs,
+    max_batch_size: int
 ):
     def init(key: PRNGKeyArray, params: P, electrons: Electrons, init_width: Width):
         params = replicate(params)
@@ -96,7 +97,7 @@ def make_trainer(
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
-        energy = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=64)(
+        energy = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
             state.params, electrons, static
         )
         energy_diff = local_energy_diff(energy, **clipping_args)
