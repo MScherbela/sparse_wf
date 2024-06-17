@@ -19,8 +19,12 @@ def database(hash: str | None = None, name: str | None = None, comment: str | No
     assert hash is not None or name is not None or comment is not None
     from os import path
 
-    with open(path.dirname(path.realpath(__file__)) + "/../../data/geometries.json") as inp:
-        geometries_by_hash = json.load(inp)
+    try:
+        with open("data/geometries.json") as inp:
+            geometries_by_hash = json.load(inp)
+    except FileNotFoundError:
+        with open(path.dirname(path.realpath(__file__)) + "/../../data/geometries.json") as inp:
+            geometries_by_hash = json.load(inp)
     if hash:
         geom = geometries_by_hash[hash]
     if name:
