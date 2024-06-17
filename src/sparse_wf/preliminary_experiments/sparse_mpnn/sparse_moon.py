@@ -76,7 +76,7 @@ def to_zero_padded(x, dependencies):
     jac_out = jac_out.reshape([n_el * 3, *jac.shape[2:]])
     return FwdLaplArray(x.x, FwdJacobian(data=jac_out), x.laplacian)
 
-def print_diff(name, h_dense, h_sparse):
+def print_diff(h_dense, h_sparse):
     def _diff_string(a, b):
         diff = jnp.linalg.norm(a - b)
         return f"abs={diff:.1e} rel={diff / jnp.linalg.norm(a):.1e}"
@@ -91,18 +91,20 @@ if __name__ == "__main__":
     model, electrons, params, static_args = setup_inputs(jnp.float32)
     params = model.init(rng, electrons)
     print("Computing sparse")
-    # h_sparse, dependencies = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
-    # h_sparse = to_zero_padded(h_sparse, dependencies)
-    h_sparse = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
+    h_sparse, dependencies = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
+    h_sparse = to_zero_padded(h_sparse, dependencies)
+    # h_sparse = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
 
     print("Computing dense")
-    # h_dense = fwd_lap(model.embedding.apply, argnums=1)(params.embedding, electrons, static_args)
-    h_dense = model.embedding.apply(params.embedding, electrons, static_args)
+    h_dense = fwd_lap(model.embedding.apply, argnums=1)(params.embedding, electrons, static_args)
+    # h_dense = model.embedding.apply(params.embedding, electrons, static_args)
+
+    print_diff(h_dense, h_sparse)
 
     # diff = jnp.linalg.norm(h_dense - h_sparse)
     # print(f"Diff: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense):.1e}")
 
-    for key in h_dense:
-        diff = jnp.linalg.norm(h_sparse[key] - h_dense{key})
-        print(f"{key:<10}: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense[key]):.1e}")
-    print("Done")
+    # for key in h_dense:
+    #     diff = jnp.linalg.norm(h_sparse[key] - h_dense[key])
+    #     print(f"{key:<10}: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense[key]):.1e}")
+    # print("Done")

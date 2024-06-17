@@ -407,8 +407,8 @@ class MoonEmbedding(PyTreeNode):
         edge_ne_dn = jnp.where(spin_nb_ne[..., None] < 0, edge_ne_emb, 0)
         H1_up = contract(edge_ne_up, Gamma_ne)  # type: ignore
         H1_dn = contract(edge_ne_dn, Gamma_ne)  # type: ignore
-        H1_up, params.scales["H1_up"] = normalize(h0, params.scales["H1_up"], True)
-        H1_dn, params.scales["H1_dn"] = normalize(h0, params.scales["H1_dn"], True)
+        H1_up, params.scales["H1_up"] = normalize(H1_up, params.scales["H1_up"], True)
+        H1_dn, params.scales["H1_dn"] = normalize(H1_dn, params.scales["H1_dn"], True)
 
         # construct electron embedding
         dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en)
@@ -418,28 +418,21 @@ class MoonEmbedding(PyTreeNode):
         h1, params.scales["h1"] = normalize(h1, params.scales["h1"], True)
 
         # update electron embedding
-        HL_up, HL_down = self.nuc_mlp.apply(params.nuc_mlp, H1_up, H1_dn)
-        HL_up, HL_down = cast(tuple[jax.Array, jax.Array], (HL_up, HL_down))
+        HL_up, HL_dn = self.nuc_mlp.apply(params.nuc_mlp, H1_up, H1_dn)
+        HL_up, HL_dn = cast(tuple[jax.Array, jax.Array], (HL_up, HL_dn))
         HL_up_nb_en = get_with_fill(HL_up, idx_nb.en, 0)
-        HL_down_nb_en = get_with_fill(HL_down, idx_nb.en, 0)
-        HL_nb_en = jnp.where(self.spins[..., None, None] > 0, HL_up_nb_en, HL_down_nb_en)
+        HL_dn_nb_en = get_with_fill(HL_dn, idx_nb.en, 0)
+        HL_nb_en = jnp.where(self.spins[..., None, None] > 0, HL_up_nb_en, HL_dn_nb_en)
         msg = contract(HL_nb_en, gamma_en_out)
         msg, params.scales["msg"] = normalize(msg, params.scales["msg"], True)
 
         # readout
-        hL = self.elec_out.apply(params.elec_out, h1, msg)
-        hL = cast(jax.Array, hL)
+        h_out = self.elec_out.apply(params.elec_out, h1, msg)
+        h_out = cast(jax.Array, h_out)
 
-        out = dict(
-            h0=h0,
-            h1=h1,
-            HL_nb_en=HL_nb_en,
-            msg=msg,
-            h_out=hL,
-        )
         if return_scales:
-            return out, params.scales  # type: ignore
-        return out
+            return h_out, params.scales  # type: ignore
+        return h_out
 
     def apply_with_fwd_lap(
         self, params: MoonEmbeddingParams, electrons: Electrons, static: StaticInputMoon
@@ -484,7 +477,7 @@ class MoonEmbedding(PyTreeNode):
         h0_nb_ne = pad_pairwise_jacobian(h0_nb_ne, dep_maps.h0_to_Hnuc, static.n_deps.H_nuc)
 
         # Step 3: Contract from electrons to nuclei and apply MLP
-        @functools.partial(jax.vmap, in_axes=-3, out_axes=-2)
+        @functools.partial(jax.vmap, in_axes=-3, out_axes=-2)  # vmap over nuclei
         @fwd_lap
         def contract_and_mlp(h_up, h_dn, gamma):
             H1_up = normalize(contract(h_up, gamma), params.scales["H1_up"])
@@ -514,20 +507,13 @@ class MoonEmbedding(PyTreeNode):
         HL_up_nb_en = get_neighbour_features(HL_up, idx_nb.en[: self.n_up])
         HL_dn_nb_en = get_neighbour_features(HL_dn, idx_nb.en[self.n_up :])
         HL_nb_en = jtu.tree_map(lambda u, d: jnp.concatenate([u, d], axis=-3), HL_up_nb_en, HL_dn_nb_en)
+        HL_nb_en = pad_pairwise_jacobian(HL_nb_en, dep_maps.Hnuc_to_hout, static.n_deps.h_el_out)
         msg = contract_and_normalize(HL_nb_en, gamma_en_out, params.scales["msg"])
 
         # readout
-        apply_elec_out = fwd_lap(lambda h, f: self.elec_out.apply(params.elec_out, h, m))
+        apply_elec_out = fwd_lap(lambda h, m: self.elec_out.apply(params.elec_out, h, m))
         apply_elec_out = jax.vmap(apply_elec_out, in_axes=-2, out_axes=-2)
         h_out = apply_elec_out(h1, msg)
-
-        return dict(
-            h0=h0.x,
-            h1=h1.x,
-            HL_nb_en=HL_nb_en.x,
-            msg=msg.x,
-            h_out=h_out.x,
-        )
         return h_out, deps.h_el_out
 
     def get_static_input(self, electrons: Array) -> StaticInputMoon:
