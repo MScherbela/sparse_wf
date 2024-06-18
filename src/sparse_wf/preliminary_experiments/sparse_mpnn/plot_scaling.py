@@ -2,59 +2,79 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
-df = pd.read_csv("/home/scherbelam20/develop/sparse_wf/benchmark.csv")
-df = df.groupby(["n_el", "cutoff", "batch_size"])[["t_logpsi", "t_embed", "t_energy", "n_deps_max"]].min().reset_index()
+def fit_scaling(n_el, t):
+    return np.polyfit(np.log(n_el), np.log(t), deg=1)
+
+df = pd.read_csv("/home/mscherbela/tmp/benchmark.csv")
+batch_size = df.batch_size.median()
+df = df[df.batch_size == batch_size]
+df = df.groupby(["n_el", "cutoff", "batch_size"])[["t_sampling", "t_embed", "t_energy", "n_deps_max"]].min().reset_index()
 df["t_orb_jastrow_det"] = df["t_energy"] - df["t_embed"]
+df["t_eval"] = df["t_energy"] + df["t_sampling"]
+
+df["rel_t_sampling"] = df["t_sampling"] / df["t_eval"]
+df["rel_t_embed"] = df["t_embed"] / df["t_eval"]
+df["rel_t_orb_jastrow_det"] = df["t_orb_jastrow_det"] / df["t_eval"]
 cutoff_values = sorted(df.cutoff.unique())
+fitting_n_min = 40
 
 plt.close("all")
 
-# Plot timings
-fig, axes = plt.subplots(2, 2, figsize=(10, 6))
-for timing_type, ax in zip(["t_logpsi", "t_embed", "t_orb_jastrow_det", "t_energy"], axes.flatten()):
+fig = plt.figure(figsize=(12, 6))
+gs = gridspec.GridSpec(2, 3, width_ratios=[1, 1, 1.5])  # 2 rows, 3 columns
+axes_timing = [fig.add_subplot(gs[i, j]) for i in range(2) for j in range(2)]
+ax_relative = fig.add_subplot(gs[:, 2])
+
+for timing_type, ax in zip(["t_sampling", "t_embed", "t_orb_jastrow_det", "t_energy"], axes_timing):
     for ind_co, cutoff in enumerate(cutoff_values):
         df_c = df[df["cutoff"] == cutoff]
-        ax.plot(df_c.n_el, df_c[timing_type], label=f"cutoff={cutoff:.1f}", color=f"C{ind_co}", marker='o')
+        df_fit = df_c[df_c.n_el >= fitting_n_min]
+        exponent, offset = fit_scaling(df_c.n_el, df_c[timing_type])
 
-# # (Scaling lines)
-# powers = np.array([1, 2])
-# offsets = [0.04,  0.03]
-# xmin = [32, 126]
-# for p, o, x0 in zip(powers, offsets, xmin):
-#     x_plot = np.array([x0, 512])
-#     ax_t.plot(x_plot, t_factor * o * (x_plot / 126)**p, label=f"$O(N^{{{p}}})$", linestyle="--", color="k", alpha=p/2 - 0.2)
+        n_el_fit = np.geomspace(fitting_n_min, df_c.n_el.max(), 100)
+        t_fit = np.exp(offset) * n_el_fit**exponent
+        ax.plot(df_c.n_el, df_c[timing_type], label=f"cutoff={cutoff:.1f}; O(n^{exponent:.1f})", color=f"C{ind_co}", marker='o')
+        ax.plot(n_el_fit, t_fit, color=f"C{ind_co}", linestyle="--", alpha=0.5)
+        ax.set_title(timing_type.replace("t_", ""))
 
 
-# GPU_DAYS_PER_SEC = (50e3 * 2048 / batch_size_plot) / (3600 * 24)
+ax_relative.stackplot(df.n_el, df["rel_t_sampling"], df["rel_t_embed"], df["rel_t_orb_jastrow_det"], labels=["sampling", "embed", "orb_jastrow_det"], colors=["C0", "C1", "C2"])
 
-for ax in axes.flatten():
+    
+def format_x_axis(ax):
     ax.set_xlabel("Nr of electrons")
-    ax.set_ylabel("t / s")
-    ax.set_yscale("log")
     ax.set_xscale("log")
     x_tick_values = df.n_el.unique()
     ax.set_xticks(x_tick_values, minor=False)
     ax.set_xticks([], minor=True)
     ax.xaxis.set_major_formatter("{x:.0f}")
+
+
+for ax in axes_timing:
+    format_x_axis(ax)
+    ax.set_ylabel("t / s")
+    ax.set_yscale("log")
+    ax.set_yticks([0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0], minor=False)
+    ax.set_yticks([], minor=True)
+    ax.yaxis.set_major_formatter("{x:.2f}")
     ax.legend()
     ax.grid(alpha=0.3)
 
-# # Plot nr of neighbours
-# df_max = df[df.n_el == df.n_el.max()]
-# ax_neighbours.plot(df_max.cutoff, df_max.n_deps_max, label=f"Recep. field", color=f"k", marker='o', ls='-')
-# ax_neighbours.plot(df_max.cutoff, df_max.n_nb, label=f"Direct neighbours", color=f"gray", marker='o', ls='--')
-# ax_neighbours.set_xticks(df_max.cutoff, minor=False)
-# ax_neighbours.set_xticks([], minor=True)
-# ax_neighbours.set_xlabel("Cutoff")
-# ax_neighbours.set_ylabel("Nr of neighbours")
 
-fig.suptitle(f"Scaling for H-chains with spacing of 1.8\n16dets, 256 features")
+ax_relative.set_xscale("log")
+ax_relative.set_xlabel("Nr of electrons")
+ax_relative.set_ylabel("Relative time")
+ax_relative.legend()
+ax_relative.set_title("Relative timings for evaluation")
+format_x_axis(ax_relative)
+
+
+fig.suptitle(f"Scaling for H-chains with spacing of 1.8\n{batch_size:.0f} batch size, 16 dets, 256 features")
 fig.tight_layout()
-# fig.savefig("/home/mscherbela/ucloud/results/moon_scaling.png", dpi=200)
-fig.savefig("moon_scaling.png", dpi=200)
+fig.savefig("/home/mscherbela/ucloud/results/moon_scaling.png", dpi=200)
 
 
 
