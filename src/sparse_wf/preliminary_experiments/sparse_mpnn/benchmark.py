@@ -117,4 +117,4 @@ for cutoff in cutoff_values:
                     flush=True,
                 )
 
-    csv_file.close()
+csv_file.close()

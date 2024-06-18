@@ -87,6 +87,19 @@ def get_max_nr_of_dependencies(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix,
     return n_deps_max_h0, n_deps_max_H, n_deps_max_h_out
 
 
+def _get_static(electrons: Array, R: Nuclei, cutoff: float):
+    print("Compiling _get_static in moon-embedding")
+    n_el = electrons.shape[-2]
+    dist_ee, dist_ne = get_full_distance_matrices(electrons, R)
+    n_neighbours = get_nr_of_neighbours(dist_ee, dist_ne, cutoff)
+    n_deps = get_max_nr_of_dependencies(dist_ee, dist_ne, cutoff)  # noqa: F821
+    return jtu.tree_map(lambda x: round_to_next_step(x, 1.2, 1, n_el), (n_neighbours, n_deps))
+
+
+get_static_pmapped = pmap(_get_static, in_axes=(0, None, None))
+get_static_jitted = jit(_get_static)
+
+
 class MoonElecEmb(nn.Module):
     R: Nuclei
     cutoff: float
@@ -499,22 +512,15 @@ class MoonEmbedding(PyTreeNode):
         h_out = apply_elec_out(h1, msg)
         return h_out, deps.h_el_out
 
-    def _get_static(self, electrons: Array):
-        n_el = electrons.shape[-2]
-        dist_ee, dist_ne = get_full_distance_matrices(electrons, self.R)
-        n_neighbors = get_nr_of_neighbours(dist_ee, dist_ne, self.cutoff)
-        n_deps = get_max_nr_of_dependencies(dist_ee, dist_ne, self.cutoff)  # noqa: F821
-        return jtu.tree_map(lambda x: round_to_next_step(x, 1.2, 1, n_el), (n_neighbors, n_deps))
-
     def get_static_input(self, electrons: Array) -> StaticInputMoon:
         if electrons.ndim == 4:
             # [device x local_batch x el x 3] => electrons are split across gpus;
-            n_neighbours, n_dependencies = pmap(self._get_static)(electrons)
+            n_neighbours, n_dependencies = get_static_pmapped(electrons, self.R, self.cutoff)
             # Data is synchronized across all devices, so we can just take the 0-th element
             n_dependencies = [int(x[0]) for x in n_dependencies]
             n_neighbours = [int(x[0]) for x in n_neighbours]
         else:
-            n_neighbours, n_dependencies = jax.jit(self._get_static)(electrons)
+            n_neighbours, n_dependencies = get_static_jitted(electrons, self.R, self.cutoff)
             n_dependencies = [int(x) for x in n_dependencies]
             n_neighbours = [int(x) for x in n_neighbours]
 

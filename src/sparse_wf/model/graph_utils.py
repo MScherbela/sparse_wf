@@ -36,7 +36,6 @@ class NeighbourIndices(NamedTuple):
     ne: NucleiElectronEdges
 
 
-@jit
 @vectorize(signature="(n,d),(m,d)->(n,n),(m,n)")
 def get_full_distance_matrices(r: Electrons, R: Nuclei) -> tuple[DistanceMatrix, DistanceMatrix]:
     dist_ee = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
@@ -44,7 +43,6 @@ def get_full_distance_matrices(r: Electrons, R: Nuclei) -> tuple[DistanceMatrix,
     return dist_ee, dist_ne
 
 
-@jit
 def round_to_next_step(
     n: int | Int,
     padding_factor: float,
