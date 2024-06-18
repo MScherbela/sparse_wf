@@ -93,7 +93,7 @@ def _get_static(electrons: Array, R: Nuclei, cutoff: float):
     dist_ee, dist_ne = get_full_distance_matrices(electrons, R)
     n_neighbours = get_nr_of_neighbours(dist_ee, dist_ne, cutoff)
     n_deps = get_max_nr_of_dependencies(dist_ee, dist_ne, cutoff)  # noqa: F821
-    return jtu.tree_map(lambda x: round_to_next_step(x, 1.2, 1, n_el), (n_neighbours, n_deps))
+    return jtu.tree_map(lambda x: round_to_next_step(x, 1.1, 1, n_el), (n_neighbours, n_deps))
 
 
 get_static_pmapped = pmap(_get_static, in_axes=(0, None, None))

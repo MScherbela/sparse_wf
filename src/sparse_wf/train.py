@@ -146,7 +146,8 @@ def main(
     for _ in tqdm.trange(optimization["burn_in"]):
         static = wf.get_static_input(state.electrons)
         state, aux_data = trainer.sampling_step(state, static)
-        loggers.log(dict(**aux_data))
+        aux_data = to_log_data(aux_data)
+        loggers.log(aux_data)
 
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:
@@ -154,9 +155,11 @@ def main(
             static = wf.get_static_input(state.electrons)
             t0 = time.perf_counter()
             state, _, aux_data = trainer.step(state, static)
+            aux_data = to_log_data(aux_data)
             t1 = time.perf_counter()
-            aux_data = to_log_data(aux_data | {"opt/t_step": t1 - t0})
-            loggers.log(dict(opt_step=opt_step, **aux_data))
+            aux_data["opt/t_step"] = t1 - t0
+            aux_data["opt/step"] = opt_step
+            loggers.log(aux_data)
             if np.isnan(aux_data["opt/E"]):
                 raise ValueError("NaN in energy")
             set_postfix(pbar, aux_data)
