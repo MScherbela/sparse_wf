@@ -9,9 +9,6 @@ import functools
 from sparse_wf.api import Electrons, HFOrbitals, Int, SlaterMatrices, SignedLogAmplitude
 import einops
 
-from sparse_wf.model.moon import ScalingParam
-
-
 ElecInp = Float[Array, "*batch n_electrons n_in"]
 ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei"]
 ElecElecDistances = Float[Array, "*batch n_electrons n_electrons"]
@@ -287,6 +284,9 @@ def get_diff_features(
 
 
 get_diff_features_vmapped = jax.vmap(get_diff_features, in_axes=(None, 0, None, 0))
+
+
+ScalingParam = Float[Array, ""]
 
 
 def normalize(x, scale: ScalingParam | None, return_scale=False):

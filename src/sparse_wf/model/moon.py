@@ -36,6 +36,7 @@ from sparse_wf.model.utils import (
     lecun_normal,
     normalize,
     scale_initializer,
+    ScalingParam,
 )
 from sparse_wf.tree_utils import tree_idx
 import functools
@@ -232,9 +233,6 @@ def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies)
     return DependenciesMoon(deps_h0, deps_H, deps_hout), DependencyMaps(
         dep_map_h0_to_H, dep_map_Gamma_ne_to_H, dep_map_H_to_hout, dep_map_h0_to_hout
     )
-
-
-ScalingParam = Float[Array, ""]
 
 
 class MoonScales(TypedDict):
