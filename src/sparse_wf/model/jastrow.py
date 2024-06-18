@@ -1,51 +1,15 @@
 from jaxtyping import Array, Float
-from sparse_wf.api import Electrons, JastrowFactorArgs
+from sparse_wf.api import Electrons
 from sparse_wf.model.utils import MLP, get_dist_same_diff
+from sparse_wf.model.graph_utils import pad_jacobian_to_dense
 import flax.linen as nn
 import jax.numpy as jnp
-from typing import Sequence, cast, Optional
 import jax
-
-
-class JastrowFactor(nn.Module):
-    embedding_n_hidden: Optional[Sequence[int]]
-    soe_n_hidden: Optional[Sequence[int]]
-    use: bool = True
-
-    @nn.compact
-    def __call__(self, embeddings):
-        """
-        There are three options here (i is the electron index):
-        (1) J_i = MLP_[embedding_n_hidden, 1](embeddings) , J=sum(J_i)
-        (2) J_i = MLP_[embedding_n_hidden](embeddings), J=MLP_[soe_n_hidden, 1](sum(J_i))
-        (3) J=MLP_[soe_n_hidden, 1](sum(embeddings_i))
-        """
-        if self.embedding_n_hidden is None and self.soe_n_hidden is None:
-            raise KeyError("Either embedding_n_hidden or soe_n_hidden must be specified when using mlp jastrow.")
-
-        if self.embedding_n_hidden is not None:
-            if self.soe_n_hidden is None:  # Option (1)
-                jastrow = jnp.squeeze(
-                    MLP([*self.embedding_n_hidden, 1], activate_final=False, residual=False, output_bias=False)(
-                        embeddings
-                    ),
-                    axis=-1,
-                )
-                jastrow = jnp.sum(jastrow, axis=-1)
-            else:  # Option (2) part 1
-                jastrow = MLP(self.embedding_n_hidden, activate_final=False, residual=False, output_bias=False)(
-                    embeddings
-                )
-        else:  # Option (3) part 2
-            jastrow = embeddings
-
-        if self.soe_n_hidden is not None:  # Option (2 or 3)
-            jastrow = jnp.sum(jastrow, axis=-2)  # Sum over electrons.
-            jastrow = jnp.squeeze(
-                MLP([*self.soe_n_hidden, 1], activate_final=False, residual=False, output_bias=False)(jastrow), axis=-1
-            )
-
-        return jastrow
+from sparse_wf.jax_utils import fwd_lap
+from folx.api import FwdLaplArray, FwdJacobian
+from typing import Literal
+import functools
+from sparse_wf.tree_utils import tree_add
 
 
 class YukawaJastrow(nn.Module):
@@ -85,22 +49,75 @@ class ElElCusp(nn.Module):
 
 class Jastrow(nn.Module):
     n_up: int
-    mlp: JastrowFactorArgs
-    log: JastrowFactorArgs
-    use_yukawa_jastrow: bool
-    use_e_e_cusp: bool
+    e_e_cusps: Literal["none", "psiformer", "yukawa"]
+    use_log_jastrow: bool
+    use_mlp_jastrow: bool
+    mlp_depth: int
+    mlp_width: int
 
-    @nn.compact
+    def setup(self):
+        if self.e_e_cusps == "none":
+            self.pairwise_cusps = None
+        elif self.e_e_cusps == "psiformer":
+            self.pairwise_cusps = ElElCusp(self.n_up)
+        elif self.e_e_cusps == "yukawa":
+            self.pairwise_cusps = YukawaJastrow(self.n_up)
+        else:
+            raise ValueError(f"Unknown e_e_cusps: {self.e_e_cusps}")
+
+        if self.use_mlp_jastrow or self.use_log_jastrow:
+            self.mlp = MLP([self.mlp_width] * self.mlp_depth + [2], activate_final=False)
+        else:
+            self.mlp = None
+
     def __call__(self, electrons: Electrons, embeddings: jax.Array) -> jax.Array:
-        assert not (self.use_yukawa_jastrow and self.use_e_e_cusp), "Do not use both Yukawa and ElElCusp"
-        logpsi = 0.0
-        if self.mlp["use"]:
-            logpsi += JastrowFactor(**self.mlp, name="mlp_jastrow")(embeddings)
-        if self.log["use"]:
-            j = JastrowFactor(**self.log, name="log_jastrow")(embeddings)
-            logpsi += jnp.log(jnp.abs(j))
-        if self.use_e_e_cusp:
-            logpsi += ElElCusp(self.n_up)(electrons)
-        if self.use_yukawa_jastrow:
-            logpsi += YukawaJastrow(self.n_up)(electrons)
-        return cast(jax.Array, logpsi)
+        logpsi = jnp.zeros([])
+        if self.pairwise_cusps:
+            logpsi += self.pairwise_cusps(electrons)
+        if self.mlp:
+            jastrows = self.mlp(embeddings)
+            jastrows = jnp.sum(jastrows, axis=-2)  # sum over electrons
+            if self.use_mlp_jastrow:
+                logpsi += jastrows[0]
+            if self.use_log_jastrow:
+                logpsi += jnp.log(jnp.abs(jastrows[1]))
+        return logpsi
+
+    def _apply_mlp(self, embeddings):
+        return self.mlp(embeddings)
+
+    def _apply_pairwise_cusps(self, electrons):
+        return self.pairwise_cusps(electrons)
+
+    def apply_with_fwd_lap(self, params, electrons: Electrons, embeddings: FwdLaplArray, dependencies) -> jax.Array:
+        zeros = jnp.zeros([], electrons.dtype)
+        logpsi = FwdLaplArray(zeros, FwdJacobian(data=zeros), zeros)
+        if self.e_e_cusps != "none":
+
+            @functools.partial(fwd_lap, sparsity_threshold=0.6)
+            def get_pairwise_jastrow(r):
+                return self.apply(params, r, method=self._apply_pairwise_cusps)
+
+            logpsi = tree_add(logpsi, get_pairwise_jastrow(electrons))
+        if self.use_mlp_jastrow or self.use_log_jastrow:
+            _get_jastrows = functools.partial(self.apply, params, method=self._apply_mlp)
+            _get_jastrows = fwd_lap(_get_jastrows, argnums=0)
+            _get_jastrows = jax.vmap(_get_jastrows, in_axes=-2, out_axes=-2)
+            jastrows = _get_jastrows(embeddings)
+            # TODO: this generates an n_el x n_el x 2 tensor, which is very sparse, and which is immediately summed over in the the next step.
+            # Find a way to avoid this. Probably using reverse dependency mapping.
+            n_el = electrons.shape[-2]
+            jastrows = jax.vmap(pad_jacobian_to_dense, in_axes=(-2, 0, None), out_axes=-2)(jastrows, dependencies, n_el)
+
+            @fwd_lap
+            def _get_logpsi(jastrows):
+                jastrows = jnp.sum(jastrows, axis=-2)  # sum over electrons
+                logpsi = zeros
+                if self.use_mlp_jastrow:
+                    logpsi += jastrows[0]
+                if self.use_log_jastrow:
+                    logpsi += jnp.log(jnp.abs(jastrows[1]))
+                return logpsi
+
+            logpsi = tree_add(logpsi, _get_logpsi(jastrows))
+        return logpsi

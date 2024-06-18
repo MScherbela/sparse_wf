@@ -32,16 +32,11 @@ model_args:
     pair_mlp_widths: [16, 8]
     pair_n_envelopes: 32
   jastrow:
-    use_e_e_cusp: True
-    use_yukawa_jastrow: False
-    mlp:
-      use: true
-      embedding_n_hidden: [40,40]
-      soe_n_hidden: [40,40]
-    log:
-      use: false
-      embedding_n_hidden: [40,40]
-      soe_n_hidden: [40,40]
+    e_e_cusps: psiformer
+    use_log_jastrow: True
+    use_mlp_jastrow: True
+    mlp_depth: 2
+    mlp_width: 64
 
 logging_args:
   smoothing: 5000

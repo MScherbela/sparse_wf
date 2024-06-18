@@ -169,3 +169,5 @@ sparse_wf.txt
 logs
 runs
 log.txt
+src/sparse_wf/preliminary_experiments/sparse_mpnn/moon_scaling.png
+benchmark.csv

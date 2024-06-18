@@ -1,7 +1,5 @@
 # %%
 import functools
-import itertools
-import os
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -13,9 +11,9 @@ from pyscf.gto import Mole
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.mcmc import init_electrons
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
-from sparse_wf.api import JastrowArgs, EmbeddingArgs, JastrowFactorArgs
+from sparse_wf.api import JastrowArgs, EmbeddingArgs
 
-jax_config.update("jax_enable_x64", False)
+jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
 
 
@@ -30,19 +28,21 @@ def build_model(mol):
     return MoonLikeWaveFunction.create(
         mol,
         embedding=EmbeddingArgs(
-        cutoff=2.0,
-        feature_dim=256,
-        nuc_mlp_depth=2,
-        pair_mlp_widths=(16, 8),
-        pair_n_envelopes=32,
+            cutoff=2.0,
+            feature_dim=64,
+            nuc_mlp_depth=2,
+            pair_mlp_widths=(8, 4),
+            pair_n_envelopes=7,
         ),
         n_envelopes=8,
         n_determinants=2,
         jastrow=JastrowArgs(
-        use_e_e_cusp=True,
-        mlp=JastrowFactorArgs(use=False, embedding_n_hidden=None, soe_n_hidden=None),
-        log=JastrowFactorArgs(use=False, embedding_n_hidden=None, soe_n_hidden=None),
-        use_yukawa_jastrow=False)
+            e_e_cusps="psiformer",
+            use_log_jastrow=False,
+            use_mlp_jastrow=True,
+            mlp_depth=2,
+            mlp_width=8,
+        )
     )
 
 
@@ -78,12 +78,32 @@ def to_zero_padded(x, dependencies):
     jac_out = jac_out.reshape([n_el * 3, *jac.shape[2:]])
     return FwdLaplArray(x.x, FwdJacobian(data=jac_out), x.laplacian)
 
+def print_diff(h_dense, h_sparse):
+    def _diff_string(a, b):
+        diff = jnp.linalg.norm(a - b)
+        return f"abs={diff:.1e} rel={diff / jnp.linalg.norm(a):.1e}"
+    print(f"Value:     {_diff_string(h_dense.x, h_sparse.x)}")
+    print(f"Jacobian:  {_diff_string(h_dense.jacobian.data, h_sparse.jacobian.data)}")
+    print(f"Laplacian: {_diff_string(h_dense.laplacian, h_sparse.laplacian)}")
+
 
 if __name__ == "__main__":
     rng = jax.random.PRNGKey(0)
 
-    model, electrons, params, static_args = setup_inputs(jnp.float32)
+    model, electrons, params, static = setup_inputs(jnp.float32)
     params = model.init(rng, electrons)
-    h = model.embedding.apply(params.embedding, electrons, static_args)
-    embedding_int, dependencies = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
-    # embedding_ext = fwd_lap(lambda r: model.embedding(params, r, static_args))(electrons)
+    print("Computing sparse")
+    logpsi_sparse = model._logpsi_with_fwd_lap(params, electrons, static)
+
+    print("Computing dense")
+    logpsi_dense = fwd_lap(lambda r: model(params, r, static))(electrons)
+
+    print_diff(logpsi_dense, logpsi_sparse)
+
+    # diff = jnp.linalg.norm(h_dense - h_sparse)
+    # print(f"Diff: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense):.1e}")
+
+    # for key in h_dense:
+    #     diff = jnp.linalg.norm(h_sparse[key] - h_dense[key])
+    #     print(f"{key:<10}: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense[key]):.1e}")
+    print("Done")

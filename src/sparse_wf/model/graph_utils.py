@@ -8,7 +8,8 @@ from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer, Shaped
 
 from sparse_wf.api import Electrons, Int, Nuclei, Spins
-from sparse_wf.jax_utils import jit, vectorize
+from sparse_wf.jax_utils import jit, vectorize, pmax_if_pmap
+import jax.tree_util as jtu
 
 NO_NEIGHBOUR = 1_000_000
 
@@ -35,7 +36,6 @@ class NeighbourIndices(NamedTuple):
     ne: NucleiElectronEdges
 
 
-@jit
 @vectorize(signature="(n,d),(m,d)->(n,n),(m,n)")
 def get_full_distance_matrices(r: Electrons, R: Nuclei) -> tuple[DistanceMatrix, DistanceMatrix]:
     dist_ee = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
@@ -43,7 +43,6 @@ def get_full_distance_matrices(r: Electrons, R: Nuclei) -> tuple[DistanceMatrix,
     return dist_ee, dist_ne
 
 
-@jit
 def round_to_next_step(
     n: int | Int,
     padding_factor: float,
@@ -57,38 +56,20 @@ def round_to_next_step(
     power_padded = jnp.log(n) / jnp.log(padding_factor)
     pad_else_result = jnp.maximum(n_neighbours_min, padding_factor ** jnp.ceil(power_padded))
     result = jnp.where(padding_factor == 1.0, pad_1_result, pad_else_result)
-    return jnp.minimum(result, n_neighbours_max)
-
-
-@jax.jit
-def _get_nr_of_neighbours(
-    dist_ee: DistanceMatrix,
-    dist_ne: DistanceMatrix,
-    cutoff: float,
-    padding_factor: float,
-    n_neighbours_min: int,
-):
-    n_el = dist_ee.shape[-1]
-    dist_ee += jnp.diag(jnp.ones(n_el, dist_ee.dtype) * jnp.inf)
-    n_ee = jnp.max(jnp.sum(dist_ee < cutoff, axis=-1))
-    n_ne = jnp.max(jnp.sum(dist_ne < cutoff, axis=-1))
-    n_en = jnp.max(jnp.sum(dist_ne < cutoff, axis=-2))
-
-    n_ee = round_to_next_step(n_ee, padding_factor, n_neighbours_min, n_el)
-    n_ne = round_to_next_step(n_ne, padding_factor, n_neighbours_min, n_el)
-    n_en = round_to_next_step(n_en, padding_factor, n_neighbours_min, n_el)
-    return n_ne, n_en, n_ee
+    return jnp.round(jnp.minimum(result, n_neighbours_max)).astype(int)
 
 
 def get_nr_of_neighbours(
     dist_ee: DistanceMatrix,
     dist_ne: DistanceMatrix,
     cutoff: float,
-    padding_factor: float,
-    n_neighbours_min: int,
-) -> NrOfNeighbours:
-    n_ne, n_en, n_ee = _get_nr_of_neighbours(dist_ee, dist_ne, cutoff, padding_factor, n_neighbours_min)
-    return NrOfNeighbours(ee=int(n_ee), en=int(n_en), ne=int(n_ne))
+):
+    n_el = dist_ee.shape[-1]
+    dist_ee += jnp.diag(jnp.ones(n_el, dist_ee.dtype) * jnp.inf)
+    n_ee = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff, axis=-1)))
+    n_ne = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-1)))
+    n_en = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-2)))
+    return n_ee, n_en, n_ne
 
 
 @jit(static_argnames=("n_neighbours", "cutoff_en", "cutoff_ee"))
@@ -128,6 +109,10 @@ def get_with_fill(
     fill: float | int,
 ) -> Shaped[Array, "*batch_dims n_neighbours feature_dim"]:
     return jnp.asarray(arr).at[ind].get(mode="fill", fill_value=fill)
+
+
+def get_neighbour_features(h: FwdLaplArray, ind_neighbour: Integer[Array, "n_center n_neighbour"]) -> FwdLaplArray:
+    return jtu.tree_map(lambda x: x.at[..., ind_neighbour, :].get(mode="fill", fill_value=0.0), h)
 
 
 # @functools.partial(jnp.vectorize, excluded=(3,), signature="(n_nb,deps_nb),(deps_center),(deps_frozen)->(deps_out)")
@@ -174,7 +159,7 @@ def _split_off_xyz_dim(jac):
     return jac.reshape([jac.shape[0] // 3, 3, *jac.shape[1:]])
 
 
-def pad_jacobian_to_output_deps(x: FwdLaplArray, dep_map: Integer[Array, " deps"], n_deps_out: int) -> FwdLaplArray:
+def _pad_jacobian_to_output_deps(x: FwdLaplArray, dep_map: Integer[Array, " deps"], n_deps_out: int) -> FwdLaplArray:
     jac: Float[Array, "deps*3 features"] = x.jacobian.data
     n_features = jac.shape[-1]
     jac = _split_off_xyz_dim(jac)
@@ -184,11 +169,29 @@ def pad_jacobian_to_output_deps(x: FwdLaplArray, dep_map: Integer[Array, " deps"
     return FwdLaplArray(x=x.x, jacobian=FwdJacobian(jac_out), laplacian=x.laplacian)
 
 
+pad_jacobian = jax.vmap(_pad_jacobian_to_output_deps, in_axes=(-2, -2, None), out_axes=-2)
+pad_pairwise_jacobian = jax.vmap(pad_jacobian, in_axes=(-3, -3, None), out_axes=-3)
+
+
+def zeropad_jacobian(x: FwdLaplArray, n_deps_out: int) -> FwdLaplArray:
+    padding_shape = (n_deps_out - x.jacobian.data.shape[0], *x.jacobian.data.shape[1:])
+    jac_padded = jnp.concatenate([x.jacobian.data, jnp.zeros(padding_shape, x.jacobian.data.dtype)], axis=0)
+    return FwdLaplArray(x=x.x, jacobian=FwdJacobian(jac_padded), laplacian=x.laplacian)
+
+
+def pad_jacobian_to_dense(x: FwdLaplArray, dependencies, n_deps_out: int) -> FwdLaplArray:
+    jac = _split_off_xyz_dim(x.jacobian.data)
+    jac_out = jnp.zeros([n_deps_out, 3, *jac.shape[2:]], x.dtype)
+    jac_out = jac_out.at[dependencies, ...].set(jac, mode="drop")
+    jac_out = _merge_xyz_dim(jac_out)
+    return FwdLaplArray(x=x.x, jacobian=FwdJacobian(jac_out), laplacian=x.laplacian)
+
+
 def get_inverse_from_lu(lu, permutation):
     n = lu.shape[0]
     b = jnp.eye(n, dtype=lu.dtype)[permutation]
-    x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=True, unit_diagonal=True)
-    x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=False)
+    x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=True, unit_diagonal=True)  # type: ignore (private usage?)
+    x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=False)  # type: ignore (private usage?)
     return x
 
 
@@ -208,7 +211,7 @@ def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Ar
     n_deps = dependencies.shape[-1]
     assert n_el == n_orb
 
-    orbitals_lu, orbitals_pivot, orbitals_permutation = jax.lax.linalg.lu(orbitals.x)
+    orbitals_lu, orbitals_pivot, orbitals_permutation = jax.lax.linalg.lu(orbitals.x)  # type: ignore (private usage?)
     orbitals_inv = get_inverse_from_lu(orbitals_lu, orbitals_permutation)
     sign, logdet = slogdet_from_lu(orbitals_lu, orbitals_pivot)
 

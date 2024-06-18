@@ -162,7 +162,8 @@ def assign_spins_to_atoms(R: Nuclei, Z: Charges):
 
 def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> Electrons:
     batch_size = batch_size - (batch_size % jax.device_count())
-    electrons = jax.random.normal(key, (batch_size, mol.nelectron, 3), dtype=jnp.float32)
+    local_batch_size = (batch_size // jax.device_count()) * jax.local_device_count()
+    electrons = jax.random.normal(key, (local_batch_size, mol.nelectron, 3), dtype=jnp.float32)
 
     R = jnp.array(mol.atom_coords(), dtype=jnp.float32)
     n_atoms = len(R)

@@ -5,6 +5,8 @@ import jax
 import jax.numpy as jnp
 import pyscf
 import numpy as np
+import jax.tree_util as jtu
+import functools
 
 from sparse_wf.api import (
     Charges,
@@ -22,9 +24,11 @@ from sparse_wf.api import (
     SlaterMatrices,
 )
 from sparse_wf.api import StaticInput
-from sparse_wf.hamiltonian import make_local_energy
-from sparse_wf.jax_utils import vectorize
+from sparse_wf.hamiltonian import make_local_energy, potential_energy
+from sparse_wf.jax_utils import vectorize, fwd_lap
+from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.jastrow import Jastrow
+from sparse_wf.model.graph_utils import zeropad_jacobian, slogdet_with_sparse_fwd_lap
 from sparse_wf.model.utils import (
     IsotropicEnvelope,
     hf_orbitals_to_fulldet_orbitals,
@@ -33,6 +37,7 @@ from sparse_wf.model.utils import (
 )
 from flax.struct import PyTreeNode
 from sparse_wf.model.moon import MoonEmbedding
+from folx.api import FwdLaplArray
 
 
 class MoonLikeParams(NamedTuple):
@@ -95,7 +100,11 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
             n_up=n_up,
             n_determinants=n_determinants,
             n_envelopes=n_envelopes,
-            to_orbitals=nn.Dense(n_determinants * mol.nelectron, name="to_orbitals"),
+            to_orbitals=nn.Dense(
+                n_determinants * mol.nelectron,
+                name="to_orbitals",
+                bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
+            ),
             envelope=IsotropicEnvelope(n_determinants, n_electrons, n_envelopes),
             embedding=MoonEmbedding.create(R, Z, n_electrons, n_up, **embedding),
             jastrow=Jastrow(n_up, **jastrow),
@@ -107,6 +116,38 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         envelopes = jax.vmap(lambda d: self.envelope.apply(params.envelope, d))(dist_en_full)
         orbitals = einops.rearrange(orbitals * envelopes, "el (det orb) -> det el orb", det=self.n_determinants)  # type: ignore
         return (swap_bottom_blocks(orbitals, self.n_up),)
+
+    def _orbitals_with_fwd_lap(self, params: MoonLikeParams, electrons: Electrons, embeddings) -> tuple[FwdLaplArray]:
+        # vmap over electrons
+        @functools.partial(jax.vmap, in_axes=(0, -2), out_axes=-2)
+        def get_orbital_row(r_el, h):
+            @fwd_lap
+            def get_envelopes(r):
+                distances = jnp.linalg.norm(r - self.R, axis=-1)
+                return self.envelope.apply(params.envelope, distances)
+
+            envelopes = get_envelopes(r_el)
+            orbitals = fwd_lap(self.to_orbitals.apply, argnums=1)(params.to_orbitals, h)
+            orbitals = zeropad_jacobian(orbitals, n_deps_out=embeddings.jacobian.data.shape[0])
+            orbitals = fwd_lap(lambda o, e: (o * e).reshape(self.n_determinants, -1))(orbitals, envelopes)
+            return orbitals
+
+        orbitals = get_orbital_row(electrons, embeddings)
+        orbitals = jtu.tree_map(lambda o: swap_bottom_blocks(o, self.n_up), orbitals)
+        return orbitals
+
+    def _logpsi_with_fwd_lap(self, params, electrons, static):
+        embeddings, dependencies = self.embedding.apply_with_fwd_lap(params.embedding, electrons, static)
+        orbitals = self._orbitals_with_fwd_lap(params, electrons, embeddings)
+
+        # vmap over determinants
+        signs, logdets = jax.vmap(lambda o: slogdet_with_sparse_fwd_lap(o, dependencies), in_axes=-3, out_axes=-1)(
+            orbitals
+        )
+        logpsi = fwd_lap(lambda logdets_: jax.nn.logsumexp(logdets_, b=signs, return_sign=True)[0])(logdets)
+        logpsi_jastrow = self.jastrow.apply_with_fwd_lap(params.jastrow, electrons, embeddings, dependencies)
+        logpsi = tree_add(logpsi, logpsi_jastrow)
+        return logpsi
 
     @vectorize(signature="(nel,dim)->(),()", excluded=(0, 1, 3))
     def signed(self, params: MoonLikeParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
@@ -131,7 +172,10 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
-        return self.local_energy_dense(params, electrons, static)
+        logpsi = self._logpsi_with_fwd_lap(params, electrons, static)
+        kinetic_energy = -0.5 * (logpsi.laplacian.sum() + jnp.vdot(logpsi.jacobian.data, logpsi.jacobian.data))
+        potential = potential_energy(electrons, self.R, self.Z)
+        return kinetic_energy + potential
 
     def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
