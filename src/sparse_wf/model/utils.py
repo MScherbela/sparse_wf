@@ -9,6 +9,8 @@ import functools
 from sparse_wf.api import Electrons, HFOrbitals, Int, SlaterMatrices, SignedLogAmplitude
 import einops
 
+from sparse_wf.model.moon import ScalingParam
+
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
 ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei"]
@@ -133,6 +135,12 @@ def truncated_normal_with_mean_initializer(mean: float, stddev=0.01):
         return mean + nn.initializers.truncated_normal(stddev)(key, shape, dtype)
 
     return init
+
+
+def lecun_normal(rng, shape):
+    fan_in = shape[0]
+    scale = 1 / jnp.sqrt(fan_in)
+    return jax.random.truncated_normal(rng, -1, 1, shape, jnp.float32) * scale
 
 
 class IsotropicEnvelope(nn.Module):
@@ -279,6 +287,16 @@ def get_diff_features(
 
 
 get_diff_features_vmapped = jax.vmap(get_diff_features, in_axes=(None, 0, None, 0))
+
+
+def normalize(x, scale: ScalingParam | None, return_scale=False):
+    if scale is None:
+        scale = 1.0 / jnp.std(x)
+        scale = jnp.where(jnp.isfinite(scale), scale, 1.0)
+    x = x * scale
+    if return_scale:
+        return x, scale
+    return x
 
 
 class FixedScalingFactor(nn.Module):

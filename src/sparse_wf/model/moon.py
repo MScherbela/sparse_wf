@@ -33,6 +33,8 @@ from sparse_wf.model.utils import (
     contract,
     get_diff_features,
     get_diff_features_vmapped,
+    lecun_normal,
+    normalize,
     scale_initializer,
 )
 from sparse_wf.tree_utils import tree_idx
@@ -41,12 +43,6 @@ import jax.tree_util as jtu
 from flax.struct import PyTreeNode
 from folx.api import FwdLaplArray
 from sparse_wf.jax_utils import fwd_lap, pmax_if_pmap, pmap
-
-
-def lecun_normal(rng, shape):
-    fan_in = shape[0]
-    scale = 1 / jnp.sqrt(fan_in)
-    return jax.random.truncated_normal(rng, -1, 1, shape, jnp.float32) * scale
 
 
 class NucleusDependentParams(NamedTuple):
@@ -63,6 +59,19 @@ class NrOfDependencies(NamedTuple):
 class StaticInputMoon(NamedTuple):
     n_deps: NrOfDependencies
     n_neighbours: NrOfNeighbours
+
+
+class DependenciesMoon(NamedTuple):
+    h0: Dependency
+    H_nuc: Dependency
+    h_el_out: Dependency
+
+
+class DependencyMaps(NamedTuple):
+    h0_to_Hnuc: DependencyMap
+    Gamma_ne_to_Hnuc: DependencyMap
+    Hnuc_to_hout: DependencyMap
+    h0_to_hout: DependencyMap
 
 
 def get_max_nr_of_dependencies(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix, cutoff: float):
@@ -172,19 +181,6 @@ class MoonElecOut(nn.Module):
         return FixedScalingFactor()(out + elec)
 
 
-class DependenciesMoon(NamedTuple):
-    h0: Dependency
-    H_nuc: Dependency
-    h_el_out: Dependency
-
-
-class DependencyMaps(NamedTuple):
-    h0_to_Hnuc: DependencyMap
-    Gamma_ne_to_Hnuc: DependencyMap
-    Hnuc_to_hout: DependencyMap
-    h0_to_hout: DependencyMap
-
-
 @jit(static_argnames=("n_deps_max",))
 def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies):
     """Get the indices of electrons on which each embedding will depend on.
@@ -258,16 +254,6 @@ class MoonEmbeddingParams(PyTreeNode):
     dynamic_params_en: NucleusDependentParams
     dynamic_params_ne: NucleusDependentParams
     scales: MoonScales
-
-
-def normalize(x, scale: ScalingParam | None, return_scale=False):
-    if scale is None:
-        scale = 1.0 / jnp.std(x)
-        scale = jnp.where(jnp.isfinite(scale), scale, 1.0)
-    x = x * scale
-    if return_scale:
-        return x, scale
-    return x
 
 
 class MoonEmbedding(PyTreeNode):
