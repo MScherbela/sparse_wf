@@ -24,11 +24,11 @@ model: moon
 
 model_args:
   n_determinants: 16
-  n_envelopes: 16
+  n_envelopes: 8
   embedding:
     cutoff: 10.0
     feature_dim: 256
-    nuc_mlp_depth: 3
+    nuc_mlp_depth: 4
     pair_mlp_widths: [16, 8]
     pair_n_envelopes: 32
   jastrow:
