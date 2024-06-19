@@ -134,17 +134,10 @@ def truncated_normal_with_mean_initializer(mean: float, stddev=0.01):
     return init
 
 
-def lecun_normal(rng, shape):
-    fan_in = shape[0]
-    scale = 1 / jnp.sqrt(fan_in)
-    return jax.random.truncated_normal(rng, -1, 1, shape, jnp.float32) * scale
-
-
 class IsotropicEnvelope(nn.Module):
     n_determinants: int
     n_orbitals: int
-    envelope_size: int
-    # cutoff: Optional[float] = None
+    cutoff: Optional[float] = None
 
     def _sigma_initializer(self, key, shape, dtype=jnp.float32):
         assert shape[-1] == self.envelope_size
@@ -155,19 +148,39 @@ class IsotropicEnvelope(nn.Module):
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = self.param("sigma", self._sigma_initializer, (n_nuc, self.envelope_size))
+        sigma = self.param("sigma", self._sigma_initializer, (n_nuc, self.n_determinants * self.n_orbitals))
         sigma = nn.softplus(sigma)
-
+        pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32)
         scaled_dists = dists[..., None] * sigma
         env = jnp.exp(-scaled_dists)
-        # if self.cutoff is not None:
-        #     env *= cutoff_function(dists / self.cutoff)
-        env = env.reshape(-1)  # [atom x envelopes] => [atom*envelopes]
-        out = nn.Dense(
-            self.n_orbitals * self.n_determinants,
-            use_bias=False,
-        )(env)
+        if self.cutoff is not None:
+            env *= cutoff_function(dists / self.cutoff)
+        out = jnp.einsum("...nd,nd->...d", env, pi)
         return out
+
+
+class EfficientIsotropicEnvelopes(nn.Module):
+    n_determinants: int
+    n_orbitals: int
+    n_envelopes: int
+    cutoff: Optional[float] = None
+
+    @nn.compact
+    def __call__(self, dists: ElecNucDistances) -> jax.Array:
+        n_nuc = dists.shape[-1]
+        sigma = self.param("sigma", jnn.initializers.ones, (n_nuc, self.n_determinants, self.n_envelopes))
+        sigma = nn.softplus(sigma)
+        pi = self.param(
+            "pi",
+            jnn.initializers.normal(1 / jnp.sqrt(self.n_envelopes)),
+            (n_nuc, self.n_determinants, self.n_envelopes, self.n_orbitals),
+        )
+        scaled_dists = dists[..., None, None] * sigma
+        env = jnp.exp(-scaled_dists)
+        if self.cutoff is not None:
+            env *= cutoff_function(dists / self.cutoff)
+        out = jnp.einsum("...nde,ndeo->...do", env, pi)
+        return out.reshape(*out.shape[:-2], -1)
 
 
 class SlaterOrbitals(nn.Module):
@@ -180,7 +193,7 @@ class SlaterOrbitals(nn.Module):
         n_el = h_one.shape[-2]
         spins = np.array(self.spins)
         orbitals = nn.Dense(self.n_determinants * n_el)(h_one)
-        orbitals *= IsotropicEnvelope(self.n_determinants, n_el, self.envelope_size)(dists)
+        orbitals *= EfficientIsotropicEnvelopes(self.n_determinants, n_el, self.envelope_size)(dists)
         orbitals = einops.rearrange(
             orbitals, "... el (det orb) -> ... det el orb", el=n_el, orb=n_el, det=self.n_determinants
         )
