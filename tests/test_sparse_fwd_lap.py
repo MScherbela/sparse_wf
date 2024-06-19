@@ -18,7 +18,7 @@ from pyscf.gto import Mole
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.mcmc import init_electrons
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
-from sparse_wf.api import EmbeddingArgs, JastrowArgs, JastrowFactorArgs
+from sparse_wf.api import EmbeddingArgs, JastrowArgs
 
 jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
@@ -39,10 +39,11 @@ def build_model(mol):
             cutoff=2.0, feature_dim=256, nuc_mlp_depth=2, pair_mlp_widths=(16, 8), pair_n_envelopes=32
         ),
         jastrow=JastrowArgs(
-            log=JastrowFactorArgs(use=False, embedding_n_hidden=None, soe_n_hidden=None),
-            mlp=JastrowFactorArgs(use=False, embedding_n_hidden=None, soe_n_hidden=None),
-            use_e_e_cusp=False,
-            use_yukawa_jastrow=False,
+            e_e_cusps="none",
+            use_log_jastrow=True,
+            use_mlp_jastrow=False,
+            mlp_depth=3,
+            mlp_width=256,
         ),
         n_envelopes=16,
     )
