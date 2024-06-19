@@ -1,10 +1,15 @@
+import os
+
+os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+os.environ["JAX_DEFAULT_DTYPE_BITS"] = "32"
+
+# ruff: noqa: E402
 from sparse_wf.api import LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
 import pyscf.gto
 import wonderwords
 from collections import Counter
-import os
 from typing import Any, cast, Sequence
-from seml.experiment import Experiment
+from seml import Experiment
 from seml.utils import flatten, merge_dicts
 from sparse_wf.train import main
 from sparse_wf.system import get_molecule
@@ -36,7 +41,7 @@ def get_run_name(mol: pyscf.gto.Mole, name_keys: Sequence[str] | None, config):
 
 
 def update_logging_configuration(
-    mol: pyscf.gto.Mole, db_collection: str, logging_args: LoggingArgs, config
+    mol: pyscf.gto.Mole, db_collection: str | None, logging_args: LoggingArgs, config
 ) -> LoggingArgs:
     folder_name = db_collection if db_collection else os.environ.get("USER", "default")
     updates: dict[str, Any] = {}
@@ -66,10 +71,11 @@ def seml_main(
     mcmc_steps: int,
     init_width: float,
     seed: int,
+    db_collection: str | None,
     logging_args: LoggingArgs,
 ):
     mol = get_molecule(molecule_args)
-    logging_args = update_logging_configuration(mol, logging_args["collection"], logging_args, locals())
+    logging_args = update_logging_configuration(mol, db_collection, logging_args, locals())
     main(
         molecule_args=molecule_args,
         model=model,
