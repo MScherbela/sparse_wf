@@ -280,6 +280,7 @@ class JastrowArgs(TypedDict):
 
 
 class ModelArgs(TypedDict):
+    use_sparse_model: bool
     embedding: EmbeddingArgs
     jastrow: JastrowArgs
     n_determinants: int

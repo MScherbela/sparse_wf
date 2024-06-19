@@ -48,6 +48,9 @@ class MoonLikeParams(NamedTuple):
 
 
 class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], PyTreeNode):
+    # Sparse Model
+    use_sparse_model: bool
+
     # Molecule
     R: Nuclei
     Z: Charges
@@ -83,6 +86,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
     def create(
         cls,
         mol: pyscf.gto.Mole,
+        use_sparse_model: bool,
         embedding: EmbeddingArgs,
         jastrow: JastrowArgs,
         n_determinants: int,
@@ -94,6 +98,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         n_up = mol.nelec[0]
 
         return cls(
+            use_sparse_model=use_sparse_model,
             R=R,
             Z=Z,
             n_electrons=mol.nelectron,
@@ -172,6 +177,12 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
     def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
+        if self.use_sparse_model:
+            return self.local_energy_sparse(params, electrons, static)
+        else:
+            return self.local_energy_dense(params, electrons, static)
+
+    def local_energy_sparse(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
         logpsi = self._logpsi_with_fwd_lap(params, electrons, static)
         kinetic_energy = -0.5 * (logpsi.laplacian.sum() + jnp.vdot(logpsi.jacobian.data, logpsi.jacobian.data))
         potential = potential_energy(electrons, self.R, self.Z)

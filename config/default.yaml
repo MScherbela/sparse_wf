@@ -23,6 +23,7 @@ molecule_args:
 model: moon
 
 model_args:
+  use_sparse_model: true
   n_determinants: 16
   n_envelopes: 8
   embedding:
