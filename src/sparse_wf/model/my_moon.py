@@ -76,8 +76,7 @@ class MoonElecEmb(nn.Module):
         gamma_ee = nn.Dense(self.feature_dim, use_bias=False)(beta_ee)
 
         # logarithmic rescaling
-        inp_ee = features_ee / features_ee[..., :1] * jnp.log1p(features_ee[..., :1])
-        feat_ee = self.activation(nn.Dense(self.feature_dim)(inp_ee))
+        feat_ee = self.activation(LogPolynomialEncoding(self.feature_dim, 3)(features_ee))
         feat_ee += e_emb + e_nb_emb
         result = jnp.einsum("...id,...id->...d", feat_ee, gamma_ee)
         result = nn.Dense(self.feature_dim)(result)
@@ -120,8 +119,9 @@ class MoonElecToNucGamma(nn.Module):
 
         z_n = self.param("z_n", jax.nn.initializers.normal(1.0, dtype=jnp.float32), (n_nuc, self.feature_dim))
         # logarithmic rescaling
-        inp_ne = features_ne / features_ne[..., :1] * jnp.log1p(features_ne[..., :1])
-        edge_ne = nn.Dense(self.feature_dim)(inp_ne) + z_n[:, None]
+        # inp_ne = features_ne / features_ne[..., :1] * jnp.log1p(features_ne[..., :1])
+        edge_ne = LogPolynomialEncoding(self.feature_dim)(features_ne) + z_n[:, None]
+        # edge_ne = nn.Dense(self.feature_dim)(inp_ne) + z_n[:, None]
         return gamma_ne, edge_ne
 
 
@@ -169,8 +169,9 @@ class MoonNucToElecGamma(nn.Module):
         gamma_en_out = nn.Dense(self.feature_dim, use_bias=False)(beta_en)
 
         # logarithmic rescaling
-        inp_en = features_en / features_en[..., :1] * jnp.log1p(features_en[..., :1])
-        edge_en = nn.Dense(self.feature_dim)(inp_en)
+        # inp_en = features_en / features_en[..., :1] * jnp.log1p(features_en[..., :1])
+        # edge_en = nn.Dense(self.feature_dim)(inp_en)
+        edge_en = LogPolynomialEncoding(self.feature_dim)(features_en)
         nuc_emb = self.param("z_n", jax.nn.initializers.normal(1.0, dtype=jnp.float32), (n_nuc, self.feature_dim))
         edge_en += nuc_emb[idx_en]
 
@@ -221,7 +222,37 @@ class GatedLinearUnit(nn.Module):
         gate = jax.nn.sigmoid(gate_output)
         # Element-wise multiply linear_output and gate
         output = linear_output * gate
-        return nn.Dense(self.features, use_bias=False)(output)
+        result = nn.Dense(self.features, use_bias=False)(output)
+        return FixedScalingFactor()(result)
+
+
+class LogPolynomialEncoding(nn.Module):
+    out_dim: int
+    order: int = 1
+
+    @nn.compact
+    def __call__(self, x):
+        d = x.shape[-1]
+        result = jnp.zeros((*x.shape[:-1], self.out_dim))
+        for i in range(self.order + 1):
+            normalizer = 1 / jnp.sqrt(jnp.pow(d, i))
+            coeff = self.param(
+                f"coeff_{i}", jax.nn.initializers.normal(normalizer, jnp.float32), (d,) * i + (self.out_dim,)
+            )
+            if i == 0:
+                coeff = nn.softplus(coeff)
+            args_str = ""
+            last_arg_str = ""
+            letter = ord("a")
+            for _ in range(i):
+                args_str += f"...{chr(letter)},"
+                last_arg_str += chr(letter)
+                letter += 1
+            last_arg_str += "z"
+            out_str = "z" if i == 0 else "...z"
+            result += jnp.einsum(f"{args_str}{last_arg_str}->{out_str}", *((x,) * i), coeff)
+        norm = jnp.linalg.norm(result, axis=-1, keepdims=True)
+        return result / norm * jnp.log1p(norm)
 
 
 class Moon(MoonLikeWaveFunction):
@@ -276,7 +307,6 @@ class Moon(MoonLikeWaveFunction):
         self.elec_out = MoonElecOut()
 
         self.elec_mlp = GatedLinearUnit(self.feature_dim)
-        self.elec_mlp2 = GatedLinearUnit(self.feature_dim)
         self.elec_nb_proj = nn.Dense(self.feature_dim, use_bias=False)
 
         # scalings
@@ -311,12 +341,9 @@ class Moon(MoonLikeWaveFunction):
         )
         h0 = self.h0_scale(h0)
 
-        # update electron embeddings
-        h01 = self.elec_mlp2(h00)
-
         # construct nuclei embeddings
         Gamma_ne, edge_ne_emb = self.gamma_ne(r_nb_ne)
-        h0_nb_ne = get_with_fill(h01, idx_nb.ne, 0)
+        h0_nb_ne = get_with_fill(h0, idx_nb.ne, 0)
         edge_ne_emb = nn.silu(h0_nb_ne + edge_ne_emb)
         edge_ne_up = jnp.where(spin_nb_ne[..., None] > 0, edge_ne_emb, 0)
         edge_ne_down = jnp.where(spin_nb_ne[..., None] < 0, edge_ne_emb, 0)
@@ -327,9 +354,9 @@ class Moon(MoonLikeWaveFunction):
 
         # construct electron embedding
         gamma_en_init, gamma_en_out, edge_en_emb = self.gamma_en(electrons, R_nb_en, idx_nb.en)
-        # edge_en_emb = nn.silu(h0[:, None] + edge_en_emb)
-        # h1 = contract(edge_en_emb, gamma_en_init)
-        # h1 = self.h1_scale(h1)
+        edge_en_emb = nn.silu(h0[:, None] + edge_en_emb)
+        h1 = contract(edge_en_emb, gamma_en_init)
+        h1 = self.h1_scale(h1)
 
         # update electron embedding
         HL_up, HL_down = self.nuc_mlp(H1_up, H1_down)
@@ -339,7 +366,7 @@ class Moon(MoonLikeWaveFunction):
         m = contract(HL_nb_en, gamma_en_out)
         m = self.msg_scale(m)
         # readout
-        hL = self.elec_out(h0, m)
+        hL = self.elec_out(h1, m)
         return hL
 
     def get_static_input(self, electrons: Array) -> StaticInput:

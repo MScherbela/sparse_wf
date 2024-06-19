@@ -18,7 +18,7 @@ from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 
 # from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
-from sparse_wf.model.moon import Moon
+from sparse_wf.model.my_moon import Moon
 from sparse_wf.model.two_step_moon import TwoStepMoon
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
@@ -107,6 +107,7 @@ def main(
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
     params = wf.init(subkey, electrons[0])
+    print(params["scaling_factors"])
     # params can still be different per process due to different sample, leading to different normalizations
     # Use the params from the main process across all devices
     params = get_from_main_process(params)
