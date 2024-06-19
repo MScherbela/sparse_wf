@@ -30,7 +30,7 @@ from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.jastrow import Jastrow
 from sparse_wf.model.graph_utils import zeropad_jacobian, slogdet_with_sparse_fwd_lap
 from sparse_wf.model.utils import (
-    IsotropicEnvelope,
+    EfficientIsotropicEnvelopes,
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
     swap_bottom_blocks,
@@ -60,7 +60,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
 
     # Submodules
     to_orbitals: nn.Dense
-    envelope: IsotropicEnvelope
+    envelope: EfficientIsotropicEnvelopes
     embedding: MoonEmbedding
     jastrow: Jastrow
 
@@ -105,7 +105,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
                 name="to_orbitals",
                 bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
             ),
-            envelope=IsotropicEnvelope(n_determinants, n_electrons, n_envelopes),
+            envelope=EfficientIsotropicEnvelopes(n_determinants, n_electrons, n_envelopes),
             embedding=MoonEmbedding.create(R, Z, n_electrons, n_up, **embedding),
             jastrow=Jastrow(n_up, **jastrow),
         )

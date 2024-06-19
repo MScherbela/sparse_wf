@@ -134,6 +134,12 @@ def truncated_normal_with_mean_initializer(mean: float, stddev=0.01):
     return init
 
 
+def lecun_normal(rng, shape):
+    fan_in = shape[0]
+    scale = 1 / jnp.sqrt(fan_in)
+    return jax.random.truncated_normal(rng, -1, 1, shape, jnp.float32) * scale
+
+
 class IsotropicEnvelope(nn.Module):
     n_determinants: int
     n_orbitals: int
@@ -148,7 +154,9 @@ class IsotropicEnvelope(nn.Module):
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = self.param("sigma", self._sigma_initializer, (n_nuc, self.n_determinants * self.n_orbitals))
+        sigma = self.param(
+            "sigma", self._sigma_initializer, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32
+        )
         sigma = nn.softplus(sigma)
         pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32)
         scaled_dists = dists[..., None] * sigma
@@ -168,12 +176,13 @@ class EfficientIsotropicEnvelopes(nn.Module):
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = self.param("sigma", jnn.initializers.ones, (n_nuc, self.n_determinants, self.n_envelopes))
+        sigma = self.param("sigma", jnn.initializers.ones, (n_nuc, self.n_determinants, self.n_envelopes), jnp.float32)
         sigma = nn.softplus(sigma)
         pi = self.param(
             "pi",
             jnn.initializers.normal(1 / jnp.sqrt(self.n_envelopes)),
             (n_nuc, self.n_determinants, self.n_envelopes, self.n_orbitals),
+            jnp.float32,
         )
         scaled_dists = dists[..., None, None] * sigma
         env = jnp.exp(-scaled_dists)
