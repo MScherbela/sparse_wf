@@ -49,6 +49,16 @@ class MLP(nn.Module):
         return x
 
 
+class GatedLinearUnit(nn.Module):
+    out_dim: int
+
+    @nn.compact
+    def __call__(self, x: Float[Array, "*batch_dims inp_dim"]) -> Float[Array, "*batch_dims out_dim"]:
+        x = nn.Dense(2 * self.out_dim, use_bias=False)(x)
+        x, gate = jnp.split(x, 2, axis=-1)
+        return nn.Dense(self.out_dim, use_bias=False)(x * nn.silu(gate))
+
+
 def cutoff_function(d: Float[Array, "*dims"], p=4) -> Float[Array, "*dims"]:  # noqa: F821
     a = -(p + 1) * (p + 2) * 0.5
     b = p * (p + 2)

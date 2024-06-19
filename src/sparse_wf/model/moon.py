@@ -1,49 +1,49 @@
-from typing import Callable, Optional, NamedTuple, cast, TypedDict
+import functools
+from typing import Callable, NamedTuple, Optional, TypedDict, cast
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
+from flax.struct import PyTreeNode
 from jaxtyping import Array, Float, Integer
 
-from sparse_wf.api import Electrons, Int, Nuclei, Parameters, Charges
-from sparse_wf.jax_utils import jit
+from folx.api import FwdLaplArray
+from sparse_wf.api import Charges, Electrons, Int, Nuclei, Parameters
+from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap, pmap, pmax_if_pmap
 from sparse_wf.model.graph_utils import (
+    NO_NEIGHBOUR,
+    Dependency,
+    DependencyMap,
     DistanceMatrix,
+    NeighbourIndices,
+    NrOfNeighbours,
+    get_dependency_map,
     get_full_distance_matrices,
     get_neighbour_coordinates,
+    get_neighbour_features,
     get_neighbour_indices,
     get_nr_of_neighbours,
     get_with_fill,
-    round_to_next_step,
-    NO_NEIGHBOUR,
-    NeighbourIndices,
-    Dependency,
-    DependencyMap,
     merge_dependencies,
-    get_dependency_map,
-    NrOfNeighbours,
     pad_jacobian,
     pad_pairwise_jacobian,
+    round_to_next_step,
     zeropad_jacobian,
-    get_neighbour_features,
 )
 from sparse_wf.model.utils import (
     DynamicFilterParams,
     FixedScalingFactor,
+    GatedLinearUnit,
     PairwiseFilter,
+    ScalingParam,
     contract,
     get_diff_features,
-    get_diff_features_vmapped,
     lecun_normal,
     normalize,
     scale_initializer,
-    ScalingParam,
 )
 from sparse_wf.tree_utils import tree_idx
-import functools
-import jax.tree_util as jtu
-from flax.struct import PyTreeNode
-from folx.api import FwdLaplArray
-from sparse_wf.jax_utils import fwd_lap, pmax_if_pmap, pmap
 
 
 class NucleusDependentParams(NamedTuple):
@@ -69,6 +69,7 @@ class DependenciesMoon(NamedTuple):
 
 
 class DependencyMaps(NamedTuple):
+    hinit_to_h0: DependencyMap
     h0_to_Hnuc: DependencyMap
     Gamma_ne_to_Hnuc: DependencyMap
     Hnuc_to_hout: DependencyMap
@@ -88,7 +89,6 @@ def get_max_nr_of_dependencies(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix,
 
 
 def _get_static(electrons: Array, R: Nuclei, cutoff: float):
-    print("Compiling _get_static in moon-embedding")
     n_el = electrons.shape[-2]
     dist_ee, dist_ne = get_full_distance_matrices(electrons, R)
     n_neighbours = get_nr_of_neighbours(dist_ee, dist_ne, cutoff)
@@ -98,6 +98,45 @@ def _get_static(electrons: Array, R: Nuclei, cutoff: float):
 
 get_static_pmapped = pmap(_get_static, in_axes=(0, None, None))
 get_static_jitted = jit(_get_static)
+
+
+class MoonInitElecEmb(nn.Module):
+    R: Nuclei
+    cutoff: float
+    filter_dims: tuple[int, int]
+    feature_dim: int
+    n_envelopes: int
+    activation: Callable = nn.silu
+
+    @nn.compact
+    def __call__(self, r: Float[Array, "dim=3"]):
+        features_en = jax.vmap(get_diff_features, in_axes=(None, 0))(r, jnp.array(self.R))
+        n_nuclei = len(self.R)
+        inp_dim = features_en.shape[-1]
+        beta = PairwiseFilter(self.cutoff, self.filter_dims[1], name="beta_en_init")
+        dynamic_params_en = DynamicFilterParams(
+            scales=self.param("en_scales", scale_initializer, self.cutoff, (n_nuclei, self.n_envelopes)),
+            kernel=self.param("en_kernel", lecun_normal, (n_nuclei, inp_dim, self.filter_dims[0])),
+            bias=self.param(
+                "en_bias",
+                jax.nn.initializers.normal(2, dtype=jnp.float32),
+                (
+                    n_nuclei,
+                    self.filter_dims[0],
+                ),
+            ),
+        )
+        beta_en = nn_vmap(beta, in_axes=(-2, 0), out_axes=(-2))(features_en, dynamic_params_en)
+        gamma_en = nn.Dense(self.feature_dim, use_bias=False)(beta_en)
+
+        # logarithmic rescaling
+        inp_en = features_en / features_en[..., :1] * jnp.log1p(features_en[..., :1])
+        feat_en = self.activation(nn.Dense(self.feature_dim)(inp_en))
+        result = jnp.einsum("...id,...id->...d", feat_en, gamma_en)
+        hinit = GatedLinearUnit(self.feature_dim)(result)
+        hinit_same = nn.Dense(self.feature_dim, use_bias=False)(self.activation(hinit))
+        hinit_diff = nn.Dense(self.feature_dim, use_bias=False)(self.activation(hinit))
+        return hinit, hinit_same, hinit_diff
 
 
 class MoonElecEmb(nn.Module):
@@ -113,10 +152,13 @@ class MoonElecEmb(nn.Module):
         self,
         r: Float[Array, "dim=3"],
         r_nb: Float[Array, "*neighbours dim=3"],
-        s: Optional[Int] = None,
-        s_nb: Optional[Integer[Array, " *neighbors"]] = None,
+        h: Float[Array, " feature_dim"],
+        h_nb: Float[Array, "*neighbours feature_dim"],
+        s: Int,
+        s_nb: Integer[Array, " *neighbors"],
     ):
-        features_ee = get_diff_features_vmapped(r, r_nb, s, s_nb)
+        features_ee = jax.vmap(get_diff_features, in_axes=(None, 0))(r, r_nb)
+        spin_mask = s == s_nb
         beta = PairwiseFilter(self.cutoff, self.filter_dims[1], name="beta_ee")
         dynamic_params_ee = DynamicFilterParams(
             scales=self.param("ee_scales", scale_initializer, self.cutoff, (self.n_envelopes,)),
@@ -128,11 +170,20 @@ class MoonElecEmb(nn.Module):
             bias=self.param("ee_bias", jax.nn.initializers.normal(2, dtype=jnp.float32), (self.filter_dims[0],)),
         )
         beta_ee = beta(features_ee, dynamic_params_ee)
-        gamma_ee = nn.Dense(self.feature_dim, use_bias=False)(beta_ee)
+        gamma_ee_same = nn.Dense(self.feature_dim, use_bias=False)(beta_ee)
+        gamma_ee_diff = nn.Dense(self.feature_dim, use_bias=False)(beta_ee)
+        gamma_ee = jnp.where(spin_mask[:, None], gamma_ee_same, gamma_ee_diff)
 
         # logarithmic rescaling
         inp_ee = features_ee / features_ee[..., :1] * jnp.log1p(features_ee[..., :1])
-        feat_ee = self.activation(nn.Dense(self.feature_dim)(inp_ee))
+        feat_ee_same = nn.Dense(self.feature_dim)(inp_ee)
+        feat_ee_diff = nn.Dense(self.feature_dim)(inp_ee)
+        feat_ee = jnp.where(spin_mask[:, None], feat_ee_same, feat_ee_diff)
+
+        # using h^init
+        feat_ee += h + h_nb
+
+        # contraction
         result = jnp.einsum("...id,...id->...d", feat_ee, gamma_ee)
         result = nn.Dense(self.feature_dim)(result)
         result = nn.silu(result)
@@ -212,6 +263,7 @@ def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies)
             deps_H:  [n_nuc x nr_of deps_level_2]
             deps_hout: [n_el x nr_of_deps_level_3]
         dep_maps: tuple of jnp.ndarray, maps the dependencies between the levels:
+            dep_map_hinit_to_h0: [n_el x n_neighbouring_el x 1]
             h0_to_Hnuc: [n_nuc x n_neighbouring_el x nr_of_deps_level_1]; values are in [0 ... deps_level_2]
             Gamma_ne_to_Hnuc: [n_nuc x n_neighbouring_el x 1]; values are in [0 ... deps_level_2]
             Hnuc_to_hout: [n_el x n_neighbouring_nuc x nr_of_deps_level_2]; values are in [0 ... deps_level_3]
@@ -230,6 +282,8 @@ def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies)
 
     # Step 1: Initial electron embeddings depend on themselves and their neighbours
     deps_h0: Dependency = jnp.concatenate([self_dependency, idx_nb.ee], axis=-1)
+    deps_neighbours = get_deps_nb(jnp.arange(n_el)[:, None], idx_nb.ee)
+    dep_map_hinit_to_h0 = get_dep_map_for_all_centers(deps_neighbours, deps_h0)
 
     # Step 2: Nuclear embeddings depend on all dependencies of their neighbouring electrons
     deps_neighbours = get_deps_nb(deps_h0, idx_nb.ne)
@@ -244,7 +298,7 @@ def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies)
     dep_map_h0_to_hout = jax.vmap(get_dependency_map)(deps_h0, deps_hout)
 
     return DependenciesMoon(deps_h0, deps_H, deps_hout), DependencyMaps(
-        dep_map_h0_to_H, dep_map_Gamma_ne_to_H, dep_map_H_to_hout, dep_map_h0_to_hout
+        dep_map_hinit_to_h0, dep_map_h0_to_H, dep_map_Gamma_ne_to_H, dep_map_H_to_hout, dep_map_h0_to_hout
     )
 
 
@@ -257,6 +311,7 @@ class MoonScales(TypedDict):
 
 
 class MoonEmbeddingParams(PyTreeNode):
+    elec_init_emb: Parameters
     elec_elec_emb: Parameters
     Gamma_ne: Parameters
     Gamma_en: Parameters
@@ -282,6 +337,7 @@ class MoonEmbedding(PyTreeNode):
     nuc_mlp_depth: int
 
     # Submodules
+    elec_init_emb: MoonInitElecEmb
     elec_elec_emb: MoonElecEmb
     Gamma_ne: MoonEdgeFeatures
     Gamma_en: MoonEdgeFeatures
@@ -311,6 +367,7 @@ class MoonEmbedding(PyTreeNode):
             pair_mlp_widths=pair_mlp_widths,
             pair_n_envelopes=pair_n_envelopes,
             nuc_mlp_depth=nuc_mlp_depth,
+            elec_init_emb=MoonInitElecEmb(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
             elec_elec_emb=MoonElecEmb(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
             Gamma_ne=MoonEdgeFeatures(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_gamma=1),
             Gamma_en=MoonEdgeFeatures(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_gamma=2),
@@ -341,7 +398,10 @@ class MoonEmbedding(PyTreeNode):
         params = MoonEmbeddingParams(
             dynamic_params_en=dynamic_params_en,
             dynamic_params_ne=dynamic_params_ne,
-            elec_elec_emb=self.elec_elec_emb.init(rngs[2], r_dummy, r_nb_dummy, spin_dummy, spin_nb_dummy),
+            elec_init_emb=self.elec_init_emb.init(rngs[0], r_dummy),
+            elec_elec_emb=self.elec_elec_emb.init(
+                rngs[2], r_dummy, r_nb_dummy, features_dummy, features_dummy[None], spin_dummy, spin_nb_dummy
+            ),
             Gamma_ne=self.Gamma_ne.init(rngs[3], r_dummy, r_dummy, dummy_dyn_param),
             Gamma_en=self.Gamma_en.init(rngs[4], r_dummy, r_dummy, dummy_dyn_param),
             nuc_mlp=self.nuc_mlp.init(rngs[5], features_dummy, features_dummy),
@@ -388,11 +448,23 @@ class MoonEmbedding(PyTreeNode):
         )
 
         @jax.vmap  # vmap over center electrons
-        def get_h0(r, r_nb, s, s_nb):
-            return cast(jax.Array, self.elec_elec_emb.apply(params.elec_elec_emb, r, r_nb, s, s_nb))
+        def get_hinit(r):
+            result = self.elec_init_emb.apply(params.elec_init_emb, r)
+            return tuple(cast(jax.Array, x) for x in result)
+
+        h_init, h_init_same, h_init_diff = get_hinit(electrons)
+        h_init_nb = jnp.where(
+            (self.spins[:, None] == spin_nb_ee)[..., None],
+            get_with_fill(h_init_same, idx_nb.ee, 0),
+            get_with_fill(h_init_diff, idx_nb.ee, 0),
+        )
+
+        @jax.vmap  # vmap over center electrons
+        def get_h0(r, r_nb, h, h_nb, s, s_nb):
+            return cast(jax.Array, self.elec_elec_emb.apply(params.elec_elec_emb, r, r_nb, h, h_nb, s, s_nb))
 
         # initial electron embedding
-        h0 = get_h0(electrons, r_nb_ee, self.spins, spin_nb_ee)
+        h0 = get_h0(electrons, r_nb_ee, h_init, h_init_nb, self.spins, spin_nb_ee)
         h0, params.scales["h0"] = normalize(h0, params.scales["h0"], True)
 
         # construct nuclei embeddings
@@ -447,14 +519,35 @@ class MoonEmbedding(PyTreeNode):
             h = contract(h, gamma)
             return normalize(h, scale)
 
+        # Step -1: initial embedding
+        @functools.partial(jax.vmap, in_axes=0, out_axes=-2)
+        @fwd_lap
+        def get_hinit(r):
+            result = self.elec_init_emb.apply(params.elec_init_emb, r)
+            return tuple(cast(jax.Array, x) for x in result)
+
+        h_init, h_init_same, h_init_diff = get_hinit(electrons)
+        h_init_nb_same = get_neighbour_features(h_init_same, idx_nb.ee)
+        h_init_nb_diff = get_neighbour_features(h_init_diff, idx_nb.ee)
+        h_init_nb_same = pad_pairwise_jacobian(h_init_nb_same, dep_maps.hinit_to_h0, static.n_deps.h_el_initial)
+        h_init_nb_diff = pad_pairwise_jacobian(h_init_nb_diff, dep_maps.hinit_to_h0, static.n_deps.h_el_initial)
+        h_init = zeropad_jacobian(h_init, static.n_deps.h_el_initial * 3)
+
+        # Step 0: initialize electron jacobians
+        @functools.partial(jax.vmap, in_axes=0, out_axes=-2)
+        @fwd_lap
+        def init(r, r_nb):
+            return r, r_nb
+
         # Step 1: initial electron embedding
-        @functools.partial(jax.vmap, in_axes=0, out_axes=-2)  # vmap over center electrons
-        @functools.partial(fwd_lap, argnums=(0, 1))
-        def get_h0(r, r_nb, s, s_nb):
-            h0 = cast(jax.Array, self.elec_elec_emb.apply(params.elec_elec_emb, r, r_nb, s, s_nb))
+        @functools.partial(jax.vmap, in_axes=(-2, -2, -2, -3, -3, 0, 0), out_axes=-2)  # vmap over center electrons
+        @functools.partial(fwd_lap, argnums=(0, 1, 2, 3, 4))
+        def get_h0(r, r_nb, h, h_nb_s, h_nb_d, s, s_nb):
+            h_nb = jnp.where((s == s_nb)[:, None], h_nb_s, h_nb_d)
+            h0 = cast(jax.Array, self.elec_elec_emb.apply(params.elec_elec_emb, r, r_nb, h, h_nb, s, s_nb))
             return normalize(h0, params.scales["h0"])
 
-        h0 = get_h0(electrons, r_nb_ee, self.spins, spin_nb_ee)
+        h0 = get_h0(*init(electrons, r_nb_ee), h_init, h_init_nb_same, h_init_nb_diff, self.spins, spin_nb_ee)
 
         # Step 2: Get features from electron -> nuclei
         @functools.partial(jax.vmap, in_axes=-3, out_axes=-3)

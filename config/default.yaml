@@ -6,13 +6,13 @@ metadata:
 seed: 0
 
 molecule_args:
-  method: database
+  method: from_str
   database_args:
     hash: ""
     name: ""
     comment: ""
   from_str_args:
-    atom: ""
+    atom: "Li 0 0 0; H 3 0 0"
     spin: 0
   chain_args:
     element: ""
