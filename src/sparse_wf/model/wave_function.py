@@ -23,7 +23,6 @@ from sparse_wf.api import (
     SignedLogAmplitude,
     SlaterMatrices,
 )
-from sparse_wf.api import StaticInput
 from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import vectorize, fwd_lap
 from sparse_wf.tree_utils import tree_add
@@ -36,7 +35,7 @@ from sparse_wf.model.utils import (
     swap_bottom_blocks,
 )
 from flax.struct import PyTreeNode
-from sparse_wf.model.moon import MoonEmbedding
+from sparse_wf.model.moon import MoonEmbedding, StaticInputMoon
 from folx.api import FwdLaplArray
 
 
@@ -47,7 +46,7 @@ class MoonLikeParams(NamedTuple):
     jastrow: Parameters
 
 
-class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], PyTreeNode):
+class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon], PyTreeNode):
     # Molecule
     R: Nuclei
     Z: Charges
@@ -150,37 +149,39 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         return logpsi
 
     @vectorize(signature="(nel,dim)->(),()", excluded=(0, 1, 3))
-    def signed(self, params: MoonLikeParams, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude:
+    def signed(self, params: MoonLikeParams, electrons: Electrons, static: StaticInputMoon) -> SignedLogAmplitude:
         embeddings = self.embedding.apply(params.embedding, electrons, static)
         orbitals = self._orbitals(params, electrons, embeddings)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
         logpsi += self.jastrow.apply(params.jastrow, electrons, embeddings)
         return signpsi, logpsi
 
-    def orbitals(self, params: MoonLikeParams, electrons: Electrons, static: StaticInput) -> SlaterMatrices:
+    def orbitals(self, params: MoonLikeParams, electrons: Electrons, static: StaticInputMoon) -> SlaterMatrices:
         embeddings = self.embedding.apply(params.embedding, electrons, static)
         orbitals = self._orbitals(params, electrons, embeddings)
         return cast(SlaterMatrices, orbitals)
 
-    def orbitals_with_fwd_lap(self, params: MoonLikeParams, electrons: Electrons, static: StaticInput) -> FwdLaplArray:
+    def orbitals_with_fwd_lap(
+        self, params: MoonLikeParams, electrons: Electrons, static: StaticInputMoon
+    ) -> FwdLaplArray:
         embeddings, dependencies = self.embedding.apply_with_fwd_lap(params.embedding, electrons, static)
         orbitals = self._orbitals_with_fwd_lap(params, electrons, embeddings)
         return orbitals, dependencies
 
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude:
+    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LogAmplitude:
         return self.signed(params, electrons, static)[1]
 
-    def get_static_input(self, electrons: Electrons) -> StaticInput:
+    def get_static_input(self, electrons: Electrons) -> StaticInputMoon:
         return self.embedding.get_static_input(electrons)
 
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
-    def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
+    def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LocalEnergy:
         logpsi = self._logpsi_with_fwd_lap(params, electrons, static)
         kinetic_energy = -0.5 * (logpsi.laplacian.sum() + jnp.vdot(logpsi.jacobian.data, logpsi.jacobian.data))
         potential = potential_energy(electrons, self.R, self.Z)
         return kinetic_energy + potential
 
-    def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LocalEnergy:
+    def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LocalEnergy:
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)

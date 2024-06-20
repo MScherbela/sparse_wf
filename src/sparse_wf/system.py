@@ -38,11 +38,13 @@ def database(hash: str | None = None, name: str | None = None, comment: str | No
 
 
 def get_molecule(molecule_args: MoleculeArgs) -> pyscf.gto.Mole:
-    method = molecule_args["method"]
-    basis = molecule_args["basis"]
-    constructor = globals().get(method)
-    assert constructor is not None, f"Coult not find constructor for method {method}."
-    molecule = constructor(**molecule_args[method + "_args"])
-    molecule.basis = basis
+    match molecule_args["method"]:
+        case "chain":
+            molecule = chain(**molecule_args["chain_args"])
+        case "from_str":
+            molecule = from_str(**molecule_args["from_str_args"])
+        case "database":
+            molecule = database(**molecule_args["database_args"])
+    molecule.basis = molecule_args["basis"]
     molecule.build()
     return molecule

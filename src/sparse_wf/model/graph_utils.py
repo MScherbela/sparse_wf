@@ -190,8 +190,9 @@ def pad_jacobian_to_dense(x: FwdLaplArray, dependencies, n_deps_out: int) -> Fwd
 def get_inverse_from_lu(lu, permutation):
     n = lu.shape[0]
     b = jnp.eye(n, dtype=lu.dtype)[permutation]
-    x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=True, unit_diagonal=True)  # type: ignore (private usage?)
-    x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=False)  # type: ignore (private usage?)
+    # The following lines trigger mypy (private usage?)
+    x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=True, unit_diagonal=True)  # type: ignore
+    x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=False)  # type: ignore
     return x
 
 
@@ -211,7 +212,8 @@ def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Ar
     n_deps = dependencies.shape[-1]
     assert n_el == n_orb
 
-    orbitals_lu, orbitals_pivot, orbitals_permutation = jax.lax.linalg.lu(orbitals.x)  # type: ignore (private usage?)
+    # mypy complains about lu not being exported by jax.lax.linalg
+    orbitals_lu, orbitals_pivot, orbitals_permutation = jax.lax.linalg.lu(orbitals.x)  # type: ignore
     orbitals_inv = get_inverse_from_lu(orbitals_lu, orbitals_permutation)
     sign, logdet = slogdet_from_lu(orbitals_lu, orbitals_pivot)
 
