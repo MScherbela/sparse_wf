@@ -43,7 +43,7 @@ for timing_type, ax in zip(["t_sampling", "t_embed", "t_orb_jastrow_det", "t_ene
 
 ax_relative.stackplot(df.n_el, df["rel_t_sampling"], df["rel_t_embed"], df["rel_t_orb_jastrow_det"], labels=["sampling", "embed", "orb_jastrow_det"], colors=["C0", "C1", "C2"])
 
-    
+
 def format_x_axis(ax):
     ax.set_xlabel("Nr of electrons")
     ax.set_xscale("log")

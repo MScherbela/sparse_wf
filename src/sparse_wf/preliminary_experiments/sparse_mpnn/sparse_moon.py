@@ -92,7 +92,7 @@ if __name__ == "__main__":
 
     model, electrons, params, static = setup_inputs(jnp.float32)
     params = model.init(rng, electrons)
-    
+
     print("Computing sparse")
     logpsi_sparse = model._logpsi_with_fwd_lap(params, electrons, static)
 
