@@ -375,6 +375,15 @@ class PretrainingArgs(TypedDict):
     optimizer_args: OptimizerArgs
 
 
+MCMC_proposal_type = Literal["all-electron", "single-electron"]
+
+
+class MCMCArgs(TypedDict):
+    proposal: MCMC_proposal_type
+    steps: int
+    init_width: float
+
+
 class MoleculeDatabaseArgs(TypedDict):
     hash: str
     name: str
