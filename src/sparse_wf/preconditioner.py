@@ -1,5 +1,6 @@
 from typing import TypeVar
 import jax
+import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jax.scipy.sparse.linalg import cg
@@ -79,6 +80,63 @@ def make_cg_preconditioner(
 
         natgrad, _ = cg(A=Fisher_matmul, b=grad, x0=natgrad_state.last_grad, tol=0, atol=0, maxiter=maxiter)
         return natgrad, PreconditionerState(last_grad=natgrad), {}
+
+    return Preconditioner(init, precondition)
+
+
+def make_dense_spring_preconditioner(
+    wave_function: ParameterizedWaveFunction[P, S],
+    damping: float = 1e-3,
+    decay_factor: float = 0.99,
+):
+    def init(params: P) -> PreconditionerState[P]:
+        return PreconditionerState(last_grad=0 * jfu.ravel_pytree(params)[0].astype(jnp.float64))
+
+    def precondition(
+        params: P,
+        electrons: Electrons,
+        static: S,
+        dE_dlogpsi: EnergyCotangent,
+        natgrad_state: PreconditionerState[P],
+    ):
+        n_dev = jax.device_count()
+        local_batch_size = dE_dlogpsi.size
+        N = local_batch_size * n_dev
+        normalization = 1 / jnp.sqrt(N)
+
+        flat_params, unravel = jfu.ravel_pytree(params)
+        # We could cast the params first to float64, or at the jacobian, or at solving? Or not at all?
+
+        def log_p(params: jax.Array, electrons: Electrons, static: S):
+            return wave_function(unravel(params), electrons, static) * normalization
+
+        jac_fn = jax.vmap(jax.grad(log_p), in_axes=(None, 0, None))
+        jacobian = jac_fn(flat_params, electrons, static)
+        jacobian -= pmean(jacobian.mean(0))
+        if jacobian.shape[-1] % jax.device_count() != 0:
+            jacobian = jnp.concatenate(
+                [
+                    jacobian,
+                    jnp.zeros((jacobian.shape[0], jax.device_count() - jacobian.shape[-1] % jax.device_count())),
+                ],
+                axis=-1,
+            )
+        jac_T = pall_to_all(jacobian, split_axis=1, concat_axis=0, tiled=True)
+        T = jac_T @ jac_T.T
+        T = (T + T.T) / 2  # better numerics
+
+        last_grad = natgrad_state.last_grad
+        decayed_last_grad = decay_factor * last_grad
+        cotangent = dE_dlogpsi.reshape(-1) * normalization
+        cotangent -= jacobian @ decayed_last_grad
+        cotangent = pgather(cotangent, axis=0, tiled=True)
+
+        T += damping * jnp.eye(T.shape[-1], dtype=T.dtype) + 1 / N
+
+        natgrad = jnp.linalg.solve(T, cotangent).reshape(n_dev, -1)[pidx()] @ jacobian
+        natgrad += decayed_last_grad
+        update = unravel(natgrad.astype(jnp.float32))
+        return update, PreconditionerState(last_grad=natgrad), {}
 
     return Preconditioner(init, precondition)
 
@@ -232,6 +290,8 @@ def make_preconditioner(wf: ParameterizedWaveFunction[P, S], args: Preconditione
         return make_cg_preconditioner(wf, **args["cg_args"])
     elif preconditioner == "spring":
         return make_spring_preconditioner(wf, **args["spring_args"])
+    elif preconditioner == "spring_dense":
+        return make_dense_spring_preconditioner(wf, **args["spring_args"])
     elif preconditioner == "svd":
         return make_svd_preconditioner(wf, **args["svd_args"])
     else:
