@@ -159,8 +159,12 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode)
         orbitals = self.orbitals(params, electrons, static)
         return signed_logpsi_from_orbitals(orbitals)
 
-    def __call__(self, params: FermiNetParams, electrons: Electrons, static):
-        return self.signed(params, electrons, static)[1]
+    def __call__(self, params: FermiNetParams, electrons: Electrons, static, return_cache=False):
+        logpsi = self.signed(params, electrons, static)[1]
+        if return_cache:
+            return logpsi, None
+        else:
+            return logpsi
 
     def update_logpsi(
         self, params: FermiNetParams, electrons_new: Electrons, idx_changed, model_cache: ModelCache, static

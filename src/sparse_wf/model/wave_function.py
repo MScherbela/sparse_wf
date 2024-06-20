@@ -168,8 +168,14 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         orbitals = self._orbitals_with_fwd_lap(params, electrons, embeddings)
         return orbitals, dependencies
 
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LogAmplitude:
-        return self.signed(params, electrons, static)[1]
+    def __call__(
+        self, params: Parameters, electrons: Electrons, static: StaticInputMoon, return_cache=False
+    ) -> LogAmplitude:
+        logpsi = self.signed(params, electrons, static)[1]
+        if return_cache:
+            return logpsi, None  # type: ignore
+        else:
+            return logpsi
 
     def update_logpsi(
         self, params: Parameters, electrons_new: Electrons, idx_changed, model_cache: dict, static: StaticInputMoon

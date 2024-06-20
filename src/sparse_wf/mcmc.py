@@ -52,10 +52,13 @@ def mh_update_all_electron(
 
 def mh_update_single_electron(
     update_logpsi_fn: Callable,
+    params,
+    static,
     key: PRNGKeyArray,
     electrons: Electrons,
     log_prob: LogAmplitude,
     model_cache: dict,
+    num_accepts: Int,
     width: Width,
 ) -> tuple[PRNGKeyArray, Electrons, LogAmplitude, dict, Int]:
     cluster_size = 1
@@ -65,7 +68,7 @@ def mh_update_single_electron(
     ind_move = jax.random.randint(key_select, [cluster_size], 0, n_el)
     delta_r = jax.random.normal(key_propose, [cluster_size, 3], dtype=electrons.dtype) * width
     new_electrons = electrons.at[ind_move, :].add(delta_r)
-    new_logpsi, new_model_cache = update_logpsi_fn(new_electrons, ind_move, model_cache)
+    new_logpsi, new_model_cache = update_logpsi_fn(params, new_electrons, ind_move, model_cache, static)
     new_log_prob = 2 * new_logpsi
     log_ratio = new_log_prob - log_prob
 
@@ -75,7 +78,8 @@ def mh_update_single_electron(
         (new_electrons, new_log_prob, new_model_cache),
         (electrons, log_prob, model_cache),
     )
-    return key, new_electrons, new_log_prob, new_model_cache, jnp.where(accept, 1, 0)
+    num_accepts += accept.astype(jnp.int32)
+    return key, new_electrons, new_log_prob, new_model_cache, num_accepts
 
 
 P, S = TypeVar("P"), TypeVar("S")
@@ -113,12 +117,12 @@ def mcmc_steps_single_electron(
     static: S,
     width: Width,
 ):
-    logpsi, model_cache = logpsi_fn(params, electrons, static)
+    logpsi, model_cache = logpsi_fn(params, electrons, static, return_cache=True)
     logprob = 2 * logpsi
 
     @functools.partial(jax.vmap, in_axes=(None, 0))
     def step_fn(_, x):
-        return mh_update_single_electron(update_logpsi_fn, *x, width)
+        return mh_update_single_electron(update_logpsi_fn, params, static, *x, width)
 
     local_batch_size = electrons.shape[0]
     x0 = (
@@ -129,7 +133,7 @@ def mcmc_steps_single_electron(
         jnp.zeros(local_batch_size, dtype=jnp.int32),
     )
     _, electrons, logprob, model_cache, num_accepts = lax.fori_loop(0, steps, step_fn, x0)
-    pmove = psum(num_accepts) / (steps * local_batch_size * jax.device_count())
+    pmove = psum(jnp.sum(num_accepts)) / (steps * local_batch_size * jax.device_count())
     return electrons, pmove
 
 
