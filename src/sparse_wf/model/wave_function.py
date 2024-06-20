@@ -162,6 +162,11 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInput], P
         orbitals = self._orbitals(params, electrons, embeddings)
         return cast(SlaterMatrices, orbitals)
 
+    def orbitals_with_fwd_lap(self, params: MoonLikeParams, electrons: Electrons, static: StaticInput) -> FwdLaplArray:
+        embeddings, dependencies = self.embedding.apply_with_fwd_lap(params.embedding, electrons, static)
+        orbitals = self._orbitals_with_fwd_lap(params, electrons, embeddings)
+        return orbitals, dependencies
+
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInput) -> LogAmplitude:
         return self.signed(params, electrons, static)[1]
 

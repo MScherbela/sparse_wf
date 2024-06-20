@@ -1,6 +1,5 @@
 # %%
 import functools
-import itertools
 import os
 
 # ruff: noqa: E402 # Allow setting environment variables before importing jax
@@ -36,16 +35,16 @@ def build_model(mol):
         mol,
         n_determinants=2,
         embedding=EmbeddingArgs(
-            cutoff=2.0, feature_dim=256, nuc_mlp_depth=2, pair_mlp_widths=(16, 8), pair_n_envelopes=32
+            cutoff=2.0, feature_dim=128, nuc_mlp_depth=2, pair_mlp_widths=(16, 8), pair_n_envelopes=32
         ),
         jastrow=JastrowArgs(
-            e_e_cusps="none",
+            e_e_cusps="psiformer",
             use_log_jastrow=True,
-            use_mlp_jastrow=False,
-            mlp_depth=3,
-            mlp_width=256,
+            use_mlp_jastrow=True,
+            mlp_depth=2,
+            mlp_width=64,
         ),
-        n_envelopes=16,
+        n_envelopes=8,
     )
 
 
@@ -114,7 +113,7 @@ def test_embedding(dtype):
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
 def test_orbitals(dtype):
     model, electrons, params, static_args = setup_inputs(dtype)
-    orbitals_int, dependencies = model._orbitals_with_fwd_lap(params, electrons, static_args)
+    orbitals_int, dependencies = model.orbitals_with_fwd_lap(params, electrons, static_args)
     orbitals_ext = fwd_lap(lambda r: model.orbitals(params, r, static_args)[0])(electrons)
     orbitals_int = to_zero_padded(orbitals_int, dependencies)
     assert orbitals_int.dtype == dtype
@@ -129,23 +128,19 @@ def test_energy(dtype):
     rtol = get_relative_tolerance(dtype) * 1e3
     model, electrons, params, static_args = setup_inputs(dtype)
 
-    energies = {}
-    energies["sparse"] = model.local_energy(params, electrons, static_args)
-    energies["dense"] = model.local_energy_dense(params, electrons, static_args)
-    for k, E in energies.items():
-        assert E.dtype == dtype, f"{k}: {E.dtype}"
-        assert np.isfinite(E), f"{k}: {E}"
+    E_dense = model.local_energy_dense(params, electrons, static_args)
+    E_sparse = model.local_energy(params, electrons, static_args)
+    for E, label in zip([E_sparse, E_dense], ["sparse", "dense"]):
+        assert E.dtype == dtype, f"energy {label}: {E.dtype} != {dtype}"
+        assert np.isfinite(E), f"energy {label}: {E} != {dtype}"
 
-    def rel_error(a, b):
-        return jnp.abs(a - b) / jnp.abs(b)
+    rel_error = jnp.abs(E_sparse - E_dense) / jnp.abs(E_dense)
 
-    rel_errors = {f"{k1}-{k2}": rel_error(E1, E2) for (k1, E1), (k2, E2) in itertools.combinations(energies.items(), 2)}
-
-    assert all([err < rtol for err in rel_errors.values()]), f"Energies: {energies}, Rel. errors: {rel_errors}"
+    assert rel_error < rtol, f"Rel. error |E_sparse - E_dense| / |E_dense|: {rel_error}"
 
 
 if __name__ == "__main__":
     for dtype in [jnp.float32, jnp.float64]:
         test_embedding(dtype)
-        # test_orbitals(dtype)
+        test_orbitals(dtype)
         test_energy(dtype)

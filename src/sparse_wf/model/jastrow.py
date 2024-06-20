@@ -71,7 +71,7 @@ class Jastrow(nn.Module):
             self.mlp = None
 
     def __call__(self, electrons: Electrons, embeddings: jax.Array) -> jax.Array:
-        logpsi = jnp.zeros([])
+        logpsi = jnp.zeros([], electrons.dtype)
         if self.pairwise_cusps:
             logpsi += self.pairwise_cusps(electrons)
         if self.mlp:

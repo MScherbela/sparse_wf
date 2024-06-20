@@ -92,6 +92,7 @@ if __name__ == "__main__":
 
     model, electrons, params, static = setup_inputs(jnp.float32)
     params = model.init(rng, electrons)
+    
     print("Computing sparse")
     logpsi_sparse = model._logpsi_with_fwd_lap(params, electrons, static)
 
@@ -99,11 +100,4 @@ if __name__ == "__main__":
     logpsi_dense = fwd_lap(lambda r: model(params, r, static))(electrons)
 
     print_diff(logpsi_dense, logpsi_sparse)
-
-    # diff = jnp.linalg.norm(h_dense - h_sparse)
-    # print(f"Diff: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense):.1e}")
-
-    # for key in h_dense:
-    #     diff = jnp.linalg.norm(h_sparse[key] - h_dense[key])
-    #     print(f"{key:<10}: {diff:.1e}, rel = {diff / jnp.linalg.norm(h_dense[key]):.1e}")
     print("Done")
