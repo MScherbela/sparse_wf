@@ -291,6 +291,10 @@ class SpringArgs(TypedDict):
     decay_factor: float
 
 
+class SpringDenseArgs(SpringArgs):
+    max_batch_size: int
+
+
 class CgArgs(TypedDict):
     damping: float
     maxiter: int
@@ -306,6 +310,7 @@ class SVDArgs(TypedDict):
 class PreconditionerArgs(TypedDict):
     preconditioner: str
     spring_args: SpringArgs
+    spring_dense_args: SpringDenseArgs
     cg_args: CgArgs
     svd_args: SVDArgs
 

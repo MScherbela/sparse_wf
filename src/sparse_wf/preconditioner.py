@@ -1,10 +1,11 @@
-from typing import TypeVar
+from typing import NamedTuple, Optional, TypeVar
+
 import jax
 import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
+from folx import batched_vmap
 from jax.scipy.sparse.linalg import cg
-from typing import NamedTuple, Optional
 
 from sparse_wf.api import (
     Electrons,
@@ -88,6 +89,7 @@ def make_dense_spring_preconditioner(
     wave_function: ParameterizedWaveFunction[P, S],
     damping: float = 1e-3,
     decay_factor: float = 0.99,
+    max_batch_size: int = 128,
 ):
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(last_grad=0 * jfu.ravel_pytree(params)[0].astype(jnp.float64))
@@ -110,7 +112,7 @@ def make_dense_spring_preconditioner(
         def log_p(params: jax.Array, electrons: Electrons, static: S):
             return wave_function(unravel(params), electrons, static) * normalization
 
-        jac_fn = jax.vmap(jax.grad(log_p), in_axes=(None, 0, None))
+        jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), max_batch_size=max_batch_size)
         jacobian = jac_fn(flat_params, electrons, static)
         jacobian -= pmean(jacobian.mean(0))
         if jacobian.shape[-1] % jax.device_count() != 0:
@@ -291,7 +293,7 @@ def make_preconditioner(wf: ParameterizedWaveFunction[P, S], args: Preconditione
     elif preconditioner == "spring":
         return make_spring_preconditioner(wf, **args["spring_args"])
     elif preconditioner == "spring_dense":
-        return make_dense_spring_preconditioner(wf, **args["spring_args"])
+        return make_dense_spring_preconditioner(wf, **args["spring_dense_args"])
     elif preconditioner == "svd":
         return make_svd_preconditioner(wf, **args["svd_args"])
     else:
