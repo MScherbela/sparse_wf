@@ -6,32 +6,37 @@ metadata:
 seed: 0
 
 molecule_args:
-  method: database
-  args:
-    hash: 087ac555dace46f4bb58f5b42646c10d
-    name: C2H4
-    comment: "molecules_file_Ethene_C2H4"
+  method: from_str
+  database_args:
+    hash: ""
+    name: ""
+    comment: ""
+  from_str_args:
+    atom: "Li 0 0 0; H 3 0 0"
+    spin: 0
+  chain_args:
+    element: ""
+    distance: 2.0
+    n: 10
   basis: sto-6g
 
 model: moon
 
 model_args:
-  cutoff: 10.0
-  feature_dim: 256
-  nuc_mlp_depth: 3
-  pair_mlp_widths: [16, 8]
-  pair_n_envelopes: 32
   n_determinants: 16
-  n_envelopes: 16
-  use_e_e_cusp: True
-  mlp_jastrow:
-    use: true
-    embedding_n_hidden: [40,40]
-    soe_n_hidden: [40,40]
-  log_jastrow:
-    use: false
-    embedding_n_hidden: [40,40]
-    soe_n_hidden: [40,40]
+  n_envelopes: 8
+  embedding:
+    cutoff: 10.0
+    feature_dim: 256
+    nuc_mlp_depth: 4
+    pair_mlp_widths: [16, 8]
+    pair_n_envelopes: 32
+  jastrow:
+    e_e_cusps: psiformer
+    use_log_jastrow: True
+    use_mlp_jastrow: True
+    mlp_depth: 2
+    mlp_width: 64
 
 logging_args:
   smoothing: 5000
@@ -62,10 +67,14 @@ optimization:
         args: []
         kwargs: { max_norm: 1.0 }
   preconditioner_args:
-    preconditioner: spring
+    preconditioner: spring_dense
     spring_args:
       damping: 1.e-3
       decay_factor: 0.99
+    spring_dense_args:
+      damping: 1.e-3
+      decay_factor: 0.99
+      max_batch_size: 128
     cg_args:
       damping: 1.e-3
       maxiter: 100

@@ -7,6 +7,7 @@ import numpy as np
 import folx
 import jax
 import jax.numpy as jnp
+import jax.core
 import jax.tree_util as jtu
 
 from sparse_wf.api import PRNGKeyArray
@@ -57,6 +58,14 @@ pmin = functools.partial(jax.lax.pmin, axis_name=PMAP_AXIS_NAME)
 pgather = functools.partial(jax.lax.all_gather, axis_name=PMAP_AXIS_NAME)
 pall_to_all = functools.partial(jax.lax.all_to_all, axis_name=PMAP_AXIS_NAME)
 pidx = functools.partial(jax.lax.axis_index, axis_name=PMAP_AXIS_NAME)
+
+
+def pmax_if_pmap(x):
+    try:
+        jax.core.axis_frame(PMAP_AXIS_NAME)
+        return pmax(x)
+    except NameError:
+        return x
 
 
 @overload
@@ -168,7 +177,7 @@ def pmap(
 
 
 @functools.wraps(folx.forward_laplacian)
-def fwd_lap(f, argnums=None, sparsity_threshold=0):
+def fwd_lap(f, argnums=None, sparsity_threshold: float | int = 0):
     """Applies forward laplacian transform using the folx package, but adds the option to specifiy which args are being differentiated,
     and chooses sparse jacobians by default."""
 

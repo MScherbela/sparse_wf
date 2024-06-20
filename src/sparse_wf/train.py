@@ -18,7 +18,7 @@ from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 
 # from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
-from sparse_wf.model.moon import Moon
+from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.model.two_step_moon import TwoStepMoon
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
@@ -67,7 +67,7 @@ def main(
 ):
     config = locals()
 
-    mol = get_molecule(**molecule_args)
+    mol = get_molecule(molecule_args)
 
     loggers = MultiLogger(logging_args)
     loggers.log_config(config)
@@ -79,7 +79,7 @@ def main(
 
     match model.lower().strip():
         case "moon":
-            wf = Moon.create(mol, **model_args)
+            wf = MoonLikeWaveFunction.create(mol, **model_args)
         case "moon2step":
             wf = TwoStepMoon.create(mol, **model_args)
         case "ferminet":
@@ -110,7 +110,7 @@ def main(
     # params can still be different per process due to different sample, leading to different normalizations
     # Use the params from the main process across all devices
     params = get_from_main_process(params)
-    n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params["params"]))
+    n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params))
     loggers.log_config(dict(n_params=n_params))
 
     trainer = make_trainer(
@@ -146,7 +146,8 @@ def main(
     for _ in tqdm.trange(optimization["burn_in"]):
         static = wf.get_static_input(state.electrons)
         state, aux_data = trainer.sampling_step(state, static)
-        loggers.log(dict(**aux_data))
+        aux_data = to_log_data(aux_data)
+        loggers.log(aux_data)
 
     logging.info("Training")
     with tqdm.trange(optimization["steps"]) as pbar:
@@ -154,9 +155,11 @@ def main(
             static = wf.get_static_input(state.electrons)
             t0 = time.perf_counter()
             state, _, aux_data = trainer.step(state, static)
+            aux_data = to_log_data(aux_data)
             t1 = time.perf_counter()
-            aux_data = to_log_data(aux_data | {"opt/t_step": t1 - t0})
-            loggers.log(dict(opt_step=opt_step, **aux_data))
+            aux_data["opt/t_step"] = t1 - t0
+            aux_data["opt/step"] = opt_step
+            loggers.log(aux_data)
             if np.isnan(aux_data["opt/E"]):
                 raise ValueError("NaN in energy")
             set_postfix(pbar, aux_data)

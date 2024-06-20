@@ -49,6 +49,16 @@ class MLP(nn.Module):
         return x
 
 
+class GatedLinearUnit(nn.Module):
+    out_dim: int
+
+    @nn.compact
+    def __call__(self, x: Float[Array, "*batch_dims inp_dim"]) -> Float[Array, "*batch_dims out_dim"]:
+        x = nn.Dense(2 * self.out_dim, use_bias=False)(x)
+        x, gate = jnp.split(x, 2, axis=-1)
+        return nn.Dense(self.out_dim, use_bias=False)(x * nn.silu(gate))
+
+
 def cutoff_function(d: Float[Array, "*dims"], p=4) -> Float[Array, "*dims"]:  # noqa: F821
     a = -(p + 1) * (p + 2) * 0.5
     b = p * (p + 2)
@@ -99,10 +109,13 @@ def signed_logpsi_from_orbitals(orbitals: SlaterMatrices) -> SignedLogAmplitude:
     return signpsi, logpsi
 
 
-def get_dist_same_diff(electrons: ElecElecDistances, n_up):
-    # Compute distances
+def get_dist(electrons: Electrons) -> ElecElecDistances:
     diff = electrons[..., None, :, :] - electrons[..., :, None, :]
-    dists = jnp.linalg.norm(diff, axis=-1)
+    return jnp.linalg.norm(diff, axis=-1)
+
+
+def get_dist_same_diff(electrons: Electrons, n_up):
+    dists = get_dist(electrons)
 
     # Get one copy of the distances between all electrons with the same spin
     upper_tri_indices = jnp.triu_indices(n_up, 1)
@@ -131,48 +144,13 @@ def truncated_normal_with_mean_initializer(mean: float, stddev=0.01):
     return init
 
 
-class JastrowFactor(nn.Module):
-    embedding_n_hidden: Optional[Sequence[int]]
-    soe_n_hidden: Optional[Sequence[int]]
-    init_with_zero: bool = False
-
-    @nn.compact
-    def __call__(self, embeddings):
-        """
-        There are three options here (i is the electron index):
-        (1) J_i = MLP_[embedding_n_hidden, 1](embeddings) , J=sum(J_i)
-        (2) J_i = MLP_[embedding_n_hidden](embeddings), J=MLP_[soe_n_hidden, 1](sum(J_i))
-        (3) J=MLP_[soe_n_hidden, 1](sum(embeddings_i))
-        """
-        if self.embedding_n_hidden is None and self.soe_n_hidden is None:
-            raise KeyError("Either embedding_n_hidden or soe_n_hidden must be specified when using mlp jastrow.")
-
-        if self.embedding_n_hidden is not None:
-            if self.soe_n_hidden is None:  # Option (1)
-                jastrow = jnp.squeeze(
-                    MLP([*self.embedding_n_hidden, 1], activate_final=False, residual=False, output_bias=False)(
-                        embeddings
-                    ),
-                    axis=-1,
-                )
-                jastrow = jnp.sum(jastrow, axis=-1)
-            else:  # Option (2) part 1
-                jastrow = MLP(self.embedding_n_hidden, activate_final=False, residual=False, output_bias=False)(
-                    embeddings
-                )
-        else:  # Option (3) part 2
-            jastrow = embeddings
-
-        if self.soe_n_hidden is not None:  # Option (2 or 3)
-            jastrow = jnp.sum(jastrow, axis=-2)  # Sum over electrons.
-            jastrow = jnp.squeeze(
-                MLP([*self.soe_n_hidden, 1], activate_final=False, residual=False, output_bias=False)(jastrow), axis=-1
-            )
-
-        return jastrow
+def lecun_normal(rng, shape):
+    fan_in = shape[0]
+    scale = 1 / jnp.sqrt(fan_in)
+    return jax.random.truncated_normal(rng, -1, 1, shape, jnp.float32) * scale
 
 
-class FerminetIsotropicEnvelope(nn.Module):
+class IsotropicEnvelope(nn.Module):
     n_determinants: int
     n_orbitals: int
     cutoff: Optional[float] = None
@@ -186,7 +164,9 @@ class FerminetIsotropicEnvelope(nn.Module):
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = self.param("sigma", self._sigma_initializer, (n_nuc, self.n_determinants * self.n_orbitals))
+        sigma = self.param(
+            "sigma", self._sigma_initializer, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32
+        )
         sigma = nn.softplus(sigma)
         pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32)
         scaled_dists = dists[..., None] * sigma
@@ -206,12 +186,13 @@ class EfficientIsotropicEnvelopes(nn.Module):
     @nn.compact
     def __call__(self, dists: ElecNucDistances) -> jax.Array:
         n_nuc = dists.shape[-1]
-        sigma = self.param("sigma", jnn.initializers.ones, (n_nuc, self.n_determinants, self.n_envelopes))
+        sigma = self.param("sigma", jnn.initializers.ones, (n_nuc, self.n_determinants, self.n_envelopes), jnp.float32)
         sigma = nn.softplus(sigma)
         pi = self.param(
             "pi",
             jnn.initializers.normal(1 / jnp.sqrt(self.n_envelopes)),
             (n_nuc, self.n_determinants, self.n_envelopes, self.n_orbitals),
+            jnp.float32,
         )
         scaled_dists = dists[..., None, None] * sigma
         env = jnp.exp(-scaled_dists)
@@ -275,7 +256,8 @@ class DynamicFilterParams(NamedTuple):
 
 def scale_initializer(rng, cutoff, shape, dtype=jnp.float32):
     n_scales = shape[-1]
-    scale = jnp.linspace(0, cutoff, n_scales, dtype=dtype)
+    max_length_scale = min(20, cutoff)
+    scale = jnp.linspace(0, max_length_scale, n_scales, dtype=dtype)
     scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
     return scale.astype(jnp.float32)
 
@@ -317,25 +299,6 @@ class PairwiseFilter(nn.Module):
         return beta
 
 
-class ElElCusp(nn.Module):
-    n_up: int
-
-    @nn.compact
-    def __call__(self, electrons: Electrons) -> Float[Array, " *batch_dims"]:
-        dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
-
-        alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
-        alpha_diff = self.param("alpha_diff", nn.initializers.ones, (), jnp.float32)
-        # factor_same = self.param("factor_same", param_initializer(-0.25), (), jnp.float32)
-        # factor_diff = self.param("factor_diff", param_initializer(-0.5), (), jnp.float32)
-        factor_same, factor_diff = -0.25, -0.5
-
-        cusp_same = jnp.sum(alpha_same**2 / (alpha_same + dist_same), axis=-1)
-        cusp_diff = jnp.sum(alpha_diff**2 / (alpha_diff + dist_diff), axis=-1)
-
-        return factor_same * cusp_same + factor_diff * cusp_diff
-
-
 def get_diff_features(
     r: Float[ArrayLike, "dim=3"],
     r_nb: Float[Array, "dim=3"],
@@ -353,6 +316,19 @@ def get_diff_features(
 
 
 get_diff_features_vmapped = jax.vmap(get_diff_features, in_axes=(None, 0, None, 0))
+
+
+ScalingParam = Float[Array, ""]
+
+
+def normalize(x, scale: ScalingParam | None, return_scale=False):
+    if scale is None:
+        scale = 1.0 / jnp.std(x)
+        scale = jnp.where(jnp.isfinite(scale), scale, 1.0)
+    x = x * scale
+    if return_scale:
+        return x, scale
+    return x
 
 
 class FixedScalingFactor(nn.Module):

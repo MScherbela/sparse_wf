@@ -1,14 +1,13 @@
 import json
-from typing import Any
-
 import pyscf
+from sparse_wf.api import MoleculeArgs
 
 
 def chain(element: str, distance: float, n: int, **_):
     atom_strings = []
     for i in range(n):
         atom_strings.append(f"{element} {i * distance} 0 0")
-    return pyscf.got.M(atom="; ".join(atom_strings), unit="bohr")
+    return pyscf.gto.M(atom="; ".join(atom_strings), unit="bohr")
 
 
 def from_str(atom: str, spin: int = 0, **_):
@@ -38,10 +37,14 @@ def database(hash: str | None = None, name: str | None = None, comment: str | No
     return pyscf.gto.M(atom=atom, spin=geom["spin"], charge=geom["charge"], unit="bohr")
 
 
-def get_molecule(method: str, args: dict[str, Any], basis: str) -> pyscf.gto.Mole:
-    constructor = globals().get(method)
-    assert constructor is not None, f"Coult not find constructor for method {method}."
-    molecule = constructor(**args)
-    molecule.basis = basis
+def get_molecule(molecule_args: MoleculeArgs) -> pyscf.gto.Mole:
+    match molecule_args["method"]:
+        case "chain":
+            molecule = chain(**molecule_args["chain_args"])
+        case "from_str":
+            molecule = from_str(**molecule_args["from_str_args"])
+        case "database":
+            molecule = database(**molecule_args["database_args"])
+    molecule.basis = molecule_args["basis"]
     molecule.build()
     return molecule

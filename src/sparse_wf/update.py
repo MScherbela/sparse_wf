@@ -96,7 +96,7 @@ def make_trainer(
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
-        energy = batched_vmap(wave_function.local_energy_dense, in_axes=(None, 0, None), max_batch_size=64)(
+        energy = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=64)(
             state.params, electrons, static
         )
         energy_diff = local_energy_diff(energy, **clipping_args)
@@ -119,6 +119,8 @@ def make_trainer(
         )
         aux_data.update(preconditioner_aux)
         aux_data["opt/update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
+        # TODO: make this work for general models
+        aux_data["opt/deps_hout"] = static.n_deps.h_el_out  # type: ignore
 
         updates, opt = optimizer.update(natgrad, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)

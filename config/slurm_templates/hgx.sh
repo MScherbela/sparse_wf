@@ -4,7 +4,7 @@
 #SBATCH -n {n_gpus}
 #SBATCH --cpus-per-task 8
 #SBATCH --partition hgx
-#SBATCH --qos normal
+#SBATCH --qos={qos}
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
 #SBATCH --gres=gpu:{n_gpus}

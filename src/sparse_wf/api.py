@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar
-
 import jax
 import numpy as np
 import optax
@@ -9,6 +8,7 @@ from flax import struct
 from flax.serialization import to_bytes, from_bytes
 from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree
 from pyscf.scf.hf import SCF
+from typing import Literal
 
 AnyArray = Array | list | np.ndarray
 Int = Integer[Array, ""]
@@ -263,29 +263,36 @@ class Logger(Protocol):
 ############################################################################
 # Arguments
 ############################################################################
-
-
-class JastrowArgs(TypedDict):
-    use: bool
-    embedding_n_hidden: Optional[Sequence[int]]
-    soe_n_hidden: Optional[Sequence[int]]
-
-
-class ModelArgs(TypedDict):
+class EmbeddingArgs(TypedDict):
     cutoff: float
     feature_dim: int
     nuc_mlp_depth: int
     pair_mlp_widths: tuple[int, int]
     pair_n_envelopes: int
+
+
+class JastrowArgs(TypedDict):
+    e_e_cusps: Literal["none", "psiformer", "yukawa"]
+    use_log_jastrow: bool
+    use_mlp_jastrow: bool
+    mlp_depth: int
+    mlp_width: int
+
+
+class ModelArgs(TypedDict):
+    embedding: EmbeddingArgs
+    jastrow: JastrowArgs
     n_determinants: int
     n_envelopes: int
-    use_e_e_cusp: bool
-    mlp_jastrow: JastrowArgs
 
 
 class SpringArgs(TypedDict):
     damping: float
     decay_factor: float
+
+
+class SpringDenseArgs(SpringArgs):
+    max_batch_size: int
 
 
 class CgArgs(TypedDict):
@@ -303,6 +310,7 @@ class SVDArgs(TypedDict):
 class PreconditionerArgs(TypedDict):
     preconditioner: str
     spring_args: SpringArgs
+    spring_dense_args: SpringDenseArgs
     cg_args: CgArgs
     svd_args: SVDArgs
 
@@ -367,7 +375,31 @@ class PretrainingArgs(TypedDict):
     optimizer_args: OptimizerArgs
 
 
+class MoleculeDatabaseArgs(TypedDict):
+    hash: str
+    name: str
+    comment: str
+
+
+class MoleculeFromStrArgs(TypedDict):
+    atom: str
+    spin: int
+
+
+class MoleculeChainArgs(TypedDict):
+    element: str
+    distance: float
+    n: int
+
+
 class MoleculeArgs(TypedDict):
     method: str
-    args: dict[str, Any]
+    from_str_args: MoleculeFromStrArgs
+    chain_args: MoleculeChainArgs
+    database_args: MoleculeDatabaseArgs
     basis: str
+
+
+class StaticInput(NamedTuple):
+    n_neighbours: dict
+    n_deps: dict
