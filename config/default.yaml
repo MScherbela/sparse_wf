@@ -67,10 +67,14 @@ optimization:
         args: []
         kwargs: { max_norm: 1.0 }
   preconditioner_args:
-    preconditioner: spring
+    preconditioner: spring_dense
     spring_args:
       damping: 1.e-3
       decay_factor: 0.99
+    spring_dense_args:
+      damping: 1.e-3
+      decay_factor: 0.99
+      max_batch_size: 128
     cg_args:
       damping: 1.e-3
       maxiter: 100
