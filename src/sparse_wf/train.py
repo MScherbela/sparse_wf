@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 import tqdm
-from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
+from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs, MCMCArgs
 from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, get_from_main_process
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
@@ -59,8 +59,7 @@ def main(
     optimization: OptimizationArgs,
     pretraining: PretrainingArgs,
     batch_size: int,
-    mcmc_steps: int,
-    init_width: float,
+    mcmc_args: MCMCArgs,
     seed: int,
     logging_args: LoggingArgs,
     metadata: Optional[dict[str, Any]] = None,
@@ -101,7 +100,7 @@ def main(
     # We want to initialize differently per process so we use the proc_key here
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
-    mcmc_step = make_mcmc(wf, mcmc_steps)
+    mcmc_step, mcmc_state = make_mcmc(wf, **mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
 
     # We want the parameters to be identical so we use the main_key here
@@ -122,7 +121,7 @@ def main(
         optimization["clipping"],
     )
     # The state will only be fed into pmapped functions, i.e., we need a per device key
-    state = trainer.init(device_keys, params, electrons, jnp.array(init_width))
+    state = trainer.init(device_keys, params, electrons, mcmc_state)
     assert_identical_copies(state.params)
 
     pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol), make_optimizer(**pretraining["optimizer_args"]))

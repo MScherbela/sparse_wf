@@ -20,6 +20,7 @@ from sparse_wf.api import (
     Width,
     WidthScheduler,
     WidthSchedulerState,
+    MCMC_proposal_type,
 )
 from sparse_wf.jax_utils import jit, psum
 
@@ -53,8 +54,10 @@ P, S = TypeVar("P"), TypeVar("S")
 
 def make_mcmc(
     network: ParameterizedWaveFunction[P, S],
-    steps: int = 10,
-) -> MCStep[P, S]:
+    proposal: MCMC_proposal_type,
+    init_width,
+    steps: int,
+) -> tuple[MCStep[P, S], jax.Array]:
     batch_network = jax.vmap(network, in_axes=(None, 0, None))
 
     @jit(static_argnames="static")
@@ -75,7 +78,7 @@ def make_mcmc(
         pmove = psum(num_accepts) / (steps * electrons.shape[0] * jax.device_count())
         return electrons, pmove
 
-    return mcmc_step
+    return mcmc_step, jnp.array(init_width, dtype=jnp.float32)
 
 
 def make_width_scheduler(

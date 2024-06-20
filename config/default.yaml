@@ -104,5 +104,8 @@ pretraining:
         kwargs: {}
 
 batch_size: 512
-mcmc_steps: 20
-init_width: 0.1
+
+mcmc_args:
+  proposal: "all-electron"
+  steps: 20
+  init_width: 0.1
