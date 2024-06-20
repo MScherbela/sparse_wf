@@ -19,7 +19,6 @@ from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 
 # from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
-from sparse_wf.model.two_step_moon import TwoStepMoon
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
@@ -79,8 +78,6 @@ def main(
     match model.lower().strip():
         case "moon":
             wf = MoonLikeWaveFunction.create(mol, **model_args)
-        case "moon2step":
-            wf = TwoStepMoon.create(mol, **model_args)
         case "ferminet":
             wf = DenseFermiNet.create(mol)
         case _:
@@ -100,7 +97,7 @@ def main(
     # We want to initialize differently per process so we use the proc_key here
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
-    mcmc_step, mcmc_state = make_mcmc(wf, **mcmc_args)
+    mcmc_step, mcmc_state = make_mcmc(wf.__call__, wf.update_logpsi, **mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
 
     # We want the parameters to be identical so we use the main_key here

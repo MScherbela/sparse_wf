@@ -1,10 +1,12 @@
-from typing import TypeVar
+from typing import TypeVar, Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pyscf
 from jax import lax
+import jax.tree_util as jtu
+import functools
 
 from sparse_wf.api import (
     Charges,
@@ -25,7 +27,7 @@ from sparse_wf.api import (
 from sparse_wf.jax_utils import jit, psum
 
 
-def mh_update(
+def mh_update_all_electron(
     log_prob_fn: ClosedLogLikelihood,
     key: PRNGKeyArray,
     electrons: Electrons,
@@ -45,38 +47,105 @@ def mh_update(
     new_electrons = jnp.where(accept[..., None, None], new_electrons, electrons)
     new_log_prob = jnp.where(accept, new_log_prob, log_prob)
     num_accepts += jnp.sum(accept).astype(jnp.int32)
-
     return key, new_electrons, new_log_prob, num_accepts
+
+
+def mh_update_single_electron(
+    update_logpsi_fn: Callable,
+    key: PRNGKeyArray,
+    electrons: Electrons,
+    log_prob: LogAmplitude,
+    model_cache: dict,
+    width: Width,
+) -> tuple[PRNGKeyArray, Electrons, LogAmplitude, dict, Int]:
+    cluster_size = 1
+    n_el = electrons.shape[-2]
+
+    key, key_select, key_propose, key_accept = jax.random.split(key, 4)
+    ind_move = jax.random.randint(key_select, [cluster_size], 0, n_el)
+    delta_r = jax.random.normal(key_propose, [cluster_size, 3], dtype=electrons.dtype) * width
+    new_electrons = electrons.at[ind_move, :].add(delta_r)
+    new_logpsi, new_model_cache = update_logpsi_fn(new_electrons, ind_move, model_cache)
+    new_log_prob = 2 * new_logpsi
+    log_ratio = new_log_prob - log_prob
+
+    accept = log_ratio > jnp.log(jax.random.uniform(key_accept, log_ratio.shape))
+    new_electrons, new_log_prob, new_model_cache = jtu.tree_map(
+        lambda new, old: jnp.where(accept, new, old),
+        (new_electrons, new_log_prob, new_model_cache),
+        (electrons, log_prob, model_cache),
+    )
+    return key, new_electrons, new_log_prob, new_model_cache, jnp.where(accept, 1, 0)
 
 
 P, S = TypeVar("P"), TypeVar("S")
 
 
+def mcmc_steps_all_electron(
+    logpsi_fn: ParameterizedWaveFunction[P, S],
+    steps: int,
+    key: PRNGKeyArray,
+    params: P,
+    electrons: Electrons,
+    static: S,
+    width: Width,
+):
+    def log_prob_fn(electrons: Electrons) -> LogAmplitude:
+        return 2 * jax.vmap(logpsi_fn, in_axes=(None, 0, None))(params, electrons, static)
+
+    def step_fn(_, x):
+        return mh_update_all_electron(log_prob_fn, *x, width)  # type: ignore
+
+    logprob = log_prob_fn(electrons)
+    num_accepts = jnp.zeros((), dtype=jnp.int32)
+    key, electrons, logprob, num_accepts = lax.fori_loop(0, steps, step_fn, (key, electrons, logprob, num_accepts))
+    pmove = psum(num_accepts) / (steps * electrons.shape[0] * jax.device_count())
+    return electrons, pmove
+
+
+def mcmc_steps_single_electron(
+    logpsi_fn: ParameterizedWaveFunction[P, S],
+    update_logpsi_fn: Callable,
+    steps: int,
+    key: PRNGKeyArray,
+    params: P,
+    electrons: Electrons,
+    static: S,
+    width: Width,
+):
+    logpsi, model_cache = logpsi_fn(params, electrons, static)
+    logprob = 2 * logpsi
+
+    @functools.partial(jax.vmap, in_axes=(None, 0))
+    def step_fn(_, x):
+        return mh_update_single_electron(update_logpsi_fn, *x, width)
+
+    local_batch_size = electrons.shape[0]
+    x0 = (
+        jax.random.split(key, local_batch_size),
+        electrons,
+        logprob,
+        model_cache,
+        jnp.zeros(local_batch_size, dtype=jnp.int32),
+    )
+    _, electrons, logprob, model_cache, num_accepts = lax.fori_loop(0, steps, step_fn, x0)
+    pmove = psum(num_accepts) / (steps * local_batch_size * jax.device_count())
+    return electrons, pmove
+
+
 def make_mcmc(
-    network: ParameterizedWaveFunction[P, S],
+    logpsi_fn: ParameterizedWaveFunction[P, S],
+    update_logpsi_fn: Callable,
     proposal: MCMC_proposal_type,
     init_width,
     steps: int,
 ) -> tuple[MCStep[P, S], jax.Array]:
-    batch_network = jax.vmap(network, in_axes=(None, 0, None))
+    # batch_network = jax.vmap(logpsi_fn, in_axes=(None, 0, None))
 
-    @jit(static_argnames="static")
-    def mcmc_step(
-        key: PRNGKeyArray, params: P, electrons: Electrons, static: S, width: Width
-    ) -> tuple[Electrons, PMove]:
-        def log_prob_fn(electrons: Electrons) -> LogAmplitude:
-            return 2 * batch_network(params, electrons, static)
-
-        def step_fn(_, x):
-            return mh_update(log_prob_fn, *x, width)  # type: ignore
-
-        logprob = log_prob_fn(electrons)
-        num_accepts = jnp.zeros((), dtype=jnp.int32)
-
-        key, electrons, logprob, num_accepts = lax.fori_loop(0, steps, step_fn, (key, electrons, logprob, num_accepts))
-
-        pmove = psum(num_accepts) / (steps * electrons.shape[0] * jax.device_count())
-        return electrons, pmove
+    if proposal == "all-electron":
+        mcmc_step = functools.partial(mcmc_steps_all_electron, logpsi_fn, steps)
+    elif proposal == "single-electron":
+        mcmc_step = functools.partial(mcmc_steps_single_electron, logpsi_fn, update_logpsi_fn, steps)
 
     return mcmc_step, jnp.array(init_width, dtype=jnp.float32)
 

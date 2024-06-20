@@ -171,6 +171,12 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
     def __call__(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LogAmplitude:
         return self.signed(params, electrons, static)[1]
 
+    def update_logpsi(
+        self, params: Parameters, electrons_new: Electrons, idx_changed, model_cache: dict, static: StaticInputMoon
+    ) -> tuple[LogAmplitude, dict]:
+        # TODO: replace this (fully-recomputing) dummy implementation
+        return self(params, electrons_new, static), model_cache
+
     def get_static_input(self, electrons: Electrons) -> StaticInputMoon:
         return self.embedding.get_static_input(electrons)
 

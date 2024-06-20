@@ -15,6 +15,8 @@ from sparse_wf.api import (
     ParameterizedWaveFunction,
     PRNGKeyArray,
     SlaterMatrices,
+    LogAmplitude,
+    ModelCache,
 )
 from sparse_wf.hamiltonian import make_local_energy
 from sparse_wf.jax_utils import vectorize
@@ -159,6 +161,11 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode)
 
     def __call__(self, params: FermiNetParams, electrons: Electrons, static):
         return self.signed(params, electrons, static)[1]
+
+    def update_logpsi(
+        self, params: FermiNetParams, electrons_new: Electrons, idx_changed, model_cache: ModelCache, static
+    ) -> tuple[LogAmplitude, dict]:
+        return self(params, electrons_new, static), model_cache
 
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)

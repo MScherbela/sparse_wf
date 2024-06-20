@@ -43,6 +43,7 @@ PMoves = Float[PMove, "window_size"]
 Damping = Float[Array, ""]
 AuxData = PyTree[Float[Array, ""]]
 Step = Integer[ArrayLike, ""]
+ModelCache = PyTree[Any]
 
 
 ############################################################################
@@ -69,6 +70,14 @@ class ParameterizedWaveFunction(Protocol[P, S]):
     def local_energy_dense(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
     def signed(self, params: P, electrons: Electrons, static: S) -> SignedLogAmplitude: ...
     def __call__(self, params: P, electrons: Electrons, static: S) -> LogAmplitude: ...
+    def update_logpsi(
+        self,
+        params: P,
+        electrons_new: Electrons,
+        idx_changed: Integer[Array, "cluster dim=3"],
+        model_cache: ModelCache,
+        static: S,
+    ) -> tuple[LogAmplitude, ModelCache]: ...
 
 
 ############################################################################
