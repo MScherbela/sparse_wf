@@ -115,15 +115,17 @@ def make_dense_spring_preconditioner(
         jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), max_batch_size=max_batch_size)
         jacobian = jac_fn(flat_params, electrons, static)
         jacobian -= pmean(jacobian.mean(0))
-        if jacobian.shape[-1] % jax.device_count() != 0:
+        n_params = jacobian.shape[-1]
+        if n_params % jax.device_count() != 0:
             jacobian = jnp.concatenate(
                 [
                     jacobian,
-                    jnp.zeros((jacobian.shape[0], jax.device_count() - jacobian.shape[-1] % jax.device_count())),
+                    jnp.zeros((jacobian.shape[0], jax.device_count() - n_params % jax.device_count())),
                 ],
                 axis=-1,
             )
         jac_T = pall_to_all(jacobian, split_axis=1, concat_axis=0, tiled=True)
+        jacobian = jacobian[:, :n_params]  # remove padding
         T = jac_T @ jac_T.T
         T = (T + T.T) / 2  # better numerics
 
