@@ -143,6 +143,8 @@ def get_slurm_defaults(cluster, queue):
         elif queue == "a40":
             defaults["partition"] = "zen2_0256_a40x2"
             defaults["qos"] = "zen2_0256_a40x2"
+    elif cluster == "leonardo":
+        defaults = dict(time="1-00:00:00", n_gpus=4, nodes=1)
         return defaults
 
 
@@ -152,6 +154,8 @@ def autodetect_cluster():
         return "hgx"
     elif "vsc" in hostname:
         return "vsc5"
+    elif "leonardo" in hostname:
+        return "leonardo"
 
 
 def build_grid(*param_groups):
