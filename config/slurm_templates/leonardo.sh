@@ -7,6 +7,7 @@
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
 #SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node={n_gpus}
 
 source $HOME/venv/sparse_wf/bin/activate
 export OMP_NUM_THREADS=10
