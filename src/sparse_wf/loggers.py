@@ -1,7 +1,7 @@
 import atexit
 import os
 from typing import Any
-
+import logging
 import numpy as np
 
 import wandb
@@ -47,6 +47,24 @@ class WandBLogger(Logger):
         wandb.config.update(config)
 
 
+class PythonLogger(Logger):
+    @only_on_main_process
+    def __init__(self, **_) -> None:
+        self.logger = logging.getLogger("sparse_wf")
+        self.logger.setLevel(logging.DEBUG)
+
+    @only_on_main_process
+    def log(self, data: dict) -> None:
+        if "opt/step" in data:
+            logging.info(f"Opt step {data['opt/step']}: {data}")
+        else:
+            logging.info(str(data))
+
+    @only_on_main_process
+    def log_config(self, config: dict) -> None:
+        logging.info("Config: " + str(config))
+
+
 class MultiLogger(Logger):
     METRICS_TO_SMOOTH = ["opt/E"]
 
@@ -65,6 +83,8 @@ class MultiLogger(Logger):
             self.loggers.append(WandBLogger(**(logging_args | logging_args["wandb"])))  # type: ignore
         if ("file" in logging_args) and (logging_args["file"]["use"]):
             self.loggers.append(FileLogger(**(logging_args | logging_args["file"])))  # type: ignore
+        if ("python" in logging_args) and (logging_args["python"]["use"]):
+            self.loggers.append(PythonLogger(**(logging_args | logging_args["python"])))  # type: ignore
 
     # TODO: This enforces that the run directory always ends with the name of the run and does not support setting the cwd as run_directory
     @property

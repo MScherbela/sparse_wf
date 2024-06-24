@@ -340,10 +340,15 @@ class FileLoggingArgs(TypedDict):
     file_name: str
 
 
+class PythonLoggingArgs(TypedDict):
+    use: bool
+
+
 class LoggingArgs(TypedDict):
     smoothing: int
     wandb: WandBArgs
     file: FileLoggingArgs
+    python: PythonLoggingArgs
     name: str
     name_keys: Sequence[str] | None
     comment: str | None
@@ -377,6 +382,7 @@ class OptimizationArgs(TypedDict):
     optimizer_args: OptimizerArgs
     preconditioner_args: PreconditionerArgs
     clipping: ClippingArgs
+    max_batch_size: int
 
 
 class PretrainingArgs(TypedDict):

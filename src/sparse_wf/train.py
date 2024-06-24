@@ -9,7 +9,6 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-import tqdm
 from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs, MCMCArgs
 from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, get_from_main_process
 from sparse_wf.loggers import MultiLogger
@@ -34,10 +33,6 @@ jax.config.update("jax_enable_x64", True)
 
 def to_log_data(aux_data: AuxData) -> dict[str, float]:
     return jtu.tree_map(lambda x: np.asarray(x).mean().item(), aux_data)
-
-
-def set_postfix(pbar: tqdm.tqdm, aux_data: dict[str, float]):
-    pbar.set_postfix(jtu.tree_map(lambda x: f"{x:.4f}", aux_data))
 
 
 @pmap(static_broadcasted_argnums=(0, 3))
@@ -116,6 +111,7 @@ def main(
         make_optimizer(**optimization["optimizer_args"]),
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
+        optimization["max_batch_size"],
     )
     # The state will only be fed into pmapped functions, i.e., we need a per device key
     state = trainer.init(device_keys, params, electrons, mcmc_state)
@@ -125,39 +121,35 @@ def main(
     state = pretrainer.init(state)
 
     logging.info("Pretraining")
-    with tqdm.trange(pretraining["steps"]) as pbar:
-        for _ in pbar:
-            static = wf.get_static_input(state.electrons)
-            state, aux_data = pretrainer.step(state, static)
-            aux_data = to_log_data(aux_data)
-            loggers.log(aux_data)
-            if np.isnan(aux_data["loss"]):
-                raise ValueError("NaN in pretraining loss")
-            set_postfix(pbar, aux_data)
+    for _ in range(pretraining["steps"]):
+        static = wf.get_static_input(state.electrons)
+        state, aux_data = pretrainer.step(state, static)
+        aux_data = to_log_data(aux_data)
+        loggers.log(aux_data)
+        if np.isnan(aux_data["loss"]):
+            raise ValueError("NaN in pretraining loss")
 
     state = state.to_train_state()
     assert_identical_copies(state.params)
 
     logging.info("MCMC Burn-in")
-    for _ in tqdm.trange(optimization["burn_in"]):
+    for _ in range(optimization["burn_in"]):
         static = wf.get_static_input(state.electrons)
         state, aux_data = trainer.sampling_step(state, static)
         aux_data = to_log_data(aux_data)
         loggers.log(aux_data)
 
     logging.info("Training")
-    with tqdm.trange(optimization["steps"]) as pbar:
-        for opt_step in pbar:
-            static = wf.get_static_input(state.electrons)
-            t0 = time.perf_counter()
-            state, _, aux_data = trainer.step(state, static)
-            aux_data = to_log_data(aux_data)
-            t1 = time.perf_counter()
-            aux_data["opt/t_step"] = t1 - t0
-            aux_data["opt/step"] = opt_step
-            loggers.log(aux_data)
-            if np.isnan(aux_data["opt/E"]):
-                raise ValueError("NaN in energy")
-            set_postfix(pbar, aux_data)
+    for opt_step in range(optimization["steps"]):
+        static = wf.get_static_input(state.electrons)
+        t0 = time.perf_counter()
+        state, _, aux_data = trainer.step(state, static)
+        aux_data = to_log_data(aux_data)
+        t1 = time.perf_counter()
+        aux_data["opt/t_step"] = t1 - t0
+        aux_data["opt/step"] = opt_step
+        loggers.log(aux_data)
+        if np.isnan(aux_data["opt/E"]):
+            raise ValueError("NaN in energy")
     assert_identical_copies(state.params)
     loggers.store_blob(state.serialize(), "chkpt_final.msgpk")

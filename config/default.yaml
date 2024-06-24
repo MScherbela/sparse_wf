@@ -47,6 +47,8 @@ logging_args:
   file:
     use: true
     file_name: log.txt
+  python:
+    use: true
   name_keys: []
   out_directory: "."
   collection: ""
@@ -55,6 +57,7 @@ logging_args:
 optimization:
   steps: 100_000
   burn_in: 500
+  max_batch_size: 64
   optimizer_args:
     lr_schedule: hyperbolic
     lr_schedule_args:
