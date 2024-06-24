@@ -60,7 +60,7 @@ def make_pretrainer(
             pre_opt_state=opt_state,
             width_state=width_state,
         ), {
-            "loss": loss_val,
+            "pretrain/loss": loss_val,
             "mcmc/pmove": pmove,
             "mcmc/stepsize": state.width_state.width,
         }

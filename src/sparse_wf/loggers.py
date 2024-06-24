@@ -57,6 +57,8 @@ class PythonLogger(Logger):
     def log(self, data: dict) -> None:
         if "opt/step" in data:
             self.logger.info(f"Opt step {data['opt/step']}: {data}")
+        elif "pretrain/step" in data:
+            self.logger.info(f"Pretrain step {data['pretrain/step']}: {data}")
         else:
             self.logger.info(str(data))
 

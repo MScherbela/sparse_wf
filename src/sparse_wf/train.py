@@ -121,10 +121,11 @@ def main(
     state = pretrainer.init(state)
 
     logging.info("Pretraining")
-    for _ in range(pretraining["steps"]):
+    for step in range(pretraining["steps"]):
         static = wf.get_static_input(state.electrons)
         state, aux_data = pretrainer.step(state, static)
         aux_data = to_log_data(aux_data)
+        aux_data["pretrain/step"] = step
         loggers.log(aux_data)
         if np.isnan(aux_data["loss"]):
             raise ValueError("NaN in pretraining loss")
