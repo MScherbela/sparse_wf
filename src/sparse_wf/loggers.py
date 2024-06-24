@@ -56,13 +56,13 @@ class PythonLogger(Logger):
     @only_on_main_process
     def log(self, data: dict) -> None:
         if "opt/step" in data:
-            logging.info(f"Opt step {data['opt/step']}: {data}")
+            self.logger.info(f"Opt step {data['opt/step']}: {data}")
         else:
-            logging.info(str(data))
+            self.logger.info(str(data))
 
     @only_on_main_process
     def log_config(self, config: dict) -> None:
-        logging.info("Config: " + str(config))
+        self.logger.info("Config: " + str(config))
 
 
 class MultiLogger(Logger):
