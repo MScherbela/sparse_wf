@@ -127,7 +127,7 @@ def main(
         aux_data = to_log_data(aux_data)
         aux_data["pretrain/step"] = step
         loggers.log(aux_data)
-        if np.isnan(aux_data["loss"]):
+        if np.isnan(aux_data["pretrain/loss"]):
             raise ValueError("NaN in pretraining loss")
 
     state = state.to_train_state()
