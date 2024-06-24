@@ -1,5 +1,5 @@
 import functools
-from typing import Callable, NamedTuple, Optional, TypedDict, cast
+from typing import Callable, Literal, NamedTuple, Optional, TypedDict, cast, overload
 
 import flax.linen as nn
 import jax
@@ -9,7 +9,7 @@ from flax.struct import PyTreeNode
 from jaxtyping import Array, Float, Integer
 
 from folx.api import FwdLaplArray
-from sparse_wf.api import Charges, Electrons, Int, Nuclei, Parameters
+from sparse_wf.api import Charges, ElectronEmb, ElectronIdx, Electrons, Int, Nuclei, Parameters
 from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap, pmap, pmax_if_pmap
 from sparse_wf.model.graph_utils import (
     NO_NEIGHBOUR,
@@ -182,6 +182,7 @@ class MoonElecEmb(nn.Module):
 
         # using h^init
         feat_ee += h + h_nb
+        feat_ee = self.activation(feat_ee)
 
         # contraction
         result = jnp.einsum("...id,...id->...d", feat_ee, gamma_ee)
@@ -322,6 +323,17 @@ class MoonEmbeddingParams(PyTreeNode):
     scales: MoonScales
 
 
+class MoonState(PyTreeNode):
+    h_init: Array
+    h_init_same: Array
+    h_init_diff: Array
+    h0: Array
+    h1: Array
+    HL_up: Array
+    HL_dn: Array
+    h_out: Array
+
+
 class MoonEmbedding(PyTreeNode):
     # Molecule
     R: Nuclei
@@ -439,9 +451,44 @@ class MoonEmbedding(PyTreeNode):
         get_gamma = jax.vmap(get_gamma, in_axes=0, out_axes=-3)  # vmap over centers (electrons)
         return get_gamma(r, R_nb_en, dynamic_params)
 
+    @overload
     def apply(
-        self, params: MoonEmbeddingParams, electrons: Electrons, static: StaticInputMoon, return_scales=False
-    ) -> Electrons:
+        self,
+        params: MoonEmbeddingParams,
+        electrons: Electrons,
+        static: StaticInputMoon,
+        return_scales: Literal[False] = False,
+        return_state: Literal[False] = False,
+    ) -> ElectronEmb: ...
+
+    @overload
+    def apply(
+        self,
+        params: MoonEmbeddingParams,
+        electrons: Electrons,
+        static: StaticInputMoon,
+        return_scales: Literal[True],
+        return_state: Literal[False] = False,
+    ) -> tuple[ElectronEmb, MoonScales]: ...
+
+    @overload
+    def apply(
+        self,
+        params: MoonEmbeddingParams,
+        electrons: Electrons,
+        static: StaticInputMoon,
+        return_scales: Literal[False],
+        return_state: Literal[True],
+    ) -> tuple[ElectronEmb, MoonState]: ...
+
+    def apply(
+        self,
+        params: MoonEmbeddingParams,
+        electrons: Electrons,
+        static: StaticInputMoon,
+        return_scales: bool = False,
+        return_state: bool = False,
+    ) -> ElectronEmb | tuple[ElectronEmb, MoonScales] | tuple[ElectronEmb, MoonState]:
         idx_nb = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff)
         spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en = get_neighbour_coordinates(
             electrons, self.R, idx_nb, self.spins
@@ -500,7 +547,160 @@ class MoonEmbedding(PyTreeNode):
 
         if return_scales:
             return h_out, params.scales  # type: ignore
+
+        if return_state:
+            return h_out, MoonState(
+                h_init=h_init,
+                h_init_same=h_init_same,
+                h_init_diff=h_init_diff,
+                h0=h0,
+                h1=h1,
+                HL_up=HL_up,
+                HL_dn=HL_dn,
+                h_out=h_out,
+            )
         return h_out
+
+    def low_rank_update(
+        self,
+        params: MoonEmbeddingParams,
+        electrons: Electrons,
+        changed_electrons: ElectronIdx,
+        static: StaticInputMoon,
+        state: MoonState,
+    ):
+        num_changed = changed_electrons.shape[-1]
+        idx_nb = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff)
+        spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en = get_neighbour_coordinates(
+            electrons, self.R, idx_nb, self.spins
+        )
+
+        # Compute hinit
+        # Here every electron is updated invidivudally, so we only need to compute the hinit for the changed electrons.
+        @jax.vmap  # vmap over center electrons
+        def get_hinit(r):
+            result = self.elec_init_emb.apply(params.elec_init_emb, r)
+            return tuple(cast(jax.Array, x) for x in result)
+
+        h_init, h_init_same, h_init_diff = get_hinit(electrons[changed_electrons])
+        h_init = state.h_init.at[changed_electrons].set(h_init)
+        h_init_same = state.h_init_same.at[changed_electrons].set(h_init_same)
+        h_init_diff = state.h_init_diff.at[changed_electrons].set(h_init_diff)
+
+        # Compute h0
+        # Here it already becomes more tricky since the set which depends on the changed electrons increases.
+        # all h0 in range of the changed electrons need to be recomputed. For this we need all electrons
+        # neighbhouring the neighbours of the changed electrons.
+        # However, one can make this more efficient by subtracting the old state before the summation and adding the new state.
+        @jax.vmap  # vmap over center electrons
+        def get_h0(r, r_nb, h, h_nb, s, s_nb):
+            return cast(jax.Array, self.elec_elec_emb.apply(params.elec_elec_emb, r, r_nb, h, h_nb, s, s_nb))
+
+        # Worst case we must assume that every moved electron has its disjoint set of neighbours
+
+        num_changed_electrons = min((idx_nb.ee.shape[-1] + 1) * num_changed, self.n_electrons)
+        # This works since ee is symmetric
+        changed_electrons = jnp.unique(
+            # add self dependencies
+            jnp.concatenate([idx_nb.ee, jnp.arange(self.n_electrons)[:, None]], axis=-1)[changed_electrons],
+            size=num_changed_electrons,
+            fill_value=NO_NEIGHBOUR,
+        )
+        h_init_nb = jnp.where(
+            (self.spins[changed_electrons][:, None] == spin_nb_ee[changed_electrons])[..., None],
+            get_with_fill(h_init_same, idx_nb.ee[changed_electrons], 0),
+            get_with_fill(h_init_diff, idx_nb.ee[changed_electrons], 0),
+        )
+        h0_new = get_h0(
+            electrons[changed_electrons],
+            r_nb_ee[changed_electrons],
+            h_init[changed_electrons],
+            h_init_nb,
+            self.spins[changed_electrons],
+            spin_nb_ee[changed_electrons],
+        )
+        h0_new = normalize(h0_new, params.scales["h0"])
+        h0 = state.h0.at[changed_electrons].set(h0_new)
+
+        # construct nuclei embeddings
+        # Every nucleus in range of any of the changed electrons embeddings needs to be updated.
+        # The most pessimistic estimate for the number of nuclei we reach would be the lagest number of neighbours
+        # time the number of changed electrons.
+        num_changed_nuclei = num_changed * idx_nb.en.shape[-1]
+        num_changed_nuclei = min(num_changed_nuclei, self.n_nuclei)
+        changed_nuclei = jnp.unique(
+            idx_nb.en[changed_electrons].reshape(-1),
+            size=num_changed_nuclei,
+            fill_value=NO_NEIGHBOUR,
+        )
+        Gamma_ne, edge_ne_emb = self._get_Gamma_ne(
+            params.Gamma_ne,
+            *jtu.tree_map(lambda x: jnp.asarray(x)[changed_nuclei], (self.R, r_nb_ne, params.dynamic_params_ne)),
+        )
+        h0_nb_ne = get_with_fill(h0, idx_nb.ne[changed_nuclei], 0)
+        edge_ne_emb = nn.silu(h0_nb_ne + edge_ne_emb)
+        edge_ne_up = jnp.where(spin_nb_ne[changed_nuclei][..., None] > 0, edge_ne_emb, 0)
+        edge_ne_dn = jnp.where(spin_nb_ne[changed_nuclei][..., None] < 0, edge_ne_emb, 0)
+        H1_up = contract(edge_ne_up, Gamma_ne)  # type: ignore
+        H1_dn = contract(edge_ne_dn, Gamma_ne)  # type: ignore
+        H1_up = normalize(H1_up, params.scales["H1_up"])
+        H1_dn = normalize(H1_dn, params.scales["H1_dn"])
+
+        # construct electron embedding
+        # We need to update all electrons where h0 changed.
+        dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en[changed_electrons])
+        gamma_en_init, gamma_en_out, edge_en_emb = self._get_Gamma_en(
+            params.Gamma_en, electrons[changed_electrons], R_nb_en[changed_electrons], dyn_params
+        )  # type: ignore
+        edge_en_emb = nn.silu(h0[changed_electrons][:, None] + edge_en_emb)
+        h1 = contract(edge_en_emb, gamma_en_init)
+        h1 = normalize(h1, params.scales["h1"])
+        h1 = state.h1.at[changed_electrons].set(h1)
+
+        # Update nuclei embeddings
+        # We need to update all electrons where any of the nuclei changed.
+        num_changed_electrons = min(
+            static.n_deps.h_el_out * num_changed_nuclei, static.n_deps.h_el_out * num_changed, self.n_electrons
+        )
+        changed_electrons = jnp.unique(
+            idx_nb.ne[changed_nuclei].reshape(-1),
+            size=num_changed_electrons,
+            fill_value=NO_NEIGHBOUR,
+        )
+        # Compute gamma_en again, but with a different set of electrons
+        dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en[changed_electrons])
+        _, gamma_en_out, _ = self._get_Gamma_en(
+            params.Gamma_en, electrons[changed_electrons], R_nb_en[changed_electrons], dyn_params
+        )  # type: ignore
+        HL_up, HL_dn = self.nuc_mlp.apply(params.nuc_mlp, H1_up, H1_dn)
+        HL_up, HL_dn = cast(tuple[jax.Array, jax.Array], (HL_up, HL_dn))
+        HL_up = state.HL_up.at[changed_nuclei].set(HL_up)
+        HL_dn = state.HL_dn.at[changed_nuclei].set(HL_dn)
+        HL_up_nb_en = get_with_fill(HL_up, idx_nb.en[changed_electrons], 0)
+        HL_dn_nb_en = get_with_fill(HL_dn, idx_nb.en[changed_electrons], 0)
+        HL_nb_en = jnp.where(self.spins[changed_electrons][..., None, None] > 0, HL_up_nb_en, HL_dn_nb_en)
+        msg = contract(HL_nb_en, gamma_en_out)
+        msg = normalize(msg, params.scales["msg"])
+
+        # readout
+        h_out = self.elec_out.apply(params.elec_out, h1[changed_electrons], msg)
+        h_out = cast(jax.Array, h_out)
+        h_out = state.h_out.at[changed_electrons].set(h_out)
+
+        return (
+            h_out,
+            changed_electrons,
+            MoonState(
+                h_init=h_init,
+                h_init_same=h_init_same,
+                h_init_diff=h_init_diff,
+                h0=h0,
+                h1=h1,
+                HL_up=HL_up,
+                HL_dn=HL_dn,
+                h_out=h_out,
+            ),
+        )
 
     def apply_with_fwd_lap(
         self, params: MoonEmbeddingParams, electrons: Electrons, static: StaticInputMoon

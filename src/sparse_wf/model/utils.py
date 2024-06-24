@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import jax
 import numpy as np
 import functools
-from sparse_wf.api import Electrons, HFOrbitals, Int, SlaterMatrices, SignedLogAmplitude
+from sparse_wf.api import ElectronIdx, Electrons, HFOrbitals, Int, SlaterMatrices, SignedLogAmplitude
 import einops
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
@@ -107,6 +107,49 @@ def signed_logpsi_from_orbitals(orbitals: SlaterMatrices) -> SignedLogAmplitude:
     sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (1, 0))
     logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
     return signpsi, logpsi
+
+
+class LogPsiState(NamedTuple):
+    matrices: Sequence[jax.Array]
+    inverses: Sequence[jax.Array]
+    slogdets: Sequence[tuple[jax.Array, jax.Array]]
+
+
+def signed_logpsi_from_orbitals_with_state(orbitals: SlaterMatrices):
+    inverses = [jnp.linalg.inv(orbs) for orbs in orbitals]
+    slogdets = [tuple(jnp.linalg.slogdet(orbs)) for orbs in orbitals]
+    # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
+    # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
+    sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (1, 0))
+    logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
+    return (signpsi, logpsi), LogPsiState(orbitals, inverses, slogdets)
+
+
+def signed_log_psi_from_orbitals_low_rank(orbitals: SlaterMatrices, changed_electrons: ElectronIdx, state: LogPsiState):
+    # Here we apply the matrix determinant lemma to compute low rank updates on the slogdet
+    # det(A + UV^T) = det(A) * det(I + V^T A^-1 U) where A is the original matrix, U and V are the low rank updates
+    # Since we update n-rows, U will a matrix of n x k basis vectors and V will be a matrix of k x n coefficients
+    # To update the inverses, we use the Woodyburry matrix identity
+    # (A + UV^T)^-1 = A^-1 - A^-1 U (I + V^T A^-1 U)^-1 V^T A^-1
+    k = len(changed_electrons)
+    slogdets = []
+    inverses = []
+    for A, A_inv, orb, (s_psi, log_psi) in zip(state.matrices, state.inverses, orbitals, state.slogdets):
+        # orb is K x N x N
+        eye = jnp.eye(k)
+        V = (orb - A)[:, changed_electrons]
+        Ainv_U = A_inv[..., changed_electrons]
+        V_Ainv_U = V @ Ainv_U
+        s_d, log_d = jnp.linalg.slogdet(eye + V_Ainv_U)
+        s_psi, log_psi = s_psi * s_d, log_psi + log_d
+        slogdets.append((s_psi, log_psi))
+        new_inv = A_inv - Ainv_U @ jnp.linalg.inv(eye + V_Ainv_U) @ V @ A_inv
+        inverses.append(new_inv)
+    # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
+    # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
+    sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (jnp.ones(()), jnp.zeros(())))
+    logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
+    return (signpsi, logpsi), LogPsiState(orbitals, inverses, slogdets)
 
 
 def get_dist(electrons: Electrons) -> ElecElecDistances:
