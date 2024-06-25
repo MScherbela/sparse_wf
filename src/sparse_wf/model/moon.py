@@ -843,7 +843,7 @@ class MoonEmbedding(PyTreeNode):
         n_dependencies = NrOfDependencies(*n_dependencies)
         n_changes = NrOfChanges(
             h0=n_neighbours.ee + 1,
-            nuclei=n_neighbours.en,
+            nuclei=n_dependencies.H_nuc,
             out=n_dependencies.h_el_out,
         )
         return StaticInputMoon(
