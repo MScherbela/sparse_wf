@@ -317,39 +317,56 @@ class EmbeddingChanges(NamedTuple):
     out: ElectronIdx
 
 
-@jit(static_argnums=2)
-def get_changed_embeddings(changed_electrons: ElectronIdx, idx_nb: NeighbourIndices, static: StaticInputMoon):
+@jit(static_argnames="static")
+def get_changed_embeddings(
+    electrons: Electrons,
+    previous_electrons: Electrons,
+    changed_electrons: ElectronIdx,
+    nuclei: Nuclei,
+    static: StaticInputMoon,
+    cutoff: float,
+):
     num_changed = changed_electrons.shape[-1]
-    n_electrons = idx_nb.ee.shape[0]
-    n_nuclei = idx_nb.ne.shape[0]
-    # Worst case we must assume that every moved electron has its disjoint set of neighbours
+    n_electrons = electrons.shape[0]
+    n_nuclei = nuclei.shape[0]
     num_changed_h0 = min(static.n_changes.h0 * num_changed, n_electrons)
-    # This works since ee is symmetric
-    changed_h0 = jnp.unique(
-        # add self dependencies
-        jnp.concatenate([idx_nb.ee, jnp.arange(n_electrons)[:, None]], axis=-1)[changed_electrons],
-        size=num_changed_h0,
-        fill_value=NO_NEIGHBOUR,
-    )
-    # Every nucleus in range of any of the changed electrons embeddings needs to be updated.
-    # The most pessimistic estimate for the number of nuclei we reach would be the lagest number of neighbours
-    # time the number of changed electrons.
     num_changed_nuclei = min(static.n_changes.nuclei * num_changed, n_nuclei)
-    changed_nuclei = jnp.unique(
-        idx_nb.en[changed_h0].reshape(-1),
-        size=num_changed_nuclei,
-        fill_value=NO_NEIGHBOUR,
-    )
-    # We need to update all electrons where any of the nuclei changed.
     num_changed_out = min(
         static.n_changes.out * num_changed_nuclei,
         static.n_changes.out * num_changed,
         n_electrons,
     )
-    changed_out = jnp.unique(
-        idx_nb.ne[changed_nuclei].reshape(-1),
-        size=num_changed_out,
-        fill_value=NO_NEIGHBOUR,
+
+    # Finding affected electrons
+    def affected_particles(old_x, old_y, new_x, new_y, num_changes):
+        dist_old = jnp.linalg.norm(old_x[:, None] - old_y[None], axis=-1)
+        dist_new = jnp.linalg.norm(new_x[:, None] - new_y[None], axis=-1)
+        # we only care whether they were close or after the move, not which of these.
+        dist_shortest = jnp.minimum(dist_old, dist_new)
+        shortest_dist = jnp.min(dist_shortest, axis=0)  # shortest path to any particle
+        order = jnp.argsort(shortest_dist)[:num_changes]
+        return jnp.where(shortest_dist[order] < cutoff, order, NO_NEIGHBOUR)
+
+    changed_h0 = affected_particles(
+        previous_electrons[changed_electrons],
+        previous_electrons,
+        electrons[changed_electrons],
+        electrons,
+        num_changed_h0,
+    )
+    changed_nuclei = affected_particles(
+        previous_electrons[changed_h0],
+        nuclei,
+        electrons[changed_h0],
+        nuclei,
+        num_changed_nuclei,
+    )
+    changed_out = affected_particles(
+        nuclei[changed_nuclei],
+        previous_electrons,
+        nuclei[changed_nuclei],
+        electrons,
+        num_changed_out,
     )
     return EmbeddingChanges(changed_h0, changed_nuclei, changed_out)
 
@@ -375,6 +392,7 @@ class MoonEmbeddingParams(PyTreeNode):
 
 
 class MoonState(PyTreeNode):
+    electrons: Electrons
     h_init: Array
     h_init_same: Array
     h_init_diff: Array
@@ -406,6 +424,9 @@ class MoonEmbedding(PyTreeNode):
     Gamma_en: MoonEdgeFeatures
     nuc_mlp: MoonNucMLP
     elec_out: MoonElecOut
+
+    # Low rank updates
+    low_rank_buffer: int = 2
 
     @classmethod
     def create(
@@ -601,6 +622,7 @@ class MoonEmbedding(PyTreeNode):
 
         if return_state:
             return h_out, MoonState(
+                electrons=electrons,
                 h_init=h_init,
                 h_init_same=h_init_same,
                 h_init_diff=h_init_diff,
@@ -624,7 +646,7 @@ class MoonEmbedding(PyTreeNode):
         spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en = get_neighbour_coordinates(
             electrons, self.R, idx_nb, self.spins
         )
-        changed = get_changed_embeddings(changed_electrons, idx_nb, static)
+        changed = get_changed_embeddings(electrons, state.electrons, changed_electrons, self.R, static, self.cutoff)
 
         # Compute hinit
         # Here every electron is updated invidivudally, so we only need to compute the hinit for the changed electrons.
@@ -713,6 +735,7 @@ class MoonEmbedding(PyTreeNode):
             h_out,
             changed.out,
             MoonState(
+                electrons=electrons,
                 h_init=h_init,
                 h_init_same=h_init_same,
                 h_init_diff=h_init_diff,
@@ -842,9 +865,9 @@ class MoonEmbedding(PyTreeNode):
         n_neighbours = NrOfNeighbours(*n_neighbours)
         n_dependencies = NrOfDependencies(*n_dependencies)
         n_changes = NrOfChanges(
-            h0=n_neighbours.ee + 1,
-            nuclei=n_dependencies.H_nuc,
-            out=n_dependencies.h_el_out,
+            h0=n_neighbours.ee + 1 + self.low_rank_buffer,
+            nuclei=n_dependencies.H_nuc + self.low_rank_buffer,
+            out=n_dependencies.h_el_out + self.low_rank_buffer,
         )
         return StaticInputMoon(
             n_neighbours=n_neighbours,
