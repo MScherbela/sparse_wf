@@ -76,9 +76,11 @@ class DependencyMaps(NamedTuple):
     h0_to_hout: DependencyMap
 
 
-def get_max_nr_of_dependencies(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix, cutoff: float):
+def get_max_nr_of_dependencies(
+    n_neighbours: NrOfNeighbours, dist_ee: DistanceMatrix, dist_ne: DistanceMatrix, cutoff: float
+):
     # Thest first electron message passing step can depend at most on electrons within 1 * cutoff
-    n_deps_max_h0 = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff, axis=-1)))
+    n_deps_max_h0 = n_neighbours.ee + 1  # h0 depends on itself and its electron neighbours
 
     # The nuclear embeddings are computed with 2 message passing steps and can therefore depend at most on electrons within 2 * cutoff
     n_deps_max_H = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff * 2, axis=-1)))
@@ -90,10 +92,21 @@ def get_max_nr_of_dependencies(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix,
 
 def _get_static(electrons: Array, R: Nuclei, cutoff: float):
     n_el = electrons.shape[-2]
+    n_nuc = len(R)
     dist_ee, dist_ne = get_full_distance_matrices(electrons, R)
-    n_neighbours = get_nr_of_neighbours(dist_ee, dist_ne, cutoff)
-    n_deps = get_max_nr_of_dependencies(dist_ee, dist_ne, cutoff)  # noqa: F821
-    return jtu.tree_map(lambda x: round_to_next_step(x, 1.1, 1, n_el), (n_neighbours, n_deps))
+    n_ee, n_en, n_ne = get_nr_of_neighbours(dist_ee, dist_ne, cutoff)
+    n_neighbours = NrOfNeighbours(
+        ee=round_to_next_step(n_ee, 1.1, 1, n_el),  # type: ignore
+        en=round_to_next_step(n_en, 1.1, 1, n_nuc),  # type: ignore
+        ne=round_to_next_step(n_ne, 1.1, 1, n_el),  # type: ignore
+    )
+    n_deps_h0, n_deps_H, n_deps_hout = get_max_nr_of_dependencies(n_neighbours, dist_ee, dist_ne, cutoff)  # noqa: F821
+    n_deps = NrOfDependencies(
+        h_el_initial=n_deps_h0,
+        H_nuc=round_to_next_step(n_deps_H, 1.1, 1, n_el),  # type: ignore
+        h_el_out=round_to_next_step(n_deps_hout, 1.1, 1, n_el),  # type: ignore
+    )
+    return n_neighbours, n_deps
 
 
 get_static_pmapped = pmap(_get_static, in_axes=(0, None, None))
