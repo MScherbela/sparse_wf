@@ -101,6 +101,8 @@ class Jastrow(nn.Module):
     ):
         logpsi = jnp.zeros([], electrons.dtype)
         if self.pairwise_cusps:
+            # TODO: one could do low-rank updates on the cusps, though they should be cheap anyway.
+            # NG: I benchmarked this on 200-electrons and it accounts for <5% of the runtime.
             logpsi += self.pairwise_cusps(electrons)
         if self.mlp:
             jastrows_before_sum = self.mlp(embeddings[changed_electrons])
