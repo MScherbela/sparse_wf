@@ -126,7 +126,7 @@ def make_dense_spring_preconditioner(
             )
         jac_T = pall_to_all(jacobian, split_axis=1, concat_axis=0, tiled=True)
         jacobian = jacobian[:, :n_params]  # remove padding
-        T = jac_T @ jac_T.T
+        T = psum(jac_T @ jac_T.T)
         T = (T + T.T) / 2  # better numerics
 
         last_grad = natgrad_state.last_grad
