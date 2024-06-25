@@ -160,6 +160,9 @@ def _split_off_xyz_dim(jac):
 
 
 def _pad_jacobian_to_output_deps(x: FwdLaplArray, dep_map: Integer[Array, " deps"], n_deps_out: int) -> FwdLaplArray:
+    assert (
+        dep_map.shape[0] * 3 == x.jacobian.data.shape[0]
+    ), f"Dependency map and jacobian have inconsistent shapes: {dep_map.shape[0]} * 3 != {x.jacobian.data.shape[0]}"
     jac: Float[Array, "deps*3 features"] = x.jacobian.data
     n_features = jac.shape[-1]
     jac = _split_off_xyz_dim(jac)

@@ -297,6 +297,16 @@ def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies)
     dep_map_H_to_hout = get_dep_map_for_all_centers(deps_neighbours, deps_hout)
     dep_map_h0_to_hout = jax.vmap(get_dependency_map)(deps_h0, deps_hout)
 
+    # Assert that dependencies are consistent with static dims
+    assert deps_h0.shape[-1] == n_deps_max.h_el_initial
+    assert deps_H.shape[-1] == n_deps_max.H_nuc
+    assert deps_hout.shape[-1] == n_deps_max.h_el_out
+    assert dep_map_Gamma_ne_to_H.shape[-1] == 1
+    assert dep_map_hinit_to_h0.shape[-1] == 1
+    assert dep_map_h0_to_H.shape[-1] == n_deps_max.h_el_initial
+    assert dep_map_H_to_hout.shape[-1] == n_deps_max.H_nuc
+    assert dep_map_h0_to_hout.shape[-1] == n_deps_max.h_el_initial
+
     return DependenciesMoon(deps_h0, deps_H, deps_hout), DependencyMaps(
         dep_map_hinit_to_h0, dep_map_h0_to_H, dep_map_Gamma_ne_to_H, dep_map_H_to_hout, dep_map_h0_to_hout
     )
