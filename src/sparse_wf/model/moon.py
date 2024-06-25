@@ -534,13 +534,13 @@ class MoonEmbedding(PyTreeNode):
         h_init = zeropad_jacobian(h_init, static.n_deps.h_el_initial * 3)
 
         # Step 0: initialize electron jacobians
-        @functools.partial(jax.vmap, in_axes=0, out_axes=-2)
+        @functools.partial(jax.vmap, in_axes=0, out_axes=(-2, -3))
         @fwd_lap
         def init(r, r_nb):
             return r, r_nb
 
         # Step 1: initial electron embedding
-        @functools.partial(jax.vmap, in_axes=(-2, -2, -2, -3, -3, 0, 0), out_axes=-2)  # vmap over center electrons
+        @functools.partial(jax.vmap, in_axes=(-2, -3, -2, -3, -3, 0, 0), out_axes=-2)  # vmap over center electrons
         @functools.partial(fwd_lap, argnums=(0, 1, 2, 3, 4))
         def get_h0(r, r_nb, h, h_nb_s, h_nb_d, s, s_nb):
             h_nb = jnp.where((s == s_nb)[:, None], h_nb_s, h_nb_d)
