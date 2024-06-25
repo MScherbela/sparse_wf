@@ -129,21 +129,32 @@ def signed_log_psi_from_orbitals_low_rank(orbitals: SlaterMatrices, changed_elec
     # Here we apply the matrix determinant lemma to compute low rank updates on the slogdet
     # det(A + UV^T) = det(A) * det(I + V^T A^-1 U) where A is the original matrix, U and V are the low rank updates
     # Since we update n-rows, U will a matrix of n x k basis vectors and V will be a matrix of k x n coefficients
-    # To update the inverses, we use the Woodyburry matrix identity
+    # To update the inverses, we use the Woodburry matrix identity
     # (A + UV^T)^-1 = A^-1 - A^-1 U (I + V^T A^-1 U)^-1 V^T A^-1
     k = len(changed_electrons)
     slogdets = []
     inverses = []
     for A, A_inv, orb, (s_psi, log_psi) in zip(state.matrices, state.inverses, orbitals, state.slogdets):
-        # orb is K x N x N
+        # orb is K x N x N (current step orbitals)
+        # A is K x N x N (previous orbitals)
+        # A_inv is K x N x N (previous inverse)
+        # s_psi, log_psi are K (previous slogdet)
         eye = jnp.eye(k)
-        V = (orb - A)[:, changed_electrons]
+        V = orb[:, changed_electrons] - A[:, changed_electrons]
         Ainv_U = A_inv[..., changed_electrons]
         V_Ainv_U = V @ Ainv_U
-        s_d, log_d = jnp.linalg.slogdet(eye + V_Ainv_U)
-        s_psi, log_psi = s_psi * s_d, log_psi + log_d
+        # update slog det
+        s_delta, log_delta = jnp.linalg.slogdet(eye + V_Ainv_U)
+        s_psi, log_psi = s_psi * s_delta, log_psi + log_delta
         slogdets.append((s_psi, log_psi))
-        new_inv = A_inv - Ainv_U @ jnp.linalg.inv(eye + V_Ainv_U) @ V @ A_inv
+        # update inverse - the optimal contraction would be first do the outer contractions, then the inner.
+        new_inv = A_inv - jnp.einsum(
+            "...ab,...bc,...cd,...de->...ae",
+            Ainv_U,
+            jnp.linalg.inv(eye + V_Ainv_U),
+            V,
+            A_inv,
+        )
         inverses.append(new_inv)
     # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
     # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn

@@ -258,7 +258,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
     def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LocalEnergy:
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
 
-    def low_rank_update(
+    def log_psi_log_rank_update(
         self,
         params: Parameters,
         electrons: Electrons,
