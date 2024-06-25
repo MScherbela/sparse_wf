@@ -343,9 +343,10 @@ def get_changed_embeddings(
         dist_new = jnp.linalg.norm(new_x[:, None] - new_y[None], axis=-1)
         # we only care whether they were close or after the move, not which of these.
         dist_shortest = jnp.minimum(dist_old, dist_new)
-        shortest_dist = jnp.min(dist_shortest, axis=0)  # shortest path to any particle
-        order = jnp.argsort(shortest_dist)[:num_changes]
-        return jnp.where(shortest_dist[order] < cutoff, order, NO_NEIGHBOUR)
+        dist_shortest = jnp.min(dist_shortest, axis=0)  # shortest path to any particle
+        # top k returns the k largest values and indices from an array, since we want the smallest distances we negate them
+        neg_dists, order = jax.lax.top_k(-dist_shortest, num_changes)
+        return jnp.where(neg_dists > (-cutoff), order, NO_NEIGHBOUR)
 
     changed_h0 = affected_particles(
         previous_electrons[changed_electrons],
