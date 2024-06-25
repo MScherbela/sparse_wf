@@ -38,7 +38,6 @@ from sparse_wf.model.utils import (
     hf_orbitals_to_fulldet_orbitals,
     signed_log_psi_from_orbitals_low_rank,
     signed_logpsi_from_orbitals,
-    signed_logpsi_from_orbitals_with_state,
     swap_bottom_blocks,
 )
 from sparse_wf.tree_utils import tree_add
@@ -249,7 +248,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
             return_state=True,
         )
         orbitals, orbitals_state = self._orbitals(params, electrons, embeddings, return_state=True)
-        (_, logpsi), determinant_state = signed_logpsi_from_orbitals_with_state(orbitals)
+        (_, logpsi), determinant_state = signed_logpsi_from_orbitals(orbitals, return_state=True)
         jastrow_logpsi, jastrow_state = self.jastrow.apply(params.jastrow, electrons, embeddings, return_state=True)
         logpsi += jastrow_logpsi
         return logpsi, LowRankState(
@@ -295,6 +294,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
             params.jastrow,
             electrons,
             embeddings,
+            changed_electrons,
             changed_embeddings,
             state.jastrow,
             method=self.jastrow.low_rank_update,

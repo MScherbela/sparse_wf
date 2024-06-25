@@ -20,6 +20,7 @@ ElectronEmb = Float[Array, "*batch_dims n_electrons feature_dim"]
 ElectronIdx = Integer[Array, "*batch_dims n_changed"]
 Spins = Integer[Array, "*batch_dims n_electrons"]
 Nuclei = Float[np.ndarray, "n_nuclei spatial=3"]
+NucleiIdx = Integer[Array, "n_nuclei"]
 Charges = Integer[np.ndarray, "n_nuclei"]
 MeanField: TypeAlias = SCF
 

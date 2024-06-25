@@ -97,16 +97,18 @@ class Jastrow(nn.Module):
         electrons: Electrons,
         embeddings: jax.Array,
         changed_electrons: ElectronIdx,
+        changed_embeddings: ElectronIdx,
         state: jax.Array,
     ):
         logpsi = jnp.zeros([], electrons.dtype)
         if self.pairwise_cusps:
             # TODO: one could do low-rank updates on the cusps, though they should be cheap anyway.
             # NG: I benchmarked this on 200-electrons and it accounts for <5% of the runtime.
+            # If we want to implement this, we can use the changed_electrons variable.
             logpsi += self.pairwise_cusps(electrons)
         if self.mlp:
-            jastrows_before_sum = self.mlp(embeddings[changed_electrons])
-            jastrows_before_sum = state.at[changed_electrons].set(jastrows_before_sum)
+            jastrows_before_sum = self.mlp(embeddings[changed_embeddings])
+            jastrows_before_sum = state.at[changed_embeddings].set(jastrows_before_sum)
             jastrows = jnp.sum(jastrows_before_sum, axis=-2)  # sum over electrons
             if self.use_mlp_jastrow:
                 logpsi += jastrows[0]

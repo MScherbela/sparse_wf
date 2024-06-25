@@ -1,13 +1,16 @@
-import jax.nn as jnn
-from jaxtyping import Float, Array, ArrayLike
-from typing import Callable, Optional, Sequence, cast, NamedTuple
-import flax.linen as nn
-import jax.numpy as jnp
-import jax
-import numpy as np
 import functools
-from sparse_wf.api import ElectronIdx, Electrons, HFOrbitals, Int, SlaterMatrices, SignedLogAmplitude
+from typing import Callable, Literal, NamedTuple, Optional, Sequence, cast, overload
+
 import einops
+import flax.linen as nn
+import jax
+import jax.nn as jnn
+import jax.numpy as jnp
+import numpy as np
+from jaxtyping import Array, ArrayLike, Float
+
+from sparse_wf.api import ElectronIdx, Electrons, HFOrbitals, Int, SignedLogAmplitude, SlaterMatrices
+from sparse_wf.jax_utils import vectorize
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
 ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei"]
@@ -100,13 +103,38 @@ def swap_bottom_blocks(matrix: Float[Array, "... n m"], n: int, m: int | None = 
     )
 
 
-def signed_logpsi_from_orbitals(orbitals: SlaterMatrices) -> SignedLogAmplitude:
-    slogdets = [jnp.linalg.slogdet(orbs) for orbs in orbitals]
-    # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
-    # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
-    sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (1, 0))
-    logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
-    return signpsi, logpsi
+def get_inverse_from_lu(lu, permutation):
+    n = lu.shape[0]
+    b = jnp.eye(n, dtype=lu.dtype)[permutation]
+    # The following lines trigger mypy (private usage?)
+    x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=True, unit_diagonal=True)  # type: ignore
+    x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=False)  # type: ignore
+    return x
+
+
+def slogdet_from_lu(lu, pivot):
+    assert (lu.ndim == 2) and (lu.shape[0] == lu.shape[1])
+    n = lu.shape[0]
+    diag = jnp.diag(lu)
+    logdet = jnp.sum(jnp.log(jnp.abs(diag)))
+    parity = jnp.count_nonzero(pivot != jnp.arange(n))  # sign flip for each permutation
+    parity += jnp.count_nonzero(diag < 0)  # sign flip for each negative diagonal element
+    sign = jnp.where(parity % 2 == 0, 1.0, -1.0)
+    return sign, logdet
+
+
+def slog_and_inverse(A: Float[Array, "*batch_dims N N"]):
+    # We have this wrapper to package the output properly
+    @vectorize(signature="(n,n)->(),(),(n,n)")
+    def inner(A):
+        # mypy complains about lu not being exported by jax.lax.linalg
+        lu, pivot, permutation = jax.lax.linalg.lu(A)  # type: ignore
+        inverse = get_inverse_from_lu(lu, permutation)
+        sign, logdet = slogdet_from_lu(lu, pivot)
+        return sign, logdet, inverse
+
+    sign, logdet, inverse = inner(A)
+    return (sign, logdet), inverse
 
 
 class LogPsiState(NamedTuple):
@@ -115,14 +143,28 @@ class LogPsiState(NamedTuple):
     slogdets: Sequence[tuple[jax.Array, jax.Array]]
 
 
-def signed_logpsi_from_orbitals_with_state(orbitals: SlaterMatrices):
-    inverses = [jnp.linalg.inv(orbs) for orbs in orbitals]
-    slogdets = [tuple(jnp.linalg.slogdet(orbs)) for orbs in orbitals]
+@overload
+def signed_logpsi_from_orbitals(
+    orbitals: SlaterMatrices, return_state: Literal[False] = False
+) -> SignedLogAmplitude: ...
+
+
+@overload
+def signed_logpsi_from_orbitals(
+    orbitals: SlaterMatrices, return_state: Literal[True]
+) -> tuple[SignedLogAmplitude, LogPsiState]: ...
+
+
+def signed_logpsi_from_orbitals(orbitals: SlaterMatrices, return_state: bool = False):
+    slog_inv = [slog_and_inverse(orbs) for orbs in orbitals]
+    slogdets, inverses = map(list, zip(*slog_inv))  # list of tuples to tuple of lists
     # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
     # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
     sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (1, 0))
     logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
-    return (signpsi, logpsi), LogPsiState(orbitals, inverses, slogdets)
+    if return_state:
+        return (signpsi, logpsi), LogPsiState(orbitals, inverses, slogdets)
+    return (signpsi, logpsi)
 
 
 def signed_log_psi_from_orbitals_low_rank(orbitals: SlaterMatrices, changed_electrons: ElectronIdx, state: LogPsiState):
@@ -143,18 +185,12 @@ def signed_log_psi_from_orbitals_low_rank(orbitals: SlaterMatrices, changed_elec
         V = orb[:, changed_electrons] - A[:, changed_electrons]
         Ainv_U = A_inv[..., changed_electrons]
         V_Ainv_U = V @ Ainv_U
+        (s_delta, log_delta), inv_delta = slog_and_inverse(eye + V_Ainv_U)
         # update slog det
-        s_delta, log_delta = jnp.linalg.slogdet(eye + V_Ainv_U)
         s_psi, log_psi = s_psi * s_delta, log_psi + log_delta
         slogdets.append((s_psi, log_psi))
         # update inverse - the optimal contraction would be first do the outer contractions, then the inner.
-        new_inv = A_inv - jnp.einsum(
-            "...ab,...bc,...cd,...de->...ae",
-            Ainv_U,
-            jnp.linalg.inv(eye + V_Ainv_U),
-            V,
-            A_inv,
-        )
+        new_inv = A_inv - jnp.einsum("...ab,...bc,...cd,...de->...ae", Ainv_U, inv_delta, V, A_inv)
         inverses.append(new_inv)
     # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
     # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
