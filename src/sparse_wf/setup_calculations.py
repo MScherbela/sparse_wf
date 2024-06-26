@@ -123,7 +123,7 @@ def submit_to_slurm(run_dir, slurm_config, dry_run=False):
     slurm_template = get_slurm_template(cluster)
     slurm_defaults = get_slurm_defaults(cluster, slurm_config.get("queue"))
     slurm_config = slurm_defaults | slurm_config
-    job_file = slurm_template.format(**slurm_config)
+    job_file = eval('f"""' + slurm_template + '"""', None, slurm_config)
     with open("job.sh", "w") as f:
         f.write(job_file)
 
@@ -136,7 +136,7 @@ def get_slurm_defaults(cluster, queue):
     if cluster == "hgx":
         defaults = dict(time="30-00:00:00", n_gpus=1, qos="normal")
     elif cluster == "vsc5":
-        defaults = dict(time="3-00:00:00", n_gpus=2, n_nodes=1)
+        defaults = dict(time="3-00:00:00", n_gpus=2)
         if queue == "a100":
             defaults["partition"] = "zen3_0512_a100x2"
             defaults["qos"] = "zen3_0512_a100x2"
@@ -144,7 +144,7 @@ def get_slurm_defaults(cluster, queue):
             defaults["partition"] = "zen2_0256_a40x2"
             defaults["qos"] = "zen2_0256_a40x2"
     elif cluster == "leonardo":
-        defaults = dict(time="1-00:00:00", n_gpus=4, n_nodes=1)
+        defaults = dict(time="1-00:00:00", n_gpus=4)
     return defaults
 
 
