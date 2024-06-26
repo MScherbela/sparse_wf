@@ -302,6 +302,7 @@ class SpringArgs(TypedDict):
 
 class SpringDenseArgs(SpringArgs):
     max_batch_size: int
+    use_float64: bool
 
 
 class CgArgs(TypedDict):

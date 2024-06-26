@@ -78,6 +78,7 @@ optimization:
       damping: 1.e-3
       decay_factor: 0.99
       max_batch_size: 128
+      use_float64: true
     cg_args:
       damping: 1.e-3
       maxiter: 100

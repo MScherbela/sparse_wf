@@ -87,9 +87,10 @@ def make_cg_preconditioner(
 
 def make_dense_spring_preconditioner(
     wave_function: ParameterizedWaveFunction[P, S],
-    damping: float = 1e-3,
-    decay_factor: float = 0.99,
-    max_batch_size: int = 128,
+    damping: float,
+    decay_factor: float,
+    max_batch_size: int,
+    use_float64: bool,
 ):
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(last_grad=0 * jfu.ravel_pytree(params)[0].astype(jnp.float64))
@@ -116,6 +117,9 @@ def make_dense_spring_preconditioner(
         jacobian = jac_fn(flat_params, electrons, static)
         jacobian -= pmean(jacobian.mean(0))
         n_params = jacobian.shape[-1]
+        if use_float64:
+            jacobian = jacobian.astype(jnp.float64)
+
         if n_params % n_dev != 0:
             jacobian = jnp.pad(jacobian, ((0, 0), (0, n_dev - n_params % n_dev)))
         jac_T = pall_to_all(jacobian, split_axis=1, concat_axis=0, tiled=True)
