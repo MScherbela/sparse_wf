@@ -116,18 +116,14 @@ def make_dense_spring_preconditioner(
         jacobian = jac_fn(flat_params, electrons, static)
         jacobian -= pmean(jacobian.mean(0))
         n_params = jacobian.shape[-1]
-        if n_params % jax.device_count() != 0:
-            jacobian = jnp.concatenate(
-                [
-                    jacobian,
-                    jnp.zeros((jacobian.shape[0], jax.device_count() - n_params % jax.device_count())),
-                ],
-                axis=-1,
-            )
+        if n_params % n_dev != 0:
+            jacobian = jnp.pad(jacobian, ((0, 0), (0, n_dev - n_params % n_dev)))
         jac_T = pall_to_all(jacobian, split_axis=1, concat_axis=0, tiled=True)
         jacobian = jacobian[:, :n_params]  # remove padding
-        T = psum(jac_T @ jac_T.T)
+
+        T = jac_T @ jac_T.T
         T = (T + T.T) / 2  # better numerics
+        T = psum(T)
 
         last_grad = natgrad_state.last_grad
         decayed_last_grad = decay_factor * last_grad
@@ -135,12 +131,17 @@ def make_dense_spring_preconditioner(
         cotangent -= jacobian @ decayed_last_grad
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
-        T += damping * jnp.eye(T.shape[-1], dtype=T.dtype) + 1 / N
+        T += damping * jnp.eye(N, dtype=T.dtype) + 1 / N
+        aux_data = {}
+        aux_data["opt/log10_S_cond_nr"] = jnp.log10(jnp.linalg.cond(T))
 
-        natgrad = jnp.linalg.solve(T, cotangent).reshape(n_dev, -1)[pidx()] @ jacobian
+        precond_cotangents = jnp.linalg.solve(T, cotangent)  # T^(-1)@contangent for all samples
+        local_precond_cotangents = precond_cotangents.reshape(n_dev, -1)[pidx()]  # T^(-1)@cotangent for local samples
+        local_natgrad = local_precond_cotangents @ jacobian
+        natgrad = psum(local_natgrad)
         natgrad += decayed_last_grad
         update = unravel(natgrad.astype(jnp.float32))
-        return update, PreconditionerState(last_grad=natgrad), {}
+        return update, PreconditionerState(last_grad=natgrad), aux_data
 
     return Preconditioner(init, precondition)
 
