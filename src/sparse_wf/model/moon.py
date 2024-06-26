@@ -85,8 +85,13 @@ class DependencyMaps(NamedTuple):
 
 
 def get_max_nr_of_dependencies(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix, cutoff: float):
+    #def get_neighbours(dists, cutoff):
+
+
     # Thest first electron message passing step can depend at most on electrons within 1 * cutoff
     n_deps_max_h0 = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff, axis=-1)))
+
+
 
     # The nuclear embeddings are computed with 2 message passing steps and can therefore depend at most on electrons within 2 * cutoff
     n_deps_max_H = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff * 2, axis=-1)))
@@ -852,6 +857,7 @@ class MoonEmbedding(PyTreeNode):
         return h_out, deps.h_el_out
 
     def get_static_input(self, electrons: Array) -> StaticInputMoon:
+        _get_static(electrons, self.R, self.cutoff)
         if electrons.ndim == 4:
             # [device x local_batch x el x 3] => electrons are split across gpus;
             n_neighbours, n_dependencies = get_static_pmapped(electrons, self.R, self.cutoff)
