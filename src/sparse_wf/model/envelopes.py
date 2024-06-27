@@ -122,8 +122,8 @@ class GLUEnvelopes(Envelope):
         sigma = jax.nn.softplus(params["sigma"][self.atom_types])
         pi = params["pi"]
         glu_outputs = jax.vmap(apply_glu_feedforward, in_axes=0)(glu_params, diffs)  # vmap over nuclei
-        exponents = jnp.exp(-sigma * dists[..., None])
-        basis_functions = glu_outputs * exponents  # (..., n_nuclei, n_envelopes)
+        exponentials = jnp.exp(-sigma * dists[..., None])
+        basis_functions = glu_outputs * exponentials  # (..., n_nuclei, n_envelopes)
         envelopes = jnp.einsum("Iek,...Ie->...k", pi, basis_functions)
         return envelopes
 

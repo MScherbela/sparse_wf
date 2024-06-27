@@ -101,6 +101,7 @@ optimization:
 
 pretraining:
   steps: 1_000
+  sample_from: wf
   optimizer_args:
     lr_schedule: hyperbolic
     lr_schedule_args:

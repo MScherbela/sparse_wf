@@ -1,4 +1,4 @@
-from typing import TypeVar, Callable
+from typing import TypeVar, Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -139,7 +139,7 @@ def mcmc_steps_single_electron(
 
 def make_mcmc(
     logpsi_fn: ParameterizedWaveFunction[P, S],
-    update_logpsi_fn: Callable,
+    update_logpsi_fn: Optional[Callable],
     proposal: MCMC_proposal_type,
     init_width,
     steps: int,

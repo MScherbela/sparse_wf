@@ -21,7 +21,7 @@ from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
-from sparse_wf.scf import make_hf_orbitals
+from sparse_wf.scf import make_hf_orbitals, make_hf_logpsi
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
 import time
@@ -117,7 +117,17 @@ def main(
     state = trainer.init(device_keys, params, electrons, mcmc_state)
     assert_identical_copies(state.params)
 
-    pretrainer = make_pretrainer(trainer, make_hf_orbitals(mol), make_optimizer(**pretraining["optimizer_args"]))
+    hf_orbitals_fn = make_hf_orbitals(mol)
+    if pretraining["sample_from"] == "hf":
+        pretraining_mcmc_step = make_mcmc(make_hf_logpsi(hf_orbitals_fn), None, **mcmc_args)[0]
+    elif pretraining["sample_from"] == "wf":
+        pretraining_mcmc_step = mcmc_step
+    else:
+        raise ValueError(f"Invalid pretraining sample_from: {pretraining['sample_from']}")
+
+    pretrainer = make_pretrainer(
+        wf, pretraining_mcmc_step, mcmc_width_scheduler, hf_orbitals_fn, make_optimizer(**pretraining["optimizer_args"])
+    )
     state = pretrainer.init(state)
 
     logging.info("Pretraining")

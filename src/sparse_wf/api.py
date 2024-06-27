@@ -405,6 +405,7 @@ class OptimizationArgs(TypedDict):
 class PretrainingArgs(TypedDict):
     steps: int
     optimizer_args: OptimizerArgs
+    sample_from: Literal["hf", "wf"]
 
 
 MCMC_proposal_type = Literal["all-electron", "single-electron"]
