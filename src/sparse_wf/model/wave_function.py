@@ -73,7 +73,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         params = MoonLikeParams(
             embedding=self.embedding.init(rngs[0], electrons, self.get_static_input(electrons)),
             to_orbitals=self.to_orbitals.init(rngs[1], dummy_embeddings),
-            envelope=self.envelope.init(rngs[2], jnp.zeros([self.n_nuclei])),
+            envelope=self.envelope.init(rngs[2], jnp.zeros([self.n_nuclei, 3])),
             jastrow=self.jastrow.init(rngs[3], electrons, dummy_embeddings),
         )
         return params
