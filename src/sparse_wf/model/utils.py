@@ -4,13 +4,12 @@ from typing import Callable, Optional, Sequence, cast, NamedTuple
 import flax.linen as nn
 import jax.numpy as jnp
 import jax
-import numpy as np
 import functools
 from sparse_wf.api import Electrons, HFOrbitals, Int, SlaterMatrices, SignedLogAmplitude
-import einops
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
 ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei"]
+ElecNucDifferences = Float[Array, "*batch n_electron n_nuclei dim=3"]
 ElecElecDistances = Float[Array, "*batch n_electrons n_electrons"]
 
 
@@ -57,6 +56,44 @@ class GatedLinearUnit(nn.Module):
         x = nn.Dense(2 * self.out_dim, use_bias=False)(x)
         x, gate = jnp.split(x, 2, axis=-1)
         return nn.Dense(self.out_dim, use_bias=False)(x * nn.silu(gate))
+
+
+def init_glu_feedforward(rng, width: int, depth: int, input_dim: int, out_dim: Optional[int] = None):
+    layers = []
+    for layer in range(depth):
+        d_out = 2 * width if (layer < (depth - 1)) else (out_dim or width)
+        rng, key = jax.random.split(rng)
+        W = lecun_normal(key, [input_dim, d_out])
+        b = jnp.zeros(d_out, jnp.float32)
+        layers.append((W, b))
+        input_dim = d_out // 2
+    return layers
+
+
+def apply_glu_feedforward(params, x):
+    for _, (W, b) in enumerate(params[:-1]):
+        x = x @ W + b
+        x, gate = jnp.split(x, 2, axis=-1)
+        x = x * jax.nn.silu(gate)
+    W, b = params[-1]
+    x = x @ W + b
+    return x
+
+
+class GLUFeedForward(nn.Module):
+    width: int
+    depth: int
+    out_dim: Optional[int] = None
+
+    @nn.compact
+    def __call__(self, x: Float[Array, "*batch_dims inp_dim"]) -> Float[Array, "*batch_dims out_dim"]:
+        out_dim = self.out_dim or self.width
+        for _ in range(self.depth - 1):
+            x = nn.Dense(2 * self.width, use_bias=True)(x)
+            x, gate = jnp.split(x, 2, axis=-1)
+            x = x * nn.silu(gate)
+        x = nn.Dense(out_dim, use_bias=True)(x)
+        return x
 
 
 def cutoff_function(d: Float[Array, "*dims"], p=4) -> Float[Array, "*dims"]:  # noqa: F821
@@ -148,76 +185,6 @@ def lecun_normal(rng, shape):
     fan_in = shape[0]
     scale = 1 / jnp.sqrt(fan_in)
     return jax.random.truncated_normal(rng, -1, 1, shape, jnp.float32) * scale
-
-
-class IsotropicEnvelope(nn.Module):
-    n_determinants: int
-    n_orbitals: int
-    cutoff: Optional[float] = None
-
-    def _sigma_initializer(self, key, shape, dtype=jnp.float32):
-        assert shape[-1] == self.envelope_size
-        scale = jnp.geomspace(0.2, 10.0, self.envelope_size)
-        scale *= jax.random.truncated_normal(key, 0.5, 1.5, shape, dtype)
-        return scale.astype(jnp.float32)
-
-    @nn.compact
-    def __call__(self, dists: ElecNucDistances) -> jax.Array:
-        n_nuc = dists.shape[-1]
-        sigma = self.param(
-            "sigma", self._sigma_initializer, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32
-        )
-        sigma = nn.softplus(sigma)
-        pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32)
-        scaled_dists = dists[..., None] * sigma
-        env = jnp.exp(-scaled_dists)
-        if self.cutoff is not None:
-            env *= cutoff_function(dists / self.cutoff)
-        out = jnp.einsum("...nd,nd->...d", env, pi)
-        return out
-
-
-class EfficientIsotropicEnvelopes(nn.Module):
-    n_determinants: int
-    n_orbitals: int
-    n_envelopes: int
-    cutoff: Optional[float] = None
-
-    @nn.compact
-    def __call__(self, dists: ElecNucDistances) -> jax.Array:
-        n_nuc = dists.shape[-1]
-        sigma = self.param("sigma", jnn.initializers.ones, (n_nuc, self.n_determinants, self.n_envelopes), jnp.float32)
-        sigma = nn.softplus(sigma)
-        pi = self.param(
-            "pi",
-            jnn.initializers.normal(1 / jnp.sqrt(self.n_envelopes)),
-            (n_nuc, self.n_determinants, self.n_envelopes, self.n_orbitals),
-            jnp.float32,
-        )
-        scaled_dists = dists[..., None, None] * sigma
-        env = jnp.exp(-scaled_dists)
-        if self.cutoff is not None:
-            env *= cutoff_function(dists / self.cutoff)
-        out = jnp.einsum("...nde,ndeo->...do", env, pi)
-        return out.reshape(*out.shape[:-2], -1)
-
-
-class SlaterOrbitals(nn.Module):
-    n_determinants: int
-    envelope_size: int
-    spins: tuple[int, int]
-
-    @nn.compact
-    def __call__(self, h_one: ElecInp, dists: ElecNucDistances) -> SlaterMatrices:
-        n_el = h_one.shape[-2]
-        spins = np.array(self.spins)
-        orbitals = nn.Dense(self.n_determinants * n_el)(h_one)
-        orbitals *= EfficientIsotropicEnvelopes(self.n_determinants, n_el, self.envelope_size)(dists)
-        orbitals = einops.rearrange(
-            orbitals, "... el (det orb) -> ... det el orb", el=n_el, orb=n_el, det=self.n_determinants
-        )
-        orbitals = swap_bottom_blocks(orbitals, spins[0])  # reverse bottom two blocks
-        return (orbitals,)
 
 
 def hf_orbitals_to_fulldet_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:

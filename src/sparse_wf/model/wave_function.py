@@ -22,14 +22,15 @@ from sparse_wf.api import (
     PRNGKeyArray,
     SignedLogAmplitude,
     SlaterMatrices,
+    EnvelopeArgs,
 )
 from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import vectorize, fwd_lap
+from sparse_wf.model.envelopes import EfficientIsotropicEnvelopes, GLUEnvelopes, Envelope
 from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.jastrow import Jastrow
 from sparse_wf.model.graph_utils import zeropad_jacobian, slogdet_with_sparse_fwd_lap
 from sparse_wf.model.utils import (
-    EfficientIsotropicEnvelopes,
     hf_orbitals_to_fulldet_orbitals,
     signed_logpsi_from_orbitals,
     swap_bottom_blocks,
@@ -55,11 +56,10 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
 
     # Hyperparams
     n_determinants: int
-    n_envelopes: int
 
     # Submodules
     to_orbitals: nn.Dense
-    envelope: EfficientIsotropicEnvelopes
+    envelope: Envelope
     embedding: MoonEmbedding
     jastrow: Jastrow
 
@@ -84,13 +84,20 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         mol: pyscf.gto.Mole,
         embedding: EmbeddingArgs,
         jastrow: JastrowArgs,
+        envelopes: EnvelopeArgs,
         n_determinants: int,
-        n_envelopes: int,
     ):
         R = np.asarray(mol.atom_coords(), dtype=jnp.float32)
         Z = np.asarray(mol.atom_charges())
         n_electrons = mol.nelectron
         n_up = mol.nelec[0]
+
+        if envelopes["envelope"] == "isotropic":
+            env = EfficientIsotropicEnvelopes(n_determinants, n_electrons, **envelopes["isotropic_args"])
+        elif envelopes["envelope"] == "glu":
+            env = GLUEnvelopes(Z, n_determinants, n_electrons, **envelopes["glu_args"])  # type: ignore
+        else:
+            raise ValueError(f"Unknown envelope type {envelopes['envelope']}")
 
         return cls(
             R=R,
@@ -98,21 +105,20 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
             n_electrons=mol.nelectron,
             n_up=n_up,
             n_determinants=n_determinants,
-            n_envelopes=n_envelopes,
             to_orbitals=nn.Dense(
                 n_determinants * mol.nelectron,
                 name="to_orbitals",
                 bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
             ),
-            envelope=EfficientIsotropicEnvelopes(n_determinants, n_electrons, n_envelopes),
+            envelope=env,  # type: ignore
             embedding=MoonEmbedding.create(R, Z, n_electrons, n_up, **embedding),
             jastrow=Jastrow(n_up, **jastrow),
         )
 
     def _orbitals(self, params: MoonLikeParams, electrons: Electrons, embeddings) -> SlaterMatrices:
-        dist_en_full = jnp.linalg.norm(electrons[:, None, :] - self.R, axis=-1)
+        diff_en_full = electrons[:, None, :] - self.R
         orbitals = self.to_orbitals.apply(params.to_orbitals, embeddings)
-        envelopes = jax.vmap(lambda d: self.envelope.apply(params.envelope, d))(dist_en_full)
+        envelopes = jax.vmap(lambda d: self.envelope.apply(params.envelope, d))(diff_en_full)
         orbitals = einops.rearrange(orbitals * envelopes, "el (det orb) -> det el orb", det=self.n_determinants)  # type: ignore
         return (swap_bottom_blocks(orbitals, self.n_up),)
 
@@ -122,8 +128,8 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         def get_orbital_row(r_el, h):
             @fwd_lap
             def get_envelopes(r):
-                distances = jnp.linalg.norm(r - self.R, axis=-1)
-                return self.envelope.apply(params.envelope, distances)
+                diffs = r - self.R
+                return self.envelope.apply(params.envelope, diffs)
 
             envelopes = get_envelopes(r_el)
             orbitals = fwd_lap(self.to_orbitals.apply, argnums=1)(params.to_orbitals, h)

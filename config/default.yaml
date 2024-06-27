@@ -37,6 +37,15 @@ model_args:
     use_mlp_jastrow: True
     mlp_depth: 2
     mlp_width: 64
+  envelopes:
+    envelope: isotropic
+    isotropic_args:
+      n_envelopes: 8
+    glu_args:
+      n_envelopes: 8
+      width: 32
+      depth: 2
+
 
 logging_args:
   smoothing: 5000

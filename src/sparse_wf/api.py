@@ -288,11 +288,27 @@ class JastrowArgs(TypedDict):
     mlp_width: int
 
 
+class IsotropicEnvelopeArgs(TypedDict):
+    n_envelopes: int
+
+
+class GLUEnvelopeArgs(TypedDict):
+    n_envelopes: int
+    width: int
+    depth: int
+
+
+class EnvelopeArgs(TypedDict):
+    envelope: Literal["isotropic", "glu"]
+    isotropic_args: IsotropicEnvelopeArgs
+    mlp_args: GLUEnvelopeArgs
+
+
 class ModelArgs(TypedDict):
     embedding: EmbeddingArgs
     jastrow: JastrowArgs
     n_determinants: int
-    n_envelopes: int
+    envelopes: EnvelopeArgs
 
 
 class SpringArgs(TypedDict):

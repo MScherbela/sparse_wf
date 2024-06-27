@@ -20,7 +20,8 @@ from sparse_wf.api import (
 )
 from sparse_wf.hamiltonian import make_local_energy
 from sparse_wf.jax_utils import vectorize
-from sparse_wf.model.utils import ElecInp, SlaterOrbitals, hf_orbitals_to_fulldet_orbitals, signed_logpsi_from_orbitals
+from sparse_wf.model.envelopes import SlaterOrbitals
+from sparse_wf.model.utils import ElecInp, hf_orbitals_to_fulldet_orbitals, signed_logpsi_from_orbitals
 
 PairInp = Float[Array, "*batch n_electrons n_electrns n_pair_in"]
 ElecOut = Float[Array, "*batch n_electrons n_out"]
