@@ -109,10 +109,10 @@ class GLUEnvelopes(Envelope):
         glu_params = jax.vmap(lambda k: init_glu_feedforward(k, self.width, self.depth, input_dim, self.n_envelopes))(
             rngs_glu
         )
-        sigma = jax.random.normal(rngs[1], (self.n_unique_Z, self.n_envelopes), jnp.float32)
+        sigma = 1.0 + jax.random.normal(rngs[1], (self.n_unique_Z, self.n_envelopes), jnp.float32) * 0.1
         pi = jax.random.normal(
-            rngs[2], (self.n_determinants * self.n_orbitals, len(self.Z), self.n_envelopes), jnp.float32
-        )
+            rngs[2], (len(self.Z), self.n_envelopes, self.n_determinants * self.n_orbitals), jnp.float32
+        ) / jnp.sqrt(self.n_envelopes)
         return dict(glu=glu_params, sigma=sigma, pi=pi)
 
     def apply(self, params, diffs):
@@ -124,7 +124,7 @@ class GLUEnvelopes(Envelope):
         glu_outputs = jax.vmap(apply_glu_feedforward, in_axes=0)(glu_params, diffs)  # vmap over nuclei
         exponents = jnp.exp(-sigma * dists[..., None])
         basis_functions = glu_outputs * exponents  # (..., n_nuclei, n_envelopes)
-        envelopes = jnp.einsum("kIe,...Ie->...k", pi, basis_functions)
+        envelopes = jnp.einsum("Iek,...Ie->...k", pi, basis_functions)
         return envelopes
 
 
