@@ -103,7 +103,7 @@ class GLUEnvelopes(Envelope):
         self.atom_types = np.array([unique_Z[z] for z in self.Z], int)
 
     def init(self, key, diffs):
-        input_dim = 3
+        input_dim = 4
         rngs = jax.random.split(key, 3)
         rngs_glu = jax.random.split(rngs[0], self.n_unique_Z)
         glu_params = jax.vmap(lambda k: init_glu_feedforward(k, self.width, self.depth, input_dim, self.n_envelopes))(
@@ -118,10 +118,11 @@ class GLUEnvelopes(Envelope):
     def apply(self, params, diffs):
         assert diffs.ndim == 2, "GLU envelopes expects diffs shape (n_nuclei, 3); use vmap for multiple electrons"
         dists = jnp.linalg.norm(diffs, axis=-1)
+        input_features = jnp.concatenate([dists[..., None], diffs], axis=-1)
         glu_params = tree_idx(params["glu"], self.atom_types)
         sigma = jax.nn.softplus(params["sigma"][self.atom_types])
         pi = params["pi"]
-        glu_outputs = jax.vmap(apply_glu_feedforward, in_axes=0)(glu_params, diffs)  # vmap over nuclei
+        glu_outputs = jax.vmap(apply_glu_feedforward, in_axes=0)(glu_params, input_features)  # vmap over nuclei
         exponentials = jnp.exp(-sigma * dists[..., None])
         basis_functions = glu_outputs * exponentials  # (..., n_nuclei, n_envelopes)
         envelopes = jnp.einsum("Iek,...Ie->...k", pi, basis_functions)

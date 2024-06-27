@@ -301,7 +301,7 @@ class GLUEnvelopeArgs(TypedDict):
 class EnvelopeArgs(TypedDict):
     envelope: Literal["isotropic", "glu"]
     isotropic_args: IsotropicEnvelopeArgs
-    mlp_args: GLUEnvelopeArgs
+    glu_args: GLUEnvelopeArgs
 
 
 class ModelArgs(TypedDict):

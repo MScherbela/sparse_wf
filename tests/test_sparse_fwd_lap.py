@@ -17,7 +17,7 @@ from pyscf.gto import Mole
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.mcmc import init_electrons
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
-from sparse_wf.api import EmbeddingArgs, JastrowArgs
+from sparse_wf.api import EmbeddingArgs, JastrowArgs, EnvelopeArgs
 
 jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
@@ -44,7 +44,7 @@ def build_model(mol):
             mlp_depth=2,
             mlp_width=64,
         ),
-        n_envelopes=8,
+        envelopes=EnvelopeArgs(envelope="glu", glu_args=dict(width=32, depth=2, n_envelopes=32), isotropic_args=None),
     )
 
 
