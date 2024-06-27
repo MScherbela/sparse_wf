@@ -24,7 +24,6 @@ model: moon
 
 model_args:
   n_determinants: 16
-  n_envelopes: 8
   embedding:
     cutoff: 10.0
     feature_dim: 256
