@@ -1,5 +1,5 @@
 from jaxtyping import Array, Float
-from sparse_wf.api import Electrons
+from sparse_wf.api import ElectronIdx, Electrons
 from sparse_wf.model.utils import MLP, get_dist_same_diff
 from sparse_wf.model.graph_utils import pad_jacobian_to_dense
 import flax.linen as nn
@@ -70,18 +70,53 @@ class Jastrow(nn.Module):
         else:
             self.mlp = None
 
-    def __call__(self, electrons: Electrons, embeddings: jax.Array) -> jax.Array:
+    def __call__(
+        self,
+        electrons: Electrons,
+        embeddings: jax.Array,
+        return_state: bool = False,
+    ) -> jax.Array | tuple[jax.Array, jax.Array]:
         logpsi = jnp.zeros([], electrons.dtype)
         if self.pairwise_cusps:
             logpsi += self.pairwise_cusps(electrons)
         if self.mlp:
-            jastrows = self.mlp(embeddings)
-            jastrows = jnp.sum(jastrows, axis=-2)  # sum over electrons
+            jastrows_before_sum = self.mlp(embeddings)
+            jastrows = jnp.sum(jastrows_before_sum, axis=-2)  # sum over electrons
             if self.use_mlp_jastrow:
                 logpsi += jastrows[0]
             if self.use_log_jastrow:
                 logpsi += jnp.log(jnp.abs(jastrows[1]))
+        else:
+            jastrows_before_sum = jnp.zeros(())
+        if return_state:
+            return logpsi, jastrows_before_sum
         return logpsi
+
+    def low_rank_update(
+        self,
+        electrons: Electrons,
+        embeddings: jax.Array,
+        changed_electrons: ElectronIdx,
+        changed_embeddings: ElectronIdx,
+        state: jax.Array,
+    ):
+        logpsi = jnp.zeros([], electrons.dtype)
+        if self.pairwise_cusps:
+            # TODO: one could do low-rank updates on the cusps, though they should be cheap anyway.
+            # NG: I benchmarked this on 200-electrons and it accounts for <5% of the runtime.
+            # If we want to implement this, we can use the changed_electrons variable.
+            logpsi += self.pairwise_cusps(electrons)
+        if self.mlp:
+            jastrows_before_sum = self.mlp(embeddings[changed_embeddings])
+            jastrows_before_sum = state.at[changed_embeddings].set(jastrows_before_sum)
+            jastrows = jnp.sum(jastrows_before_sum, axis=-2)  # sum over electrons
+            if self.use_mlp_jastrow:
+                logpsi += jastrows[0]
+            if self.use_log_jastrow:
+                logpsi += jnp.log(jnp.abs(jastrows[1]))
+        else:
+            jastrows_before_sum = jnp.zeros(())
+        return logpsi, jastrows_before_sum
 
     def _apply_mlp(self, embeddings):
         return self.mlp(embeddings)
