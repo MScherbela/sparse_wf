@@ -11,7 +11,6 @@ from sparse_wf.api import (
     Electrons,
     EnergyCotangent,
     ParameterizedWaveFunction,
-    Parameters,
     Preconditioner,
     PreconditionerArgs,
     PreconditionerState,
@@ -19,11 +18,11 @@ from sparse_wf.api import (
 from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum, vector_to_tree_like
 from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub
 
-P, S = TypeVar("P"), TypeVar("S")
+P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
 
 def make_identity_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, MS],
 ):
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params))
@@ -37,8 +36,8 @@ def make_identity_preconditioner(
     ):
         N = dE_dlogpsi.size * jax.device_count()
 
-        def log_p_closure(p: Parameters):
-            return jax.vmap(wave_function, in_axes=(None, 0, None))(p, electrons, static) / N
+        def log_p_closure(p: P):
+            return jax.vmap(lambda r: wave_function(p, r, static))(electrons) / N  # type: ignore
 
         _, vjp = jax.vjp(log_p_closure, params)
         grad = psum(vjp(dE_dlogpsi)[0])
@@ -49,7 +48,7 @@ def make_identity_preconditioner(
 
 
 def make_cg_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, MS],
     damping: float = 1e-3,
     maxiter: int = 100,
 ):
@@ -66,7 +65,7 @@ def make_cg_preconditioner(
         N = dE_dlogpsi.size * jax.device_count()
 
         def log_p_closure(p: P):
-            return jax.vmap(wave_function, in_axes=(None, 0, None))(p, electrons, static) / jnp.sqrt(N)
+            return jax.vmap(lambda r: wave_function(p, r, static))(electrons) / jnp.sqrt(N)  # type: ignore
 
         _, vjp = jax.vjp(log_p_closure, params)
         _, jvp = jax.linearize(log_p_closure, params)
@@ -86,7 +85,7 @@ def make_cg_preconditioner(
 
 
 def make_dense_spring_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, MS],
     damping: float,
     decay_factor: float,
     max_batch_size: int,
@@ -111,7 +110,7 @@ def make_dense_spring_preconditioner(
         # We could cast the params first to float64, or at the jacobian, or at solving? Or not at all?
 
         def log_p(params: jax.Array, electrons: Electrons, static: S):
-            return wave_function(unravel(params), electrons, static) * normalization
+            return wave_function(unravel(params), electrons, static) * normalization  # type: ignore
 
         jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), max_batch_size=max_batch_size)
         jacobian = jac_fn(flat_params, electrons, static)
@@ -151,7 +150,7 @@ def make_dense_spring_preconditioner(
 
 
 def make_spring_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, MS],
     damping: float = 1e-3,
     decay_factor: float = 0.99,
 ):
@@ -172,7 +171,7 @@ def make_spring_preconditioner(
         normalization = 1 / jnp.sqrt(N)
 
         def log_p(params: P, electrons: Electrons, static: S):
-            return wave_function(params, electrons, static) * normalization
+            return wave_function(params, electrons, static) * normalization  # type: ignore
 
         # Gather individual jacobians
         jac_fn = jax.vmap(jax.grad(log_p), in_axes=(None, 0, None))
@@ -197,8 +196,7 @@ def make_spring_preconditioner(
         T = psum(T)
 
         def log_p_closed(params: P):
-            result = jax.vmap(wave_function, in_axes=(None, 0, None))(params, electrons, static)
-            return result * normalization
+            return jax.vmap(lambda r: wave_function(params, r, static))(electrons) * normalization  # type: ignore
 
         prim_out, vjp = jax.vjp(log_p_closed, params)
 
@@ -234,7 +232,7 @@ class SVDPreconditionerState(NamedTuple):
 
 
 def make_svd_preconditioner(
-    wf: ParameterizedWaveFunction[P, S],
+    wf: ParameterizedWaveFunction[P, S, MS],
     damping: float,
     ema_natgrad: float,
     ema_S: float,
@@ -291,7 +289,7 @@ def make_svd_preconditioner(
     return Preconditioner(init, precondition)  # type: ignore
 
 
-def make_preconditioner(wf: ParameterizedWaveFunction[P, S], args: PreconditionerArgs):
+def make_preconditioner(wf: ParameterizedWaveFunction[P, S, MS], args: PreconditionerArgs):
     preconditioner = args["preconditioner"].lower()
     if preconditioner == "identity":
         return make_identity_preconditioner(wf)

@@ -15,11 +15,11 @@ from sparse_wf.api import (
 )
 from sparse_wf.jax_utils import pmap, pmean
 
-P, S = TypeVar("P"), TypeVar("S")
+P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
 
 def make_pretrainer(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, MS],
     mcmc_step: MCStep[P, S],
     width_scheduler: WidthScheduler,
     source_model: HFOrbitalFn,

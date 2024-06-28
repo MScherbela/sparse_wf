@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar
+from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar, overload
 import jax
 import numpy as np
 import optax
@@ -58,13 +58,15 @@ S_contra = TypeVar("S_contra", contravariant=True)
 # Parameters
 P = TypeVar("P", bound=Parameters)
 P_contra = TypeVar("P_contra", bound=Parameters, contravariant=True)
+# Model state
+MS = TypeVar("MS")
 
 
 class HFOrbitalFn(Protocol):
     def __call__(self, electrons: Electrons) -> HFOrbitals: ...
 
 
-class ParameterizedWaveFunction(Protocol[P, S]):
+class ParameterizedWaveFunction(Protocol[P, S, MS]):
     def init(self, key: PRNGKeyArray, electrons: Electrons) -> P: ...
     def get_static_input(self, electrons: Electrons) -> S: ...
     def orbitals(self, params: P, electrons: Electrons, static: S) -> SlaterMatrices: ...
@@ -72,15 +74,28 @@ class ParameterizedWaveFunction(Protocol[P, S]):
     def local_energy(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
     def local_energy_dense(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
     def signed(self, params: P, electrons: Electrons, static: S) -> SignedLogAmplitude: ...
-    def __call__(self, params: P, electrons: Electrons, static: S, return_cache: bool = False) -> LogAmplitude: ...
+
+    @overload
+    def __call__(
+        self, params: P, electrons: Electrons, static: S, return_state: Literal[True]
+    ) -> tuple[LogAmplitude, MS]: ...
+    @overload
+    def __call__(
+        self, params: P, electrons: Electrons, static: S, return_state: Literal[False] = False
+    ) -> LogAmplitude: ...
+
+    def __call__(
+        self, params: P, electrons: Electrons, static: S, return_state: bool = False
+    ) -> LogAmplitude | tuple[LogAmplitude, MS]: ...
+
     def update_logpsi(
         self,
         params: P,
-        electrons_new: Electrons,
-        idx_changed: Integer[Array, "cluster dim=3"],
-        model_cache: ModelCache,
+        electrons: Electrons,
+        changed_electrons: ElectronIdx,
         static: S,
-    ) -> tuple[LogAmplitude, ModelCache]: ...
+        state: MS,
+    ) -> tuple[LogAmplitude, MS]: ...
 
 
 ############################################################################
@@ -213,11 +228,11 @@ class InitTrainState(Protocol[P]):
 
 
 @dataclass(frozen=True)
-class Trainer(Generic[P, S]):
+class Trainer(Generic[P, S, MS]):
     init: InitTrainState[P]
     step: VMCStepFn[P, S]
     sampling_step: SamplingStepFn[P, S]
-    wave_function: ParameterizedWaveFunction[P, S]
+    wave_function: ParameterizedWaveFunction[P, S, MS]
     mcmc: MCStep[P, S]
     width_scheduler: WidthScheduler
     optimizer: optax.GradientTransformation

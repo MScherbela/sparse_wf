@@ -58,11 +58,11 @@ def local_energy_diff(e_loc: LocalEnergy, clip_local_energy: float, stat: str | 
     return e_loc
 
 
-P, S = TypeVar("P", bound=Parameters), TypeVar("S")
+P, S, MS = TypeVar("P", bound=Parameters), TypeVar("S"), TypeVar("MS")
 
 
 def make_trainer(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, MS],
     mcmc_step: MCStep[P, S],
     width_scheduler: WidthScheduler,
     optimizer: optax.GradientTransformation,

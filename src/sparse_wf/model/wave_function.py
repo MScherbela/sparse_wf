@@ -30,7 +30,7 @@ from sparse_wf.api import (
     EnvelopeArgs,
 )
 from sparse_wf.hamiltonian import make_local_energy, potential_energy
-from sparse_wf.jax_utils import vectorize, fwd_lap
+from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.model.envelopes import EfficientIsotropicEnvelopes, GLUEnvelopes, Envelope
 from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.graph_utils import slogdet_with_sparse_fwd_lap, zeropad_jacobian
@@ -63,7 +63,7 @@ class OrbitalState(NamedTuple):
     orbitals: jax.Array
 
 
-class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon], PyTreeNode):
+class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon, LowRankState], PyTreeNode):
     # Molecule
     R: Nuclei
     Z: Charges
@@ -220,7 +220,6 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         logpsi = tree_add(logpsi, logpsi_jastrow)
         return logpsi
 
-    @vectorize(signature="(nel,dim)->(),()", excluded=(0, 1, 3))
     def signed(self, params: MoonLikeParams, electrons: Electrons, static: StaticInputMoon) -> SignedLogAmplitude:
         embeddings = self.embedding.apply(params.embedding, electrons, static)
         orbitals = self._orbitals(params, electrons, embeddings)
@@ -240,20 +239,23 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         orbitals = self._orbitals_with_fwd_lap(params, electrons, embeddings)
         return orbitals, dependencies
 
+    @overload
     def __call__(
-        self, params: Parameters, electrons: Electrons, static: StaticInputMoon, return_cache=False
-    ) -> LogAmplitude:
-        logpsi = self.signed(params, electrons, static)[1]
-        if return_cache:
-            return logpsi, None  # type: ignore
-        else:
-            return logpsi
+        self, params: Parameters, electrons: Electrons, static: StaticInputMoon, return_state: Literal[True]
+    ) -> tuple[LogAmplitude, LowRankState]: ...
 
-    def update_logpsi(
-        self, params: Parameters, electrons_new: Electrons, idx_changed, model_cache: dict, static: StaticInputMoon
-    ) -> tuple[LogAmplitude, dict]:
-        # TODO: replace this (fully-recomputing) dummy implementation
-        return self(params, electrons_new, static), model_cache
+    @overload
+    def __call__(
+        self, params: Parameters, electrons: Electrons, static: StaticInputMoon, return_state: Literal[False] = False
+    ) -> LogAmplitude: ...
+
+    def __call__(
+        self, params: Parameters, electrons: Electrons, static: StaticInputMoon, return_state=False
+    ) -> LogAmplitude | tuple[LogAmplitude, LowRankState]:
+        if return_state:
+            return self.logpsi_with_state(params, electrons, static)
+        else:
+            return self.signed(params, electrons, static)[1]
 
     def logpsi_with_state(
         self, params: Parameters, electrons: Electrons, static: StaticInputMoon
@@ -291,14 +293,14 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
     def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LocalEnergy:
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
 
-    def log_psi_log_rank_update(
+    def update_logpsi(
         self,
         params: Parameters,
         electrons: Electrons,
         changed_electrons: ElectronIdx,
         static: StaticInputMoon,
         state: LowRankState,
-    ):
+    ) -> tuple[LogAmplitude, LowRankState]:
         embeddings, changed_embeddings, embedding_state = self.embedding.low_rank_update(
             params.embedding, electrons, changed_electrons, static, state.embedding
         )

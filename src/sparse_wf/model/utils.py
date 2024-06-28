@@ -156,7 +156,7 @@ def slogdet_from_lu(lu, pivot):
     logdet = jnp.sum(jnp.log(jnp.abs(diag)))
     parity = jnp.count_nonzero(pivot != jnp.arange(n))  # sign flip for each permutation
     parity += jnp.count_nonzero(diag < 0)  # sign flip for each negative diagonal element
-    sign = jnp.where(parity % 2 == 0, 1.0, -1.0)
+    sign = jnp.where(parity % 2 == 0, 1.0, -1.0).astype(lu.dtype)
     return sign, logdet
 
 
@@ -211,6 +211,7 @@ def signed_log_psi_from_orbitals_low_rank(orbitals: SlaterMatrices, changed_elec
     # To update the inverses, we use the Woodburry matrix identity
     # (A + UV^T)^-1 = A^-1 - A^-1 U (I + V^T A^-1 U)^-1 V^T A^-1
     k = len(changed_electrons)
+    dtype = orbitals[0].dtype
     slogdets = []
     inverses = []
     for A, A_inv, orb, (s_psi, log_psi) in zip(state.matrices, state.inverses, orbitals, state.slogdets):
@@ -218,11 +219,10 @@ def signed_log_psi_from_orbitals_low_rank(orbitals: SlaterMatrices, changed_elec
         # A is K x N x N (previous orbitals)
         # A_inv is K x N x N (previous inverse)
         # s_psi, log_psi are K (previous slogdet)
-        eye = jnp.eye(k)
         V = orb[:, changed_electrons] - A[:, changed_electrons]
         Ainv_U = A_inv[..., changed_electrons]
         V_Ainv_U = V @ Ainv_U
-        (s_delta, log_delta), inv_delta = slog_and_inverse(eye + V_Ainv_U)
+        (s_delta, log_delta), inv_delta = slog_and_inverse(jnp.eye(k, dtype=dtype) + V_Ainv_U)
         # update slog det
         s_psi, log_psi = s_psi * s_delta, log_psi + log_delta
         slogdets.append((s_psi, log_psi))
@@ -231,7 +231,9 @@ def signed_log_psi_from_orbitals_low_rank(orbitals: SlaterMatrices, changed_elec
         inverses.append(new_inv)
     # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
     # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
-    sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (jnp.ones(()), jnp.zeros(())))
+    sign, logdet = functools.reduce(
+        lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (jnp.ones((), dtype), jnp.zeros((), dtype))
+    )
     logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
     return (signpsi, logpsi), LogPsiState(orbitals, inverses, slogdets)
 
