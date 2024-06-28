@@ -25,7 +25,8 @@ model: moon
 model_args:
   n_determinants: 16
   embedding:
-    cutoff: 10.0
+    cutoff: 5.0
+    cutoff_1el: 20.0
     feature_dim: 256
     nuc_mlp_depth: 4
     pair_mlp_widths: [16, 8]

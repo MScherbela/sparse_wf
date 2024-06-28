@@ -43,7 +43,7 @@ from sparse_wf.model.utils import (
     normalize,
     scale_initializer,
 )
-from sparse_wf.tree_utils import tree_idx
+from sparse_wf.tree_utils import tree_idx, tree_add
 
 
 class NucleusDependentParams(NamedTuple):
@@ -194,11 +194,11 @@ class MoonElecEmb(nn.Module):
         feat_ee = jnp.where(spin_mask[:, None], feat_ee_same, feat_ee_diff)
 
         # using h^init
-        feat_ee += h + h_nb
+        feat_ee = nn.silu(h + h_nb + feat_ee)
 
         # contraction
         result = jnp.einsum("...id,...id->...d", feat_ee, gamma_ee)
-        result = nn.Dense(self.feature_dim)(result)
+        result = nn.Dense(self.feature_dim)(result) + nn.Dense(self.feature_dim, use_bias=False)(h)
         result = nn.silu(result)
         return result
 
@@ -375,6 +375,7 @@ class MoonEmbedding(PyTreeNode):
         n_electrons: int,
         n_up: int,
         cutoff: float,
+        cutoff_1el: float,
         feature_dim: int,
         nuc_mlp_depth: int,
         pair_mlp_widths: tuple[int, int],
@@ -390,7 +391,7 @@ class MoonEmbedding(PyTreeNode):
             pair_mlp_widths=pair_mlp_widths,
             pair_n_envelopes=pair_n_envelopes,
             nuc_mlp_depth=nuc_mlp_depth,
-            elec_init_emb=MoonInitElecEmb(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
+            elec_init_emb=MoonInitElecEmb(R, cutoff_1el, pair_mlp_widths, feature_dim, pair_n_envelopes),
             elec_elec_emb=MoonElecEmb(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
             Gamma_ne=MoonEdgeFeatures(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_gamma=1),
             Gamma_en=MoonEdgeFeatures(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_gamma=2),
@@ -507,6 +508,7 @@ class MoonEmbedding(PyTreeNode):
         edge_en_emb = nn.silu(h0[:, None] + edge_en_emb)
         h1 = contract(edge_en_emb, gamma_en_init)
         h1, params.scales["h1"] = normalize(h1, params.scales["h1"], True)
+        h1 += h0  # residual connection
 
         # update electron embedding
         HL_up, HL_dn = self.nuc_mlp.apply(params.nuc_mlp, H1_up, H1_dn)
@@ -613,6 +615,7 @@ class MoonEmbedding(PyTreeNode):
 
         # Step 5: Contract initial electron-nucleus features
         h1 = contract_and_normalize(edge_en_emb, gamma_en_init, params.scales["h1"])
+        h1 = tree_add(h1, h0)
         h1 = pad_jacobian(h1, dep_maps.h0_to_hout, static.n_deps.h_el_out)
 
         # Step 6: Contract deep nuclear embeddigns to output electron embeddings
