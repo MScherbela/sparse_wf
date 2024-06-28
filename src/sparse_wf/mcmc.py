@@ -24,7 +24,7 @@ from sparse_wf.api import (
     WidthSchedulerState,
     MCMC_proposal_type,
 )
-from sparse_wf.jax_utils import jit, psum
+from sparse_wf.jax_utils import jit, psum_if_pmap
 
 
 def mh_update_all_electron(
@@ -103,7 +103,7 @@ def mcmc_steps_all_electron(
     logprob = log_prob_fn(electrons)
     num_accepts = jnp.zeros((), dtype=jnp.int32)
     key, electrons, logprob, num_accepts = lax.fori_loop(0, steps, step_fn, (key, electrons, logprob, num_accepts))
-    pmove = psum(num_accepts) / (steps * electrons.shape[0] * jax.device_count())
+    pmove = psum_if_pmap(num_accepts) / (steps * electrons.shape[0] * jax.device_count())
     return electrons, pmove
 
 
@@ -133,7 +133,7 @@ def mcmc_steps_single_electron(
         jnp.zeros(local_batch_size, dtype=jnp.int32),
     )
     _, electrons, logprob, model_state, num_accepts = lax.fori_loop(0, steps, step_fn, x0)
-    pmove = psum(jnp.sum(num_accepts)) / (steps * local_batch_size * jax.device_count())
+    pmove = psum_if_pmap(jnp.sum(num_accepts)) / (steps * local_batch_size * jax.device_count())
     return electrons, pmove
 
 
