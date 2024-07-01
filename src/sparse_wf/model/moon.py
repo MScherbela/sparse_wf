@@ -441,6 +441,7 @@ class MoonEmbedding(PyTreeNode):
         nuc_mlp_depth: int,
         pair_mlp_widths: tuple[int, int],
         pair_n_envelopes: int,
+        low_rank_buffer: int,
     ):
         return cls(
             R=R,
@@ -458,6 +459,7 @@ class MoonEmbedding(PyTreeNode):
             Gamma_en=MoonEdgeFeatures(R, cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_gamma=2),
             nuc_mlp=MoonNucMLP(nuc_mlp_depth),
             elec_out=MoonElecOut(),
+            low_rank_buffer=low_rank_buffer,
         )
 
     @property

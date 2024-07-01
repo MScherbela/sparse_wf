@@ -296,6 +296,7 @@ class EmbeddingArgs(TypedDict):
     nuc_mlp_depth: int
     pair_mlp_widths: tuple[int, int]
     pair_n_envelopes: int
+    low_rank_buffer: int
 
 
 class JastrowArgs(TypedDict):
