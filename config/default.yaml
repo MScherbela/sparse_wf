@@ -15,7 +15,7 @@ molecule_args:
     atom: "Li 0 0 0; H 3 0 0"
     spin: 0
   chain_args:
-    element: ""
+    element: "H"
     distance: 2.0
     n: 10
   basis: sto-6g
@@ -67,7 +67,7 @@ optimization:
         args: []
         kwargs: { max_norm: 1.0 }
   preconditioner_args:
-    preconditioner: spring_dense
+    preconditioner: spring
     spring_args:
       damping: 1.e-3
       decay_factor: 0.99
@@ -86,6 +86,9 @@ optimization:
   clipping:
     clip_local_energy: 5.0
     stat: median
+  spin_operator_args:
+    operator: none
+    grad_scale: 1.e-4
 
 pretraining:
   steps: 1_000

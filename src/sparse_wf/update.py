@@ -14,6 +14,7 @@ from sparse_wf.api import (
     ParameterizedWaveFunction,
     Preconditioner,
     PRNGKeyArray,
+    SpinOperator,
     Trainer,
     TrainingState,
     Width,
@@ -57,7 +58,7 @@ def local_energy_diff(e_loc: LocalEnergy, clip_local_energy: float, stat: str | 
     return e_loc
 
 
-P, S, L = TypeVar("P"), TypeVar("S"), TypeVar("L")
+P, S, L, SS = TypeVar("P"), TypeVar("S"), TypeVar("L"), TypeVar("SS")
 
 
 def make_trainer(
@@ -67,6 +68,7 @@ def make_trainer(
     optimizer: optax.GradientTransformation,
     preconditioner: Preconditioner[P, S],
     clipping_args: ClippingArgs,
+    spin_operator: SpinOperator[P, S, SS],
 ):
     def init(key: PRNGKeyArray, params: P, electrons: Electrons, init_width: Width):
         params = replicate(params)
@@ -79,10 +81,11 @@ def make_trainer(
             ),
             electrons=electrons.reshape(jax.local_device_count(), -1, *electrons.shape[1:]),
             width_state=replicate(width_scheduler.init(init_width)),
+            spin_state=replicate(spin_operator.init_state()),
         )
 
     @pmap(static_broadcasted_argnums=1)
-    def sampling_step(state: TrainingState[P], static: S):
+    def sampling_step(state: TrainingState[P, SS], static: S):
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
@@ -91,7 +94,7 @@ def make_trainer(
         return state, aux_data
 
     @pmap(static_broadcasted_argnums=1)
-    def step(state: TrainingState[P], static: S):
+    def step(state: TrainingState[P, SS], static: S):
         key, subkey = jax.random.split(state.key)
         electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, pmove)
@@ -104,17 +107,16 @@ def make_trainer(
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
         aux_data = {"opt/E": E_mean, "opt/E_std": E_std, "mcmc/pmove": pmove, "mcmc/stepsize": state.width_state.width}
 
-        # # TODO: for debugging only; remove
-        # energy_dense = wave_function.local_energy_dense(state.params, electrons, static) # type: ignore
-        # E_mean_dense = pmean(energy_dense.mean())
-        # aux_data["opt/E_dense"] = E_mean_dense
+        spin_op_value, spin_grad, spin_state = spin_operator(state.params, electrons, static, state.spin_state)
+        aux_data["opt/S"] = spin_op_value
 
         natgrad, precond_state, preconditioner_aux = preconditioner.precondition(
             state.params,
             electrons,
             static,
             energy_diff,
-            state.opt_state.natgrad,  # type: ignore
+            spin_grad,
+            state.opt_state.natgrad,
         )
         aux_data.update(preconditioner_aux)
         aux_data["opt/update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
@@ -131,6 +133,7 @@ def make_trainer(
                 electrons=electrons,
                 opt_state=OptState(opt, precond_state),
                 width_state=width_state,
+                spin_state=spin_state,
             ),
             energy,
             aux_data,
@@ -145,4 +148,5 @@ def make_trainer(
         width_scheduler=width_scheduler,
         optimizer=optimizer,
         preconditioner=preconditioner,
+        spin_operator=spin_operator,
     )

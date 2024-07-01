@@ -173,9 +173,9 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None, None], PyTre
         return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)
 
     def log_psi_with_state(self, params: FermiNetParams, electrons: Electrons, static):
-        return self(params, electrons, static), None
+        return self.signed(params, electrons, static), None
 
     def log_psi_low_rank_update(
         self, params: FermiNetParams, electrons: Electrons, changed_electrons: ElectronIdx, static, state
     ):
-        return self(params, electrons, static), state
+        return self.signed(params, electrons, static), state

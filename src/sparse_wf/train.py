@@ -23,6 +23,7 @@ from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.scf import make_hf_orbitals
+from sparse_wf.spin_operator import make_spin_operator
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
 import time
@@ -117,6 +118,7 @@ def main(
         make_optimizer(**optimization["optimizer_args"]),
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
+        make_spin_operator(wf, optimization["spin_operator_args"]),
     )
     # The state will only be fed into pmapped functions, i.e., we need a per device key
     state = trainer.init(device_keys, params, electrons, jnp.array(init_width))
