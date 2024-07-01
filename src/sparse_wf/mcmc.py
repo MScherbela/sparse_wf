@@ -23,6 +23,7 @@ from sparse_wf.api import (
     WidthScheduler,
     WidthSchedulerState,
     MCMC_proposal_type,
+    ElectronIdx,
 )
 from sparse_wf.jax_utils import jit, psum_if_pmap
 
@@ -51,9 +52,7 @@ def mh_update_all_electron(
 
 
 def mh_update_single_electron(
-    update_logpsi_fn: Callable,
-    params,
-    static,
+    update_logprob_fn: Callable,
     key: PRNGKeyArray,
     electrons: Electrons,
     log_prob: LogAmplitude,
@@ -64,22 +63,24 @@ def mh_update_single_electron(
     cluster_size = 1
     n_el = electrons.shape[-2]
 
+    # Make proposal
     key, key_select, key_propose, key_accept = jax.random.split(key, 4)
     idx_el_changed = jax.random.randint(key_select, [cluster_size], 0, n_el)
     delta_r = jax.random.normal(key_propose, [cluster_size, 3], dtype=electrons.dtype) * width
-    new_electrons = electrons.at[idx_el_changed, :].add(delta_r)
-    new_logpsi, new_model_state = update_logpsi_fn(params, new_electrons, idx_el_changed, static, model_state)
-    new_log_prob = 2 * new_logpsi
-    log_ratio = new_log_prob - log_prob
+    proposed_electrons = electrons.at[idx_el_changed, :].add(delta_r)
 
+    # Accept/reject
+    proposed_logprob, proposed_model_state = update_logprob_fn(proposed_electrons, idx_el_changed, model_state)
+    log_ratio = proposed_logprob - log_prob
     accept = log_ratio > jnp.log(jax.random.uniform(key_accept, log_ratio.shape))
-    new_electrons, new_log_prob, new_model_state = jtu.tree_map(
+    new_electrons, new_logprob, new_model_state = jtu.tree_map(
         lambda new, old: jnp.where(accept, new, old),
-        (new_electrons, new_log_prob, new_model_state),
+        (proposed_electrons, proposed_logprob, proposed_model_state),
         (electrons, log_prob, model_state),
     )
     num_accepts += accept.astype(jnp.int32)
-    return key, new_electrons, new_log_prob, new_model_state, num_accepts
+
+    return key, new_electrons, new_logprob, new_model_state, num_accepts
 
 
 P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
@@ -117,12 +118,19 @@ def mcmc_steps_single_electron(
     static: S,
     width: Width,
 ):
-    logpsi, model_state = jax.vmap(lambda r: logpsi_fn(params, r, static, return_state=True))(electrons)
-    logprob = 2 * logpsi
+    def log_prob_fn(r: Electrons):
+        logpsi, model_state = logpsi_fn(params, r, static, return_state=True)
+        return 2 * logpsi, model_state
+
+    def update_log_prob_fn(r: Electrons, idx_changed: ElectronIdx, model_state):
+        logpsi, model_state = update_logpsi_fn(params, r, idx_changed, static, model_state)
+        return 2 * logpsi, model_state
+
+    logprob, model_state = jax.vmap(log_prob_fn)(electrons)
 
     @functools.partial(jax.vmap, in_axes=(None, 0))
     def step_fn(_, x):
-        return mh_update_single_electron(update_logpsi_fn, params, static, *x, width)
+        return mh_update_single_electron(update_log_prob_fn, *x, width)
 
     local_batch_size = electrons.shape[0]
     x0 = (
