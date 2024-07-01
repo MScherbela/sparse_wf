@@ -119,10 +119,10 @@ def make_dense_spring_preconditioner(
 
         jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), max_batch_size=max_batch_size)
         jacobian = jac_fn(flat_params, electrons, static)
-        jacobian -= pmean(jacobian.mean(0))
-        n_params = jacobian.shape[-1]
         if use_float64:
             jacobian = jacobian.astype(jnp.float64)
+        jacobian -= pmean(jacobian.mean(0))
+        n_params = jacobian.shape[-1]
 
         if n_params % n_dev != 0:
             jacobian = jnp.pad(jacobian, ((0, 0), (0, n_dev - n_params % n_dev)))

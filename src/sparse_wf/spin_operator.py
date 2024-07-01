@@ -1,6 +1,7 @@
 from typing import NamedTuple, TypeVar
 
 import jax
+import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
@@ -63,6 +64,8 @@ class SplusOperator(SpinOperator[P, S, SplusState], PyTreeNode):
             )
         )
         grad = tree_mul(grad, 2 * P_plus / batch_size * self.grad_scale)
+        is_nan = jnp.isnan(jfu.ravel_pytree(grad)[0]).any()
+        grad = jtu.tree_map(lambda x: jnp.where(is_nan, jnp.zeros_like(x), x), grad)
         new_spin_state = SplusState(alpha=(state.alpha + 1) % n_up)
         return P_plus, grad, new_spin_state
 
