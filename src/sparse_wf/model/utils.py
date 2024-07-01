@@ -193,8 +193,11 @@ def signed_logpsi_from_orbitals(
 
 
 def signed_logpsi_from_orbitals(orbitals: SlaterMatrices, return_state: bool = False):
-    slog_inv = [slog_and_inverse(orbs) for orbs in orbitals]
-    slogdets, inverses = map(list, zip(*slog_inv))  # list of tuples to tuple of lists
+    if return_state:
+        slog_inv = [slog_and_inverse(orbs) for orbs in orbitals]
+        slogdets, inverses = map(list, zip(*slog_inv))  # list of tuples to tuple of lists
+    else:
+        slogdets = [jnp.linalg.slogdet(orbs) for orbs in orbitals]
     # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
     # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
     sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (1, 0))
