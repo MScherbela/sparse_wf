@@ -31,6 +31,7 @@ model_args:
     nuc_mlp_depth: 4
     pair_mlp_widths: [16, 8]
     pair_n_envelopes: 32
+    low_rank_buffer: 2
   jastrow:
     e_e_cusps: psiformer
     use_log_jastrow: True
