@@ -71,6 +71,9 @@ class Jastrow(nn.Module):
 
         if self.use_mlp_jastrow or self.use_log_jastrow:
             self.mlp = MLP([self.mlp_width] * self.mlp_depth + [2], activate_final=False)
+            self.mlp_scale = self.param("mlp_scale", nn.initializers.zeros, (2,), jnp.float32)
+            if self.use_log_jastrow:
+                self.log_bias = self.param("log_bias", nn.initializers.ones, (), jnp.float32)
         else:
             self.mlp = None
 
@@ -87,11 +90,13 @@ class Jastrow(nn.Module):
         if self.mlp:
             jastrows_before_sum = self.mlp(embeddings)
             jastrows = jnp.sum(jastrows_before_sum, axis=-2)  # sum over electrons
+            jastrows *= self.mlp_scale
             if self.use_mlp_jastrow:
                 logpsi += jastrows[0]
             if self.use_log_jastrow:
-                sign *= jnp.sign(jastrows[1])
-                logpsi += jnp.log(jnp.abs(jastrows[1]))
+                log_J = jastrows[1] + self.log_bias
+                sign *= jnp.sign(log_J)
+                logpsi += jnp.log(jnp.abs(log_J))
         else:
             jastrows_before_sum = jnp.zeros(())
         if return_state:
