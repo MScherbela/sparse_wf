@@ -436,3 +436,7 @@ class FixedScalingFactor(nn.Module):
                 value = jnp.where(jnp.logical_or(jnp.isnan(value), jnp.isinf(value)), 1, value)
                 scaling.value = value.astype(jnp.float32)
         return x * scaling.value
+
+
+def get_relative_tolerance(dtype):
+    return 1e-12 if (dtype == jnp.float64) else 1e-6

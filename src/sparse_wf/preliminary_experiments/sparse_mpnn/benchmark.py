@@ -31,24 +31,21 @@ def build_atom_chain(rng, n_nuc, n_el_per_nuc, batch_size):
 print(f"Platform: {xla_bridge.get_backend().platform}, devices: {jax.devices()}", flush=True)
 
 rng_r, rng_model, rng_mcmc = jax.random.split(jax.random.PRNGKey(0), 3)
-batch_size = 64
+batch_size = 8
 cutoff = 5.0
 cutoff_1el = 20.0
-n_iterations = 5
+n_iterations = 10
 n_el_per_nuc = 1
 n_determinants = 16
 n_sampling_steps = 50
 mcmc_stepsize = 0.1
 
-# n_el_values = [2*(int(np.round(n))//2) for n in np.geomspace(32, 512, 9)][::-1]
-# cutoff_values = np.array([3.0, 5.0, 7.0, 9.0])
-
 csv_file = open("benchmark.csv", "w", buffering=1)
-csv_file.write("n_el,batch_size,n_sampling_steps,n_gpus,dtype,cutoff,n_nb,n_deps_max,iteration,t_sampling_low_rank,t_sampling_full_rank,t_embed,t_energy\n")
+csv_file.write("n_el,batch_size,n_sampling_steps,n_gpus,dtype,cutoff,cutoff_1el,n_nb,n_deps_max,iteration,t_sampling_low_rank,t_sampling_full_rank,t_embed,t_energy\n")
 
 # n_el_values = [20, 40]
-n_el_values = [2*(int(np.round(n))//2) for n in np.geomspace(32, 180, 7)]
-cutoff_values = [3.0, 5.0]
+n_el_values = [2*(int(np.round(n))//2) for n in np.geomspace(32, 362, 8)]
+cutoff_values = [3.0, 4.0, 5.0]
 for cutoff in cutoff_values:
     for n_el in n_el_values:
             n_el = int(n_el)
@@ -102,6 +99,7 @@ for cutoff in cutoff_values:
                     n_gpus=jax.device_count(),
                     dtype="float32" if dtype is jnp.float32 else "float64",
                     cutoff=cutoff,
+                    cutoff_1el = cutoff_1el,
                     n_nb=n_nb,
                     n_deps_max=n_deps_max,
                     iteration=n,
