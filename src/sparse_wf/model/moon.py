@@ -85,19 +85,25 @@ class DependencyMaps(NamedTuple):
 
 
 def get_max_nr_of_dependencies(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix, cutoff: float):
-    #def get_neighbours(dists, cutoff):
+    def get_max_deps(deps):
+        return pmax_if_pmap(jnp.max(jnp.sum(deps, axis=1)))
 
+    h0_deps = dist_ee<cutoff
+    n_deps_max_h0 = get_max_deps(h0_deps)
 
-    # Thest first electron message passing step can depend at most on electrons within 1 * cutoff
-    n_deps_max_h0 = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff, axis=-1)))
+    H0 = dist_ne<cutoff
+    H_deps = []
+    for row in H0:
+        H_deps.append(jnp.logical_or(row, jnp.sum(h0_deps[row], axis=0)))  # all electrons within cutoff and all electrons within cutoff of them
+    H_deps = jnp.array(H_deps)
+    n_deps_max_H = get_max_deps(H_deps)
 
+    h_out_deps = []
+    for i, row in enumerate(h0_deps):
+        h_out_deps.append(jnp.logical_or(row, jnp.sum(H_deps[H0[:, i]], axis=0)))  # all electrons within cutoff and all electrons within cutoff of all nuclei within cutoff
+    h_out_deps = jnp.array(h_out_deps)
+    n_deps_max_h_out = get_max_deps(h_out_deps)
 
-
-    # The nuclear embeddings are computed with 2 message passing steps and can therefore depend at most on electrons within 2 * cutoff
-    n_deps_max_H = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff * 2, axis=-1)))
-
-    # The output electron embeddings are computed with 3 message passing step and can therefore depend at most on electrons within 3 * cutoff
-    n_deps_max_h_out = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff * 3, axis=-1)))
     return n_deps_max_h0, n_deps_max_H, n_deps_max_h_out
 
 
