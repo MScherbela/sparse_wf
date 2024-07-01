@@ -123,6 +123,7 @@ def make_trainer(
         aux_data["opt/update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
         # TODO: make this work for general models
         aux_data["opt/deps_hout"] = static.n_deps.h_el_out  # type: ignore
+        aux_data["opt/elec_max_extend"] = jnp.abs(electrons).max()
 
         updates, opt = optimizer.update(natgrad, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)

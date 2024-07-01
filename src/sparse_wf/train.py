@@ -47,6 +47,11 @@ def get_gradients(logpsi_func, params, electrons, static):
     return jax.vmap(get_grad)(electrons)
 
 
+def isnan(args):
+    leaves = jtu.tree_leaves(args)
+    return any(np.isnan(leave).any() for leave in leaves)
+
+
 def main(
     molecule_args: MoleculeArgs,
     model: str,
@@ -163,7 +168,7 @@ def main(
         aux_data["opt/t_step"] = t1 - t0
         aux_data["opt/step"] = opt_step
         loggers.log(aux_data)
-        if np.isnan(aux_data["opt/E"]):
-            raise ValueError("NaN in energy")
+        if isnan(aux_data):
+            raise ValueError("NaN")
     assert_identical_copies(state.params)
     loggers.store_blob(state.serialize(), "chkpt_final.msgpk")
