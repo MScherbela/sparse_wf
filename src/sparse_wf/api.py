@@ -57,13 +57,15 @@ S_contra = TypeVar("S_contra", contravariant=True)
 # Parameters
 P = TypeVar("P", bound=Parameters)
 P_contra = TypeVar("P_contra", bound=Parameters, contravariant=True)
+# Lowrank state
+L = TypeVar("L")
 
 
 class HFOrbitalFn(Protocol):
     def __call__(self, electrons: Electrons) -> HFOrbitals: ...
 
 
-class ParameterizedWaveFunction(Protocol[P, S]):
+class ParameterizedWaveFunction(Protocol[P, S, L]):
     def init(self, key: PRNGKeyArray, electrons: Electrons) -> P: ...
     def get_static_input(self, electrons: Electrons) -> S: ...
     def orbitals(self, params: P, electrons: Electrons, static: S) -> SlaterMatrices: ...
@@ -72,6 +74,10 @@ class ParameterizedWaveFunction(Protocol[P, S]):
     def local_energy_dense(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
     def signed(self, params: P, electrons: Electrons, static: S) -> SignedLogAmplitude: ...
     def __call__(self, params: P, electrons: Electrons, static: S) -> LogAmplitude: ...
+    def log_psi_with_state(self, params: P, electrons: Electrons, static: S) -> tuple[LogAmplitude, L]: ...
+    def log_psi_low_rank_update(
+        self, params: P, electrons: Electrons, changed_electrons: ElectronIdx, static: S, state: L
+    ) -> tuple[LogAmplitude, L]: ...
 
 
 ############################################################################
@@ -208,7 +214,7 @@ class Trainer(Generic[P, S]):
     init: InitTrainState[P]
     step: VMCStepFn[P, S]
     sampling_step: SamplingStepFn[P, S]
-    wave_function: ParameterizedWaveFunction[P, S]
+    wave_function: ParameterizedWaveFunction[P, S, L]
     mcmc: MCStep[P, S]
     width_scheduler: WidthScheduler
     optimizer: optax.GradientTransformation

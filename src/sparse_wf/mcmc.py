@@ -48,11 +48,11 @@ def mh_update(
     return key, new_electrons, new_log_prob, num_accepts
 
 
-P, S = TypeVar("P"), TypeVar("S")
+P, S, L = TypeVar("P"), TypeVar("S"), TypeVar("L")
 
 
 def make_mcmc(
-    network: ParameterizedWaveFunction[P, S],
+    network: ParameterizedWaveFunction[P, S, L],
     steps: int = 10,
 ) -> MCStep[P, S]:
     batch_network = jax.vmap(network, in_axes=(None, 0, None))

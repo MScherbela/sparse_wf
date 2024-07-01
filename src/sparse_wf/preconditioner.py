@@ -19,11 +19,11 @@ from sparse_wf.api import (
 from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum, vector_to_tree_like
 from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub
 
-P, S = TypeVar("P"), TypeVar("S")
+P, S, L = TypeVar("P"), TypeVar("S"), TypeVar("L")
 
 
 def make_identity_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, L],
 ):
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params))
@@ -49,7 +49,7 @@ def make_identity_preconditioner(
 
 
 def make_cg_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, L],
     damping: float = 1e-3,
     maxiter: int = 100,
 ):
@@ -86,7 +86,7 @@ def make_cg_preconditioner(
 
 
 def make_dense_spring_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, L],
     damping: float = 1e-3,
     decay_factor: float = 0.99,
     max_batch_size: int = 128,
@@ -144,7 +144,7 @@ def make_dense_spring_preconditioner(
 
 
 def make_spring_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, L],
     damping: float = 1e-3,
     decay_factor: float = 0.99,
 ):
@@ -227,7 +227,7 @@ class SVDPreconditionerState(NamedTuple):
 
 
 def make_svd_preconditioner(
-    wf: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, L],
     damping: float,
     ema_natgrad: float,
     ema_S: float,
@@ -249,7 +249,7 @@ def make_svd_preconditioner(
         N_total = total_batch_size + history_length
 
         def get_dlogpsi_dparam(r: Electrons):
-            g = jax.grad(wf)(params, r, static)
+            g = jax.grad(wave_function)(params, r, static)
             g = jtu.tree_flatten(g)[0]
             g = jnp.concatenate([x.flatten() for x in g])
             return g
@@ -284,7 +284,7 @@ def make_svd_preconditioner(
     return Preconditioner(init, precondition)  # type: ignore
 
 
-def make_preconditioner(wf: ParameterizedWaveFunction[P, S], args: PreconditionerArgs):
+def make_preconditioner(wf: ParameterizedWaveFunction[P, S, L], args: PreconditionerArgs):
     preconditioner = args["preconditioner"].lower()
     if preconditioner == "identity":
         return make_identity_preconditioner(wf)

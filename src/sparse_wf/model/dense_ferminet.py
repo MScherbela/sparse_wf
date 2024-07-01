@@ -10,6 +10,7 @@ from flax.struct import PyTreeNode
 from jaxtyping import Array, Float
 
 from sparse_wf.api import (
+    ElectronIdx,
     Electrons,
     HFOrbitals,
     ParameterizedWaveFunction,
@@ -136,7 +137,7 @@ class FermiNetOrbitals(nn.Module):
 FermiNetParams = dict[str, "FermiNetParams"] | Array
 
 
-class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode):
+class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None, None], PyTreeNode):
     mol: pyscf.gto.Mole
     ferminet: FermiNetOrbitals
 
@@ -170,3 +171,11 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode)
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy_dense(self, params: FermiNetParams, electrons: Electrons, static):
         return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)
+
+    def log_psi_with_state(self, params: FermiNetParams, electrons: Electrons, static):
+        return self(params, electrons, static), None
+
+    def log_psi_low_rank_update(
+        self, params: FermiNetParams, electrons: Electrons, changed_electrons: ElectronIdx, static, state
+    ):
+        return self(params, electrons, static), state

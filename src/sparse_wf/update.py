@@ -18,7 +18,6 @@ from sparse_wf.api import (
     TrainingState,
     Width,
     WidthScheduler,
-    Parameters,
 )
 from sparse_wf.jax_utils import pgather, pmap, pmean, replicate
 from sparse_wf.tree_utils import tree_dot
@@ -58,11 +57,11 @@ def local_energy_diff(e_loc: LocalEnergy, clip_local_energy: float, stat: str | 
     return e_loc
 
 
-P, S = TypeVar("P", bound=Parameters), TypeVar("S")
+P, S, L = TypeVar("P"), TypeVar("S"), TypeVar("L")
 
 
 def make_trainer(
-    wave_function: ParameterizedWaveFunction[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, L],
     mcmc_step: MCStep[P, S],
     width_scheduler: WidthScheduler,
     optimizer: optax.GradientTransformation,

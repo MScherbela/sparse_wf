@@ -1,15 +1,19 @@
-from jaxtyping import Array, Float
-from sparse_wf.api import ElectronIdx, Electrons
-from sparse_wf.model.utils import MLP, get_dist_same_diff
-from sparse_wf.model.graph_utils import pad_jacobian_to_dense
-import flax.linen as nn
-import jax.numpy as jnp
-import jax
-from sparse_wf.jax_utils import fwd_lap
-from folx.api import FwdLaplArray, FwdJacobian
-from typing import Literal
 import functools
+from typing import Literal, TypeAlias
+
+import flax.linen as nn
+import jax
+import jax.numpy as jnp
+from folx.api import FwdJacobian, FwdLaplArray
+from jaxtyping import Array, Float
+
+from sparse_wf.api import ElectronIdx, Electrons
+from sparse_wf.jax_utils import fwd_lap
+from sparse_wf.model.graph_utils import pad_jacobian_to_dense
+from sparse_wf.model.utils import MLP, get_dist_same_diff
 from sparse_wf.tree_utils import tree_add
+
+JastrowState: TypeAlias = jax.Array
 
 
 class YukawaJastrow(nn.Module):
@@ -98,7 +102,7 @@ class Jastrow(nn.Module):
         embeddings: jax.Array,
         changed_electrons: ElectronIdx,
         changed_embeddings: ElectronIdx,
-        state: jax.Array,
+        state: JastrowState,
     ):
         logpsi = jnp.zeros([], electrons.dtype)
         if self.pairwise_cusps:
