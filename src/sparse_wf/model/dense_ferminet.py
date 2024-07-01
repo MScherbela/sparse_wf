@@ -10,13 +10,12 @@ from flax.struct import PyTreeNode
 from jaxtyping import Array, Float
 
 from sparse_wf.api import (
+    ElectronIdx,
     Electrons,
     HFOrbitals,
     ParameterizedWaveFunction,
     PRNGKeyArray,
     SlaterMatrices,
-    LogAmplitude,
-    ElectronIdx,
 )
 from sparse_wf.hamiltonian import make_local_energy
 from sparse_wf.jax_utils import vectorize
@@ -160,22 +159,8 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None, None], PyTre
         orbitals = self.orbitals(params, electrons, static)
         return signed_logpsi_from_orbitals(orbitals)
 
-    def __call__(self, params: FermiNetParams, electrons: Electrons, static, return_cache=False):
-        logpsi = self.signed(params, electrons, static)[1]
-        if return_cache:
-            return logpsi, None
-        else:
-            return logpsi
-
-    def update_logpsi(
-        self,
-        params: FermiNetParams,
-        electrons: Electrons,
-        changed_electrons: ElectronIdx,
-        static: None,
-        state: None,
-    ) -> tuple[LogAmplitude, None]:
-        return self(params, electrons, static), None
+    def __call__(self, params: FermiNetParams, electrons: Electrons, static):
+        return self.signed(params, electrons, static)[1]
 
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
@@ -187,3 +172,11 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None, None], PyTre
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy_dense(self, params: FermiNetParams, electrons: Electrons, static):
         return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)
+
+    def log_psi_with_state(self, params: FermiNetParams, electrons: Electrons, static):
+        return self.signed(params, electrons, static), None
+
+    def log_psi_low_rank_update(
+        self, params: FermiNetParams, electrons: Electrons, changed_electrons: ElectronIdx, static, state
+    ):
+        return self.signed(params, electrons, static), state

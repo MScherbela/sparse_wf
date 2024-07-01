@@ -18,7 +18,13 @@ def build_model(mol):
         mol,
         n_determinants=2,
         embedding=EmbeddingArgs(
-            cutoff=2.0, cutoff_1el=20.0, feature_dim=128, nuc_mlp_depth=2, pair_mlp_widths=(16, 8), pair_n_envelopes=32
+            cutoff=2.0,
+            cutoff_1el=20.0,
+            feature_dim=128,
+            nuc_mlp_depth=2,
+            pair_mlp_widths=(16, 8),
+            pair_n_envelopes=32,
+            low_rank_buffer=2,
         ),
         jastrow=JastrowArgs(
             e_e_cusps="psiformer",

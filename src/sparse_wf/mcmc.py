@@ -1,4 +1,4 @@
-from typing import TypeVar, Callable, Optional
+from typing import TypeVar, Callable
 
 import jax
 import jax.numpy as jnp
@@ -110,7 +110,6 @@ def mcmc_steps_all_electron(
 
 def mcmc_steps_single_electron(
     logpsi_fn: ParameterizedWaveFunction[P, S, MS],
-    update_logpsi_fn: Callable,
     steps: int,
     key: PRNGKeyArray,
     params: P,
@@ -119,11 +118,11 @@ def mcmc_steps_single_electron(
     width: Width,
 ):
     def log_prob_fn(r: Electrons):
-        logpsi, model_state = logpsi_fn(params, r, static, return_state=True)
+        (_, logpsi), model_state = logpsi_fn.log_psi_with_state(params, r, static)
         return 2 * logpsi, model_state
 
     def update_log_prob_fn(r: Electrons, idx_changed: ElectronIdx, model_state):
-        logpsi, model_state = update_logpsi_fn(params, r, idx_changed, static, model_state)
+        (_, logpsi), model_state = logpsi_fn.log_psi_low_rank_update(params, r, idx_changed, static, model_state)
         return 2 * logpsi, model_state
 
     logprob, model_state = jax.vmap(log_prob_fn)(electrons)
@@ -147,18 +146,17 @@ def mcmc_steps_single_electron(
 
 def make_mcmc(
     logpsi_fn: ParameterizedWaveFunction[P, S, MS],
-    update_logpsi_fn: Optional[Callable],
     proposal: MCMC_proposal_type,
     init_width,
     steps: int,
 ) -> tuple[MCStep[P, S], jax.Array]:
-    # batch_network = jax.vmap(logpsi_fn, in_axes=(None, 0, None))
-
-    if proposal == "all-electron":
-        mcmc_step = functools.partial(mcmc_steps_all_electron, logpsi_fn, steps)
-    elif proposal == "single-electron":
-        mcmc_step = functools.partial(mcmc_steps_single_electron, logpsi_fn, update_logpsi_fn, steps)
-
+    match proposal.lower():
+        case "all-electron":
+            mcmc_step = functools.partial(mcmc_steps_all_electron, logpsi_fn, steps)
+        case "single-electron":
+            mcmc_step = functools.partial(mcmc_steps_single_electron, logpsi_fn, steps)
+        case _:
+            raise ValueError(f"Invalid proposal: {proposal}")
     return mcmc_step, jnp.array(init_width, dtype=jnp.float32)
 
 

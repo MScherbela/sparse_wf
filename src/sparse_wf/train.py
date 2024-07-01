@@ -22,6 +22,7 @@ from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
 from sparse_wf.scf import make_hf_orbitals, make_hf_logpsi
+from sparse_wf.spin_operator import make_spin_operator
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
 import time
@@ -92,7 +93,7 @@ def main(
     # We want to initialize differently per process so we use the proc_key here
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
-    mcmc_step, mcmc_state = make_mcmc(wf.__call__, wf.update_logpsi, **mcmc_args)
+    mcmc_step, mcmc_state = make_mcmc(wf, **mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
 
     # We want the parameters to be identical so we use the main_key here
@@ -112,18 +113,20 @@ def main(
         make_preconditioner(wf, optimization["preconditioner_args"]),
         optimization["clipping"],
         optimization["max_batch_size"],
+        make_spin_operator(wf, optimization["spin_operator_args"]),
     )
     # The state will only be fed into pmapped functions, i.e., we need a per device key
     state = trainer.init(device_keys, params, electrons, mcmc_state)
     assert_identical_copies(state.params)
 
     hf_orbitals_fn = make_hf_orbitals(mol)
-    if pretraining["sample_from"] == "hf":
-        pretraining_mcmc_step = make_mcmc(make_hf_logpsi(hf_orbitals_fn), None, **mcmc_args)[0]
-    elif pretraining["sample_from"] == "wf":
-        pretraining_mcmc_step = mcmc_step
-    else:
-        raise ValueError(f"Invalid pretraining sample_from: {pretraining['sample_from']}")
+    match pretraining["sample_from"].lower():
+        case "hf":
+            pretraining_mcmc_step = make_mcmc(make_hf_logpsi(hf_orbitals_fn), **mcmc_args)[0]
+        case "wf":
+            pretraining_mcmc_step = mcmc_step
+        case _:
+            raise ValueError(f"Invalid pretraining sample_from: {pretraining['sample_from']}")
 
     pretrainer = make_pretrainer(
         wf, pretraining_mcmc_step, mcmc_width_scheduler, hf_orbitals_fn, make_optimizer(**pretraining["optimizer_args"])

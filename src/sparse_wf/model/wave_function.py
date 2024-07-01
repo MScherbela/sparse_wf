@@ -1,5 +1,5 @@
 import functools
-from typing import Any, Literal, NamedTuple, cast, overload
+from typing import Literal, NamedTuple, cast, overload
 
 import einops
 import flax.linen as nn
@@ -34,9 +34,10 @@ from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.model.envelopes import EfficientIsotropicEnvelopes, GLUEnvelopes, Envelope
 from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.graph_utils import slogdet_with_sparse_fwd_lap, zeropad_jacobian
-from sparse_wf.model.jastrow import Jastrow
-from sparse_wf.model.moon import MoonEmbedding, StaticInputMoon
+from sparse_wf.model.jastrow import Jastrow, JastrowState
+from sparse_wf.model.moon import MoonEmbedding, MoonState, StaticInputMoon
 from sparse_wf.model.utils import (
+    LogPsiState,
     hf_orbitals_to_fulldet_orbitals,
     signed_log_psi_from_orbitals_low_rank,
     signed_logpsi_from_orbitals,
@@ -51,16 +52,16 @@ class MoonLikeParams(NamedTuple):
     jastrow: Parameters
 
 
-class LowRankState(NamedTuple):
-    embedding: Any
-    orbitals: Any
-    determinant: Any
-    jastrow: Any
-
-
 class OrbitalState(NamedTuple):
     envelopes: jax.Array
     orbitals: jax.Array
+
+
+class LowRankState(NamedTuple):
+    embedding: MoonState
+    orbitals: OrbitalState
+    determinant: LogPsiState
+    jastrow: JastrowState
 
 
 class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon, LowRankState], PyTreeNode):
@@ -224,7 +225,9 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         embeddings = self.embedding.apply(params.embedding, electrons, static)
         orbitals = self._orbitals(params, electrons, embeddings)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
-        logpsi += self.jastrow.apply(params.jastrow, electrons, embeddings)
+        sign_J, log_J = self.jastrow.apply(params.jastrow, electrons, embeddings)
+        signpsi *= sign_J
+        logpsi += log_J
         return signpsi, logpsi
 
     def orbitals(self, params: MoonLikeParams, electrons: Electrons, static: StaticInputMoon) -> SlaterMatrices:
@@ -239,44 +242,8 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         orbitals = self._orbitals_with_fwd_lap(params, electrons, embeddings)
         return orbitals, dependencies
 
-    @overload
-    def __call__(
-        self, params: Parameters, electrons: Electrons, static: StaticInputMoon, return_state: Literal[True]
-    ) -> tuple[LogAmplitude, LowRankState]: ...
-
-    @overload
-    def __call__(
-        self, params: Parameters, electrons: Electrons, static: StaticInputMoon, return_state: Literal[False] = False
-    ) -> LogAmplitude: ...
-
-    def __call__(
-        self, params: Parameters, electrons: Electrons, static: StaticInputMoon, return_state=False
-    ) -> LogAmplitude | tuple[LogAmplitude, LowRankState]:
-        if return_state:
-            return self.logpsi_with_state(params, electrons, static)
-        else:
-            return self.signed(params, electrons, static)[1]
-
-    def logpsi_with_state(
-        self, params: Parameters, electrons: Electrons, static: StaticInputMoon
-    ) -> tuple[LogAmplitude, LowRankState]:
-        embeddings, state = self.embedding.apply(
-            params.embedding,
-            electrons,
-            static,
-            return_scales=False,
-            return_state=True,
-        )
-        orbitals, orbitals_state = self._orbitals(params, electrons, embeddings, return_state=True)
-        (_, logpsi), determinant_state = signed_logpsi_from_orbitals(orbitals, return_state=True)
-        jastrow_logpsi, jastrow_state = self.jastrow.apply(params.jastrow, electrons, embeddings, return_state=True)
-        logpsi += jastrow_logpsi
-        return logpsi, LowRankState(
-            embedding=state,
-            orbitals=orbitals_state,
-            determinant=determinant_state,
-            jastrow=jastrow_state,
-        )
+    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LogAmplitude:
+        return self.signed(params, electrons, static)[1]
 
     def get_static_input(self, electrons: Electrons) -> StaticInputMoon:
         return self.embedding.get_static_input(electrons)
@@ -293,14 +260,36 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
     def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LocalEnergy:
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
 
-    def update_logpsi(
+    def log_psi_with_state(
+        self, params: Parameters, electrons: Electrons, static: StaticInputMoon
+    ) -> tuple[SignedLogAmplitude, LowRankState]:
+        embeddings, state = self.embedding.apply(
+            params.embedding,
+            electrons,
+            static,
+            return_scales=False,
+            return_state=True,
+        )
+        orbitals, orbitals_state = self._orbitals(params, electrons, embeddings, return_state=True)
+        (sign, logpsi), determinant_state = signed_logpsi_from_orbitals(orbitals, return_state=True)
+        (sign_J, log_J), jastrow_state = self.jastrow.apply(params.jastrow, electrons, embeddings, return_state=True)
+        logpsi += log_J
+        sign *= sign_J
+        return (sign, logpsi), LowRankState(
+            embedding=state,
+            orbitals=orbitals_state,
+            determinant=determinant_state,
+            jastrow=cast(JastrowState, jastrow_state),
+        )
+
+    def log_psi_low_rank_update(
         self,
         params: Parameters,
         electrons: Electrons,
         changed_electrons: ElectronIdx,
         static: StaticInputMoon,
         state: LowRankState,
-    ) -> tuple[LogAmplitude, LowRankState]:
+    ) -> tuple[SignedLogAmplitude, LowRankState]:
         embeddings, changed_embeddings, embedding_state = self.embedding.low_rank_update(
             params.embedding, electrons, changed_electrons, static, state.embedding
         )
@@ -310,7 +299,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         (sign, logpsi), determinant_state = signed_log_psi_from_orbitals_low_rank(
             orbitals, changed_embeddings, state.determinant
         )
-        jastrow, jastrow_state = self.jastrow.apply(
+        (sign_J, log_J), jastrow_state = self.jastrow.apply(
             params.jastrow,
             electrons,
             embeddings,
@@ -319,4 +308,11 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
             state.jastrow,
             method=self.jastrow.low_rank_update,
         )
-        return logpsi + jastrow, LowRankState(embedding_state, orbitals_state, determinant_state, jastrow_state)
+        sign *= sign_J
+        logpsi += log_J
+        return (sign, logpsi), LowRankState(
+            embedding_state,
+            orbitals_state,
+            determinant_state,
+            cast(JastrowState, jastrow_state),
+        )

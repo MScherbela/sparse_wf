@@ -1,15 +1,19 @@
-from jaxtyping import Array, Float
-from sparse_wf.api import ElectronIdx, Electrons
-from sparse_wf.model.utils import MLP, get_dist_same_diff
-from sparse_wf.model.graph_utils import pad_jacobian_to_dense
-import flax.linen as nn
-import jax.numpy as jnp
-import jax
-from sparse_wf.jax_utils import fwd_lap
-from folx.api import FwdLaplArray, FwdJacobian
-from typing import Literal
 import functools
+from typing import Literal, TypeAlias
+
+import flax.linen as nn
+import jax
+import jax.numpy as jnp
+from folx.api import FwdJacobian, FwdLaplArray
+from jaxtyping import Array, Float
+
+from sparse_wf.api import ElectronIdx, Electrons, SignedLogAmplitude
+from sparse_wf.jax_utils import fwd_lap
+from sparse_wf.model.graph_utils import pad_jacobian_to_dense
+from sparse_wf.model.utils import MLP, get_dist_same_diff
 from sparse_wf.tree_utils import tree_add
+
+JastrowState: TypeAlias = jax.Array
 
 
 class YukawaJastrow(nn.Module):
@@ -75,7 +79,8 @@ class Jastrow(nn.Module):
         electrons: Electrons,
         embeddings: jax.Array,
         return_state: bool = False,
-    ) -> jax.Array | tuple[jax.Array, jax.Array]:
+    ) -> SignedLogAmplitude | tuple[SignedLogAmplitude, JastrowState]:
+        sign = jnp.ones((), electrons.dtype)
         logpsi = jnp.zeros([], electrons.dtype)
         if self.pairwise_cusps:
             logpsi += self.pairwise_cusps(electrons)
@@ -85,12 +90,13 @@ class Jastrow(nn.Module):
             if self.use_mlp_jastrow:
                 logpsi += jastrows[0]
             if self.use_log_jastrow:
+                sign *= jnp.sign(jastrows[1])
                 logpsi += jnp.log(jnp.abs(jastrows[1]))
         else:
             jastrows_before_sum = jnp.zeros(())
         if return_state:
-            return logpsi, jastrows_before_sum
-        return logpsi
+            return (sign, logpsi), jastrows_before_sum
+        return (sign, logpsi)
 
     def low_rank_update(
         self,
@@ -98,8 +104,9 @@ class Jastrow(nn.Module):
         embeddings: jax.Array,
         changed_electrons: ElectronIdx,
         changed_embeddings: ElectronIdx,
-        state: jax.Array,
-    ):
+        state: JastrowState,
+    ) -> tuple[SignedLogAmplitude, JastrowState]:
+        sign = jnp.ones((), electrons.dtype)
         logpsi = jnp.zeros([], electrons.dtype)
         if self.pairwise_cusps:
             # TODO: one could do low-rank updates on the cusps, though they should be cheap anyway.
@@ -113,10 +120,11 @@ class Jastrow(nn.Module):
             if self.use_mlp_jastrow:
                 logpsi += jastrows[0]
             if self.use_log_jastrow:
+                sign *= jnp.sign(jastrows[1])
                 logpsi += jnp.log(jnp.abs(jastrows[1]))
         else:
             jastrows_before_sum = jnp.zeros(())
-        return logpsi, jastrows_before_sum
+        return (sign, logpsi), jastrows_before_sum
 
     def _apply_mlp(self, embeddings):
         return self.mlp(embeddings)
