@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from sparse_wf.api import Charges, Electrons, LocalEnergy, Nuclei, ParameterizedWaveFunction
 from sparse_wf.jax_utils import vectorize
 
-P, S = TypeVar("P"), TypeVar("S")
+P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
 
 @vectorize(signature="(n,d),(m,d),(m)->()")
@@ -23,7 +23,7 @@ def potential_energy(r: Electrons, R: Nuclei, Z: Charges):
     return E_ee + E_en + E_nn
 
 
-def make_local_energy(wf: ParameterizedWaveFunction[P, S], R: Nuclei, Z: Charges, use_fwd_lap=True):
+def make_local_energy(wf: ParameterizedWaveFunction[P, S, MS], R: Nuclei, Z: Charges, use_fwd_lap=True):
     """Create a local energy function from a wave function"""
 
     @vectorize(signature="(n,d)->()", excluded=frozenset({0, 2}))

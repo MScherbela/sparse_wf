@@ -35,3 +35,14 @@ def make_hf_orbitals(mol: pyscf.gto.Mole) -> HFOrbitalFn:
         return up_orbitals, down_orbitals
 
     return hf_orbitals
+
+
+def make_hf_logpsi(hf_orbitals: HFOrbitalFn):
+    def logpsi(params, electrons: Electrons, static):
+        up_orbitals, dn_orbitals = hf_orbitals(electrons)
+        up_logdet = jnp.linalg.slogdet(up_orbitals)[1]
+        dn_logdet = jnp.linalg.slogdet(dn_orbitals)[1]
+        logpsi = up_logdet + dn_logdet
+        return logpsi
+
+    return logpsi

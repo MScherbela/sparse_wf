@@ -1,15 +1,16 @@
 import functools
-from typing import NamedTuple, TypeAlias, Optional
+from typing import NamedTuple, Optional, TypeAlias
 
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 import numpy as np
 from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer, Shaped
 
 from sparse_wf.api import Electrons, Int, Nuclei, Spins
-from sparse_wf.jax_utils import jit, vectorize, pmax_if_pmap
-import jax.tree_util as jtu
+from sparse_wf.jax_utils import jit, pmax_if_pmap, vectorize
+from sparse_wf.model.utils import slog_and_inverse
 
 NO_NEIGHBOUR = 1_000_000
 
@@ -160,6 +161,9 @@ def _split_off_xyz_dim(jac):
 
 
 def _pad_jacobian_to_output_deps(x: FwdLaplArray, dep_map: Integer[Array, " deps"], n_deps_out: int) -> FwdLaplArray:
+    assert (
+        dep_map.shape[0] * 3 == x.jacobian.data.shape[0]
+    ), f"Dependency map and jacobian have inconsistent shapes: {dep_map.shape[0]} * 3 != {x.jacobian.data.shape[0]}"
     jac: Float[Array, "deps*3 features"] = x.jacobian.data
     n_features = jac.shape[-1]
     jac = _split_off_xyz_dim(jac)
@@ -187,35 +191,12 @@ def pad_jacobian_to_dense(x: FwdLaplArray, dependencies, n_deps_out: int) -> Fwd
     return FwdLaplArray(x=x.x, jacobian=FwdJacobian(jac_out), laplacian=x.laplacian)
 
 
-def get_inverse_from_lu(lu, permutation):
-    n = lu.shape[0]
-    b = jnp.eye(n, dtype=lu.dtype)[permutation]
-    # The following lines trigger mypy (private usage?)
-    x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=True, unit_diagonal=True)  # type: ignore
-    x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=False)  # type: ignore
-    return x
-
-
-def slogdet_from_lu(lu, pivot):
-    assert (lu.ndim == 2) and (lu.shape[0] == lu.shape[1])
-    n = lu.shape[0]
-    diag = jnp.diag(lu)
-    logdet = jnp.sum(jnp.log(jnp.abs(diag)))
-    parity = jnp.count_nonzero(pivot != jnp.arange(n))  # sign flip for each permutation
-    parity += jnp.count_nonzero(diag < 0)  # sign flip for each negative diagonal element
-    sign = jnp.where(parity % 2 == 0, 1.0, -1.0)
-    return sign, logdet
-
-
 def slogdet_with_sparse_fwd_lap(orbitals: FwdLaplArray, dependencies: Integer[Array, "el ndeps"]):
     n_el, n_orb = orbitals.x.shape[-2:]
     n_deps = dependencies.shape[-1]
     assert n_el == n_orb
 
-    # mypy complains about lu not being exported by jax.lax.linalg
-    orbitals_lu, orbitals_pivot, orbitals_permutation = jax.lax.linalg.lu(orbitals.x)  # type: ignore
-    orbitals_inv = get_inverse_from_lu(orbitals_lu, orbitals_permutation)
-    sign, logdet = slogdet_from_lu(orbitals_lu, orbitals_pivot)
+    (sign, logdet), orbitals_inv = slog_and_inverse(orbitals.x)
 
     M = orbitals.jacobian.data @ orbitals_inv
     M = M.reshape([n_deps, 3, n_el, n_el])  # split (deps * dim) into (deps, dim)

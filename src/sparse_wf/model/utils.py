@@ -1,16 +1,18 @@
-import jax.nn as jnn
-from jaxtyping import Float, Array, ArrayLike
-from typing import Callable, Optional, Sequence, cast, NamedTuple
-import flax.linen as nn
-import jax.numpy as jnp
-import jax
-import numpy as np
 import functools
-from sparse_wf.api import Electrons, HFOrbitals, Int, SlaterMatrices, SignedLogAmplitude
-import einops
+from typing import Callable, Literal, NamedTuple, Optional, Sequence, cast, overload
+
+import flax.linen as nn
+import jax
+import jax.nn as jnn
+import jax.numpy as jnp
+from jaxtyping import Array, ArrayLike, Float
+
+from sparse_wf.api import ElectronIdx, Electrons, HFOrbitals, Int, SignedLogAmplitude, SlaterMatrices
+from sparse_wf.jax_utils import vectorize
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
 ElecNucDistances = Float[Array, "*batch n_electrons n_nuclei"]
+ElecNucDifferences = Float[Array, "*batch n_electron n_nuclei dim=3"]
 ElecElecDistances = Float[Array, "*batch n_electrons n_electrons"]
 
 
@@ -59,6 +61,44 @@ class GatedLinearUnit(nn.Module):
         return nn.Dense(self.out_dim, use_bias=False)(x * nn.silu(gate))
 
 
+def init_glu_feedforward(rng, width: int, depth: int, input_dim: int, out_dim: Optional[int] = None):
+    layers = []
+    for layer in range(depth):
+        d_out = 2 * width if (layer < (depth - 1)) else (out_dim or width)
+        rng, key = jax.random.split(rng)
+        W = lecun_normal(key, [input_dim, d_out])
+        b = jnp.zeros(d_out, jnp.float32)
+        layers.append((W, b))
+        input_dim = d_out // 2
+    return layers
+
+
+def apply_glu_feedforward(params, x):
+    for _, (W, b) in enumerate(params[:-1]):
+        x = x @ W + b
+        x, gate = jnp.split(x, 2, axis=-1)
+        x = x * jax.nn.silu(gate)
+    W, b = params[-1]
+    x = x @ W + b
+    return x
+
+
+class GLUFeedForward(nn.Module):
+    width: int
+    depth: int
+    out_dim: Optional[int] = None
+
+    @nn.compact
+    def __call__(self, x: Float[Array, "*batch_dims inp_dim"]) -> Float[Array, "*batch_dims out_dim"]:
+        out_dim = self.out_dim or self.width
+        for _ in range(self.depth - 1):
+            x = nn.Dense(2 * self.width, use_bias=True)(x)
+            x, gate = jnp.split(x, 2, axis=-1)
+            x = x * nn.silu(gate)
+        x = nn.Dense(out_dim, use_bias=True)(x)
+        return x
+
+
 def cutoff_function(d: Float[Array, "*dims"], p=4) -> Float[Array, "*dims"]:  # noqa: F821
     a = -(p + 1) * (p + 2) * 0.5
     b = p * (p + 2)
@@ -100,13 +140,108 @@ def swap_bottom_blocks(matrix: Float[Array, "... n m"], n: int, m: int | None = 
     )
 
 
-def signed_logpsi_from_orbitals(orbitals: SlaterMatrices) -> SignedLogAmplitude:
-    slogdets = [jnp.linalg.slogdet(orbs) for orbs in orbitals]
+def get_inverse_from_lu(lu, permutation):
+    n = lu.shape[0]
+    b = jnp.eye(n, dtype=lu.dtype)[permutation]
+    # The following lines trigger mypy (private usage?)
+    x = jax.lax.linalg.triangular_solve(lu, b, left_side=True, lower=True, unit_diagonal=True)  # type: ignore
+    x = jax.lax.linalg.triangular_solve(lu, x, left_side=True, lower=False)  # type: ignore
+    return x
+
+
+def slogdet_from_lu(lu, pivot):
+    assert (lu.ndim == 2) and (lu.shape[0] == lu.shape[1])
+    n = lu.shape[0]
+    diag = jnp.diag(lu)
+    logdet = jnp.sum(jnp.log(jnp.abs(diag)))
+    parity = jnp.count_nonzero(pivot != jnp.arange(n))  # sign flip for each permutation
+    parity += jnp.count_nonzero(diag < 0)  # sign flip for each negative diagonal element
+    sign = jnp.where(parity % 2 == 0, 1.0, -1.0).astype(lu.dtype)
+    return sign, logdet
+
+
+def slog_and_inverse(A: Float[Array, "*batch_dims N N"]):
+    # We have this wrapper to package the output properly
+    @vectorize(signature="(n,n)->(),(),(n,n)")
+    def inner(A):
+        # mypy complains about lu not being exported by jax.lax.linalg
+        lu, pivot, permutation = jax.lax.linalg.lu(A)  # type: ignore
+        inverse = get_inverse_from_lu(lu, permutation)
+        sign, logdet = slogdet_from_lu(lu, pivot)
+        return sign, logdet, inverse
+
+    sign, logdet, inverse = inner(A)
+    return (sign, logdet), inverse
+
+
+class LogPsiState(NamedTuple):
+    matrices: Sequence[jax.Array]
+    inverses: Sequence[jax.Array]
+    slogdets: Sequence[tuple[jax.Array, jax.Array]]
+
+
+@overload
+def signed_logpsi_from_orbitals(
+    orbitals: SlaterMatrices, return_state: Literal[False] = False
+) -> SignedLogAmplitude: ...
+
+
+@overload
+def signed_logpsi_from_orbitals(
+    orbitals: SlaterMatrices, return_state: Literal[True]
+) -> tuple[SignedLogAmplitude, LogPsiState]: ...
+
+
+def signed_logpsi_from_orbitals(orbitals: SlaterMatrices, return_state: bool = False):
+    dtype = orbitals[0].dtype
+    if return_state:
+        slog_inv = [slog_and_inverse(orbs) for orbs in orbitals]
+        slogdets, inverses = map(list, zip(*slog_inv))  # list of tuples to tuple of lists
+    else:
+        slogdets = [jnp.linalg.slogdet(orbs) for orbs in orbitals]
     # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
     # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
-    sign, logdet = functools.reduce(lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (1, 0))
+    sign, logdet = functools.reduce(
+        lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (jnp.ones((), dtype=dtype), jnp.zeros((), dtype=dtype))
+    )
     logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
-    return signpsi, logpsi
+    if return_state:
+        return (signpsi, logpsi), LogPsiState(orbitals, inverses, slogdets)
+    return (signpsi, logpsi)
+
+
+def signed_log_psi_from_orbitals_low_rank(orbitals: SlaterMatrices, changed_electrons: ElectronIdx, state: LogPsiState):
+    # Here we apply the matrix determinant lemma to compute low rank updates on the slogdet
+    # det(A + UV^T) = det(A) * det(I + V^T A^-1 U) where A is the original matrix, U and V are the low rank updates
+    # Since we update n-rows, U will a matrix of n x k basis vectors and V will be a matrix of k x n coefficients
+    # To update the inverses, we use the Woodburry matrix identity
+    # (A + UV^T)^-1 = A^-1 - A^-1 U (I + V^T A^-1 U)^-1 V^T A^-1
+    k = len(changed_electrons)
+    dtype = orbitals[0].dtype
+    slogdets = []
+    inverses = []
+    for A, A_inv, orb, (s_psi, log_psi) in zip(state.matrices, state.inverses, orbitals, state.slogdets):
+        # orb is K x N x N (current step orbitals)
+        # A is K x N x N (previous orbitals)
+        # A_inv is K x N x N (previous inverse)
+        # s_psi, log_psi are K (previous slogdet)
+        V = orb[:, changed_electrons] - A[:, changed_electrons]
+        Ainv_U = A_inv[..., changed_electrons]
+        V_Ainv_U = V @ Ainv_U
+        (s_delta, log_delta), inv_delta = slog_and_inverse(jnp.eye(k, dtype=dtype) + V_Ainv_U)
+        # update slog det
+        s_psi, log_psi = s_psi * s_delta, log_psi + log_delta
+        slogdets.append((s_psi, log_psi))
+        # update inverse - the optimal contraction would be first do the outer contractions, then the inner.
+        new_inv = A_inv - jnp.einsum("...ab,...bc,...cd,...de->...ae", Ainv_U, inv_delta, V, A_inv)
+        inverses.append(new_inv)
+    # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
+    # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
+    sign, logdet = functools.reduce(
+        lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (jnp.ones((), dtype), jnp.zeros((), dtype))
+    )
+    logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
+    return (signpsi, logpsi), LogPsiState(orbitals, inverses, slogdets)
 
 
 def get_dist(electrons: Electrons) -> ElecElecDistances:
@@ -148,76 +283,6 @@ def lecun_normal(rng, shape):
     fan_in = shape[0]
     scale = 1 / jnp.sqrt(fan_in)
     return jax.random.truncated_normal(rng, -1, 1, shape, jnp.float32) * scale
-
-
-class IsotropicEnvelope(nn.Module):
-    n_determinants: int
-    n_orbitals: int
-    cutoff: Optional[float] = None
-
-    def _sigma_initializer(self, key, shape, dtype=jnp.float32):
-        assert shape[-1] == self.envelope_size
-        scale = jnp.geomspace(0.2, 10.0, self.envelope_size)
-        scale *= jax.random.truncated_normal(key, 0.5, 1.5, shape, dtype)
-        return scale.astype(jnp.float32)
-
-    @nn.compact
-    def __call__(self, dists: ElecNucDistances) -> jax.Array:
-        n_nuc = dists.shape[-1]
-        sigma = self.param(
-            "sigma", self._sigma_initializer, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32
-        )
-        sigma = nn.softplus(sigma)
-        pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32)
-        scaled_dists = dists[..., None] * sigma
-        env = jnp.exp(-scaled_dists)
-        if self.cutoff is not None:
-            env *= cutoff_function(dists / self.cutoff)
-        out = jnp.einsum("...nd,nd->...d", env, pi)
-        return out
-
-
-class EfficientIsotropicEnvelopes(nn.Module):
-    n_determinants: int
-    n_orbitals: int
-    n_envelopes: int
-    cutoff: Optional[float] = None
-
-    @nn.compact
-    def __call__(self, dists: ElecNucDistances) -> jax.Array:
-        n_nuc = dists.shape[-1]
-        sigma = self.param("sigma", jnn.initializers.ones, (n_nuc, self.n_determinants, self.n_envelopes), jnp.float32)
-        sigma = nn.softplus(sigma)
-        pi = self.param(
-            "pi",
-            jnn.initializers.normal(1 / jnp.sqrt(self.n_envelopes)),
-            (n_nuc, self.n_determinants, self.n_envelopes, self.n_orbitals),
-            jnp.float32,
-        )
-        scaled_dists = dists[..., None, None] * sigma
-        env = jnp.exp(-scaled_dists)
-        if self.cutoff is not None:
-            env *= cutoff_function(dists / self.cutoff)
-        out = jnp.einsum("...nde,ndeo->...do", env, pi)
-        return out.reshape(*out.shape[:-2], -1)
-
-
-class SlaterOrbitals(nn.Module):
-    n_determinants: int
-    envelope_size: int
-    spins: tuple[int, int]
-
-    @nn.compact
-    def __call__(self, h_one: ElecInp, dists: ElecNucDistances) -> SlaterMatrices:
-        n_el = h_one.shape[-2]
-        spins = np.array(self.spins)
-        orbitals = nn.Dense(self.n_determinants * n_el)(h_one)
-        orbitals *= EfficientIsotropicEnvelopes(self.n_determinants, n_el, self.envelope_size)(dists)
-        orbitals = einops.rearrange(
-            orbitals, "... el (det orb) -> ... det el orb", el=n_el, orb=n_el, det=self.n_determinants
-        )
-        orbitals = swap_bottom_blocks(orbitals, spins[0])  # reverse bottom two blocks
-        return (orbitals,)
 
 
 def hf_orbitals_to_fulldet_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
@@ -377,3 +442,7 @@ class FixedScalingFactor(nn.Module):
                 value = jnp.where(jnp.logical_or(jnp.isnan(value), jnp.isinf(value)), 1, value)
                 scaling.value = value.astype(jnp.float32)
         return x * scaling.value
+
+
+def get_relative_tolerance(dtype):
+    return 1e-12 if (dtype == jnp.float64) else 1e-6

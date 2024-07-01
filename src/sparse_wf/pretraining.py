@@ -8,35 +8,40 @@ from sparse_wf.api import (
     HFOrbitalFn,
     Pretrainer,
     PretrainState,
-    Trainer,
     TrainingState,
+    ParameterizedWaveFunction,
+    MCStep,
+    WidthScheduler,
 )
 from sparse_wf.jax_utils import pmap, pmean
 
-P, S = TypeVar("P"), TypeVar("S")
+P, S, MS, SS = TypeVar("P"), TypeVar("S"), TypeVar("MS"), TypeVar("SS")
 
 
 def make_pretrainer(
-    trainer: Trainer[P, S],
+    wave_function: ParameterizedWaveFunction[P, S, MS],
+    mcmc_step: MCStep[P, S],
+    width_scheduler: WidthScheduler,
     source_model: HFOrbitalFn,
     optimizer: optax.GradientTransformation,
-) -> Pretrainer[P, S]:
-    batch_orbitals = jax.vmap(trainer.wave_function.orbitals, in_axes=(None, 0, None))
+) -> Pretrainer[P, S, SS]:
+    batch_orbitals = jax.vmap(wave_function.orbitals, in_axes=(None, 0, None))
     batch_src_orbitals = jax.vmap(source_model, in_axes=(0,))
 
-    def init(training_state: TrainingState[P]):
+    def init(training_state: TrainingState[P, SS]):
         return PretrainState(
             training_state.key,
             training_state.params,
             training_state.electrons,
             training_state.opt_state,
             training_state.width_state,
+            training_state.spin_state,
             pre_opt_state=pmap(optimizer.init)(training_state.params),
         )
 
     @pmap(static_broadcasted_argnums=1)
-    def step(state: PretrainState[P], static: S) -> tuple[PretrainState[P], AuxData]:
-        targets = trainer.wave_function.hf_transformation(batch_src_orbitals(state.electrons))
+    def step(state: PretrainState[P, SS], static: S) -> tuple[PretrainState[P, SS], AuxData]:
+        targets = wave_function.hf_transformation(batch_src_orbitals(state.electrons))
 
         @jax.value_and_grad
         def loss_and_grad(params):
@@ -50,8 +55,8 @@ def make_pretrainer(
 
         # MCMC
         key, subkey = jax.random.split(state.key)
-        electrons, pmove = trainer.mcmc(subkey, params, state.electrons, static, state.width_state.width)
-        width_state = trainer.width_scheduler.update(state.width_state, pmove)
+        electrons, pmove = mcmc_step(subkey, params, state.electrons, static, state.width_state.width)
+        width_state = width_scheduler.update(state.width_state, pmove)
 
         return state.replace(
             key=key,
@@ -60,7 +65,7 @@ def make_pretrainer(
             pre_opt_state=opt_state,
             width_state=width_state,
         ), {
-            "loss": loss_val,
+            "pretrain/loss": loss_val,
             "mcmc/pmove": pmove,
             "mcmc/stepsize": state.width_state.width,
         }

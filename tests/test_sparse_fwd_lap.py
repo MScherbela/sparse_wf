@@ -2,6 +2,9 @@
 import functools
 import os
 
+from sparse_wf.model.utils import get_relative_tolerance
+from utils import build_atom_chain, build_model, change_float_dtype
+
 # ruff: noqa: E402 # Allow setting environment variables before importing jax
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
@@ -13,46 +16,11 @@ import numpy as np
 import pytest
 from folx.api import FwdJacobian, FwdLaplArray
 from jax import config as jax_config
-from pyscf.gto import Mole
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.mcmc import init_electrons
-from sparse_wf.model.wave_function import MoonLikeWaveFunction
-from sparse_wf.api import EmbeddingArgs, JastrowArgs
 
 jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
-
-
-def build_atom_chain(n_nuc, Z):
-    R = np.arange(n_nuc)[:, None] * np.array([1, 0, 0])
-    Z = np.ones(n_nuc, dtype=int) * Z
-    mol = Mole(atom=[(int(Z_), R_) for R_, Z_ in zip(R, Z)]).build()
-    return mol
-
-
-def build_model(mol):
-    return MoonLikeWaveFunction.create(
-        mol,
-        n_determinants=2,
-        embedding=EmbeddingArgs(
-            cutoff=2.0, feature_dim=128, nuc_mlp_depth=2, pair_mlp_widths=(16, 8), pair_n_envelopes=32
-        ),
-        jastrow=JastrowArgs(
-            e_e_cusps="psiformer",
-            use_log_jastrow=True,
-            use_mlp_jastrow=True,
-            mlp_depth=2,
-            mlp_width=64,
-        ),
-        n_envelopes=8,
-    )
-
-
-def change_float_dtype(x, dtype):
-    if hasattr(x, "dtype") and x.dtype in [jnp.float16, jnp.float32, jnp.float64, np.float16, np.float32, np.float64]:
-        return jnp.array(x, dtype)
-    else:
-        return x
 
 
 @functools.lru_cache()
@@ -81,11 +49,7 @@ def to_zero_padded(x, dependencies):
     return FwdLaplArray(x.x, FwdJacobian(data=jac_out), x.laplacian)
 
 
-def get_relative_tolerance(dtype):
-    return 1e-12 if (dtype == jnp.float64) else 1e-6
-
-
-def assert_close(x, y, rtol=None):
+def assert_close(x: FwdLaplArray, y: FwdLaplArray, rtol=None):
     rtol = get_relative_tolerance(x.x.dtype) if rtol is None else rtol
 
     def rel_error(a, b):

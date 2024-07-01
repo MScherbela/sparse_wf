@@ -10,6 +10,7 @@ from flax.struct import PyTreeNode
 from jaxtyping import Array, Float
 
 from sparse_wf.api import (
+    ElectronIdx,
     Electrons,
     HFOrbitals,
     ParameterizedWaveFunction,
@@ -18,7 +19,8 @@ from sparse_wf.api import (
 )
 from sparse_wf.hamiltonian import make_local_energy
 from sparse_wf.jax_utils import vectorize
-from sparse_wf.model.utils import ElecInp, SlaterOrbitals, hf_orbitals_to_fulldet_orbitals, signed_logpsi_from_orbitals
+from sparse_wf.model.envelopes import SlaterOrbitals
+from sparse_wf.model.utils import ElecInp, hf_orbitals_to_fulldet_orbitals, signed_logpsi_from_orbitals
 
 PairInp = Float[Array, "*batch n_electrons n_electrns n_pair_in"]
 ElecOut = Float[Array, "*batch n_electrons n_out"]
@@ -136,7 +138,7 @@ class FermiNetOrbitals(nn.Module):
 FermiNetParams = dict[str, "FermiNetParams"] | Array
 
 
-class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode):
+class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None, None], PyTreeNode):
     mol: pyscf.gto.Mole
     ferminet: FermiNetOrbitals
 
@@ -170,3 +172,11 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode)
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
     def local_energy_dense(self, params: FermiNetParams, electrons: Electrons, static):
         return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)
+
+    def log_psi_with_state(self, params: FermiNetParams, electrons: Electrons, static):
+        return self.signed(params, electrons, static), None
+
+    def log_psi_low_rank_update(
+        self, params: FermiNetParams, electrons: Electrons, changed_electrons: ElectronIdx, static, state
+    ):
+        return self.signed(params, electrons, static), state

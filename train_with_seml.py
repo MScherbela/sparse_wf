@@ -4,7 +4,7 @@ os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 os.environ["JAX_DEFAULT_DTYPE_BITS"] = "32"
 
 # ruff: noqa: E402
-from sparse_wf.api import LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
+from sparse_wf.api import LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs, MCMCArgs
 import pyscf.gto
 import wonderwords
 from collections import Counter
@@ -68,8 +68,7 @@ def seml_main(
     optimization: OptimizationArgs,
     pretraining: PretrainingArgs,
     batch_size: int,
-    mcmc_steps: int,
-    init_width: float,
+    mcmc_args: MCMCArgs,
     seed: int,
     db_collection: str | None,
     logging_args: LoggingArgs,
@@ -83,8 +82,7 @@ def seml_main(
         optimization=optimization,
         pretraining=pretraining,
         batch_size=batch_size,
-        mcmc_steps=mcmc_steps,
-        init_width=init_width,
+        mcmc_args=mcmc_args,
         seed=seed,
         logging_args=logging_args,
     )
