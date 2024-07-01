@@ -15,7 +15,7 @@ dist_HH = np.linalg.norm(R[-4] - R[-2])
 
 api = wandb.Api()
 runs = api.runs("tum_daml_nicholas/cumulene")
-runs = [r for r in runs if re.match(r"C4H4_\d\ddeg_\d\.0", r.name)]    
+runs = [r for r in runs if re.match(r"C4H4_\d\ddeg_\d\.0", r.name)]
 
 data = []
 n_steps = 20_000
