@@ -52,14 +52,19 @@ class SplusOperator(SpinOperator[P, S, SplusState], PyTreeNode):
             P_plus = R_alpha.sum()  # summation over batch
             return P_plus, R_alpha
 
-        (P_plus, R_alpha), R_alpha_grad = psum(jax.value_and_grad(compute_R_alpha, has_aux=True)(params))
-        P_plus /= batch_size
-        R_alpha_grad = tree_add(
-            R_alpha_grad, psum(jax.vjp(lambda p: self.wf(p, electrons, static), params)[1](2 * (R_alpha - P_plus))[0])
+        (P_plus, R_alpha), R_alpha_grad = jax.value_and_grad(compute_R_alpha, has_aux=True)(params)
+        P_plus = psum(P_plus) / batch_size
+        grad = psum(
+            tree_add(
+                R_alpha_grad,
+                jax.vjp(lambda p: jax.vmap(self.wf, in_axes=(None, 0, None))(p, electrons, static), params)[1](
+                    2 * (R_alpha - P_plus)
+                )[0],
+            )
         )
-
+        grad = tree_mul(grad, 2 * P_plus / batch_size * self.grad_scale)
         new_spin_state = SplusState(alpha=(state.alpha + 1) % n_up)
-        return P_plus, tree_mul(R_alpha_grad, 2 * P_plus / batch_size * self.grad_scale), new_spin_state
+        return P_plus, grad, new_spin_state
 
 
 class NoSpinOperator(SpinOperator[P, S, jax.Array], PyTreeNode):
