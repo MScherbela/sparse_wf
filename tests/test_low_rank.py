@@ -53,3 +53,9 @@ def test_low_rank_update_logpsi(dtype):
     assert logpsi_new.dtype == dtype
     assert logpsi_new_update.dtype == dtype
     assert jnp.allclose(logpsi_new, logpsi_new_update, rtol=get_relative_tolerance(dtype))
+
+    electrons_new_new = electrons_new.at[ind_move].add(dr)
+    logpsi_new_new_update, state_new_new = model.update_logpsi(
+        params, electrons_new_new, idx_changed, static_args, state_new
+    )
+    assert jnp.allclose(logpsi_new_new_update, logpsi_new_update, rtol=get_relative_tolerance(dtype))
