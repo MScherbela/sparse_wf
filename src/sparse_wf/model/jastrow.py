@@ -88,15 +88,13 @@ class Jastrow(nn.Module):
         if self.pairwise_cusps:
             logpsi += self.pairwise_cusps(electrons)
         if self.mlp:
-            jastrows_before_sum = self.mlp(embeddings)
+            jastrows_before_sum = self._apply_mlp(embeddings)
             jastrows = jnp.sum(jastrows_before_sum, axis=-2)  # sum over electrons
-            jastrows *= self.mlp_scale
             if self.use_mlp_jastrow:
                 logpsi += jastrows[0]
             if self.use_log_jastrow:
-                log_J = jastrows[1] + self.log_bias
-                sign *= jnp.sign(log_J)
-                logpsi += jnp.log(jnp.abs(log_J))
+                sign *= jnp.sign(jastrows[1])
+                logpsi += jnp.log(jnp.abs(jastrows[1]))
         else:
             jastrows_before_sum = jnp.zeros(())
         if return_state:
@@ -119,7 +117,7 @@ class Jastrow(nn.Module):
             # If we want to implement this, we can use the changed_electrons variable.
             logpsi += self.pairwise_cusps(electrons)
         if self.mlp:
-            jastrows_before_sum = self.mlp(embeddings[changed_embeddings])
+            jastrows_before_sum = self._apply_mlp(embeddings[changed_embeddings])
             jastrows_before_sum = state.at[changed_embeddings].set(jastrows_before_sum)
             jastrows = jnp.sum(jastrows_before_sum, axis=-2)  # sum over electrons
             if self.use_mlp_jastrow:
@@ -132,7 +130,7 @@ class Jastrow(nn.Module):
         return (sign, logpsi), jastrows_before_sum
 
     def _apply_mlp(self, embeddings):
-        return self.mlp(embeddings)
+        return self.mlp(embeddings) * self.mlp_scale + jnp.array([0, self.log_bias])
 
     def _apply_pairwise_cusps(self, electrons):
         return self.pairwise_cusps(electrons)
