@@ -109,6 +109,7 @@ class GLUEnvelopes(Envelope):
         glu_params = jax.vmap(lambda k: init_glu_feedforward(k, self.width, self.depth, input_dim, self.n_envelopes))(
             rngs_glu
         )
+        glu_params[-1][1] += 1.0  # change the bias initialization for the output layer to 1 instead of 0
         sigma = 1.0 + jax.random.normal(rngs[1], (self.n_unique_Z, self.n_envelopes), jnp.float32) * 0.1
         pi = jax.random.normal(
             rngs[2], (len(self.Z), self.n_envelopes, self.n_determinants * self.n_orbitals), jnp.float32
