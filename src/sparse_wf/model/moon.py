@@ -92,16 +92,15 @@ def get_max_nr_of_dependencies(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix,
     n_deps_max_h0 = get_max_deps(h0_deps)
 
     H0 = dist_ne<cutoff
-    H_deps = []
-    for row in H0:
-        H_deps.append(jnp.logical_or(row, jnp.sum(h0_deps[row], axis=0)))  # all electrons within cutoff and all electrons within cutoff of them
-    H_deps = jnp.array(H_deps)
+    def get_H_one_nuc(nearby_elec):
+        return (h0_deps & nearby_elec).any(axis=1)
+    H_deps = jax.vmap(get_H_one_nuc, 0, 0)(H0)
     n_deps_max_H = get_max_deps(H_deps)
 
-    h_out_deps = []
-    for i, row in enumerate(h0_deps):
-        h_out_deps.append(jnp.logical_or(row, jnp.sum(H_deps[H0[:, i]], axis=0)))  # all electrons within cutoff and all electrons within cutoff of all nuclei within cutoff
-    h_out_deps = jnp.array(h_out_deps)
+    def get_h_out_1_elec(nearby_elec, nearby_nuc):
+        elec_connected_to_nearby_nuclei = (nearby_nuc & H_deps.T).any(axis=1)
+        return nearby_elec | elec_connected_to_nearby_nuclei
+    h_out_deps = jax.vmap(get_h_out_1_elec, 1, 0)(h0_deps, H0)
     n_deps_max_h_out = get_max_deps(h_out_deps)
 
     return n_deps_max_h0, n_deps_max_H, n_deps_max_h_out
@@ -863,7 +862,6 @@ class MoonEmbedding(PyTreeNode):
         return h_out, deps.h_el_out
 
     def get_static_input(self, electrons: Array) -> StaticInputMoon:
-        _get_static(electrons, self.R, self.cutoff)
         if electrons.ndim == 4:
             # [device x local_batch x el x 3] => electrons are split across gpus;
             n_neighbours, n_dependencies = get_static_pmapped(electrons, self.R, self.cutoff)
