@@ -32,42 +32,56 @@ class SplusOperator(SpinOperator[P, S, SplusState], PyTreeNode):
         n_up = self.wf.n_up
         batch_size = np.prod(electrons.shape[:-2]) * jax.device_count()
 
-        def compute_R_alpha(params: P):
-            (base_sign, base_logpsi), logpsi_state = jax.vmap(self.wf.log_psi_with_state, in_axes=(None, 0, None))(
-                params, electrons, static
-            )
-
-            @jax.vmap
-            def swapped_logpsi(beta: Int):
-                idx = jnp.array([beta, state.alpha])
-                new_electrons = electrons.at[:, idx].set(electrons[:, idx[::-1]])
-                new_sign, new_logpsi = jax.vmap(
-                    self.wf.log_psi_low_rank_update,
-                    in_axes=(None, 0, None, None, 0),
-                )(params, new_electrons, idx, static, logpsi_state)[0]
-                return new_sign, new_logpsi
-
-            swapped_sign, swapped_logpsis = swapped_logpsi(jnp.arange(n_up, n_electrons))
-            # summation over swaps
-            R_alpha = 1 - (swapped_sign * base_sign * jnp.exp(swapped_logpsis - base_logpsi)).sum(axis=0)
-            P_plus = R_alpha.sum()  # summation over batch
-            return P_plus, R_alpha
-
-        (P_plus, R_alpha), R_alpha_grad = jax.value_and_grad(compute_R_alpha, has_aux=True)(params)
-        P_plus = psum(P_plus) / batch_size
-        grad = psum(
-            tree_add(
-                R_alpha_grad,
-                jax.vjp(lambda p: jax.vmap(self.wf, in_axes=(None, 0, None))(p, electrons, static), params)[1](
-                    2 * (R_alpha - P_plus)
-                )[0],
-            )
+        # compute the base state and prepare its vjp function
+        vmapped_logpsi = jax.vmap(self.wf.log_psi_with_state, in_axes=(None, 0, None))
+        ((base_sign, base_logpsi), logpsi_state), vjp_fn = jax.vjp(
+            lambda p: vmapped_logpsi(p, electrons, static), params
         )
-        grad = tree_mul(grad, 2 * P_plus / batch_size * self.grad_scale)
-        is_nan = jnp.isnan(jfu.ravel_pytree(grad)[0]).any()
-        grad = jtu.tree_map(lambda x: jnp.where(is_nan, jnp.zeros_like(x), x), grad)
+
+        # Here we compute the gradient of the operator in two steps, first we compute it for every swap
+        # and then we compute it for the initial state in the outer loop.
+        def R_alpha_element(params: P, base_logpsi, logpsi_state, beta: Int):
+            idx = jnp.array([beta, state.alpha])
+            new_electrons = electrons.at[:, idx].set(electrons[:, idx[::-1]])
+            new_sign, new_logpsi = jax.vmap(
+                self.wf.log_psi_low_rank_update,
+                in_axes=(None, 0, None, None, 0),
+            )(params, new_electrons, idx, static, logpsi_state)[0]
+            summation_elements = -new_sign * base_sign * jnp.exp(new_logpsi - base_logpsi)
+            return summation_elements.sum(), summation_elements
+
+        # The loop aggregates the gradient towards the parameters and the gradients w.r.t. the base case.
+        def loop_fn(gradient, beta):
+            (_, R_alpha_element_val), R_alpha_element_grad = jax.value_and_grad(
+                R_alpha_element, argnums=(0, 1, 2), has_aux=True
+            )(params, base_logpsi, logpsi_state, beta)
+            return tree_add(gradient, R_alpha_element_grad), R_alpha_element_val
+
+        gradient, R_alpha = jax.lax.scan(
+            loop_fn,
+            jax.tree_map(jnp.zeros_like, (params, base_logpsi, logpsi_state)),
+            jnp.arange(n_up, n_electrons),
+        )
+        gradient, dlogpsi, dlogpsi_state = gradient
+        # summation over swaps
+        R_alpha = 1 + R_alpha.sum(0)
+        # summation over batch
+        P_plus = R_alpha.sum()
+        P_plus = psum(P_plus) / batch_size
+        # Compute the full gradient, this adds remaining gradient from the loop with the local operator deviation
+        gradient = tree_add(
+            gradient, vjp_fn(((jnp.zeros_like(base_sign), dlogpsi + 2 * (R_alpha - P_plus)), dlogpsi_state))[0]
+        )
+        gradient = psum(gradient)
+
+        # Rescale
+        gradient = tree_mul(gradient, 2 * P_plus / batch_size * self.grad_scale)
+        # Catch NaNs
+        is_nan = jnp.isnan(jfu.ravel_pytree(gradient)[0]).any()
+        gradient = jtu.tree_map(lambda x: jnp.where(is_nan, jnp.zeros_like(x), x), gradient)
+        # Round robin on the alpha electron
         new_spin_state = SplusState(alpha=(state.alpha + 1) % n_up)
-        return P_plus, grad, new_spin_state
+        return P_plus, gradient, new_spin_state
 
 
 class NoSpinOperator(SpinOperator[P, S, jax.Array], PyTreeNode):
