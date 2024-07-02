@@ -142,10 +142,10 @@ def main(
     for step in range(pretraining["steps"]):
         static = wf.get_static_input(state.electrons)
         state, aux_data = pretrainer.step(state, static)
-        aux_data = to_log_data(aux_data)
-        aux_data["pretrain/step"] = step
-        loggers.log(aux_data)
-        if np.isnan(aux_data["pretrain/loss"]):
+        log_data = to_log_data(aux_data) | static.to_log_data()
+        log_data["pretrain/step"] = step
+        loggers.log(log_data)
+        if np.isnan(log_data["pretrain/loss"]):
             raise ValueError("NaN in pretraining loss")
 
     state = state.to_train_state()
@@ -155,20 +155,20 @@ def main(
     for _ in range(optimization["burn_in"]):
         static = wf.get_static_input(state.electrons)
         state, aux_data = trainer.sampling_step(state, static)
-        aux_data = to_log_data(aux_data)
-        loggers.log(aux_data)
+        log_data = to_log_data(aux_data) | static.to_log_data()
+        loggers.log(log_data)
 
     logging.info("Training")
     for opt_step in range(optimization["steps"]):
         static = wf.get_static_input(state.electrons)
         t0 = time.perf_counter()
         state, _, aux_data = trainer.step(state, static)
-        aux_data = to_log_data(aux_data)
+        log_data = to_log_data(aux_data) | static.to_log_data()
         t1 = time.perf_counter()
-        aux_data["opt/t_step"] = t1 - t0
-        aux_data["opt/step"] = opt_step
-        loggers.log(aux_data)
-        if isnan(aux_data):
+        log_data["opt/t_step"] = t1 - t0
+        log_data["opt/step"] = opt_step
+        loggers.log(log_data)
+        if isnan(log_data):
             raise ValueError("NaN")
     assert_identical_copies(state.params)
     loggers.store_blob(state.serialize(), "chkpt_final.msgpk")
