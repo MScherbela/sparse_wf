@@ -225,8 +225,10 @@ def signed_log_psi_from_orbitals_low_rank(orbitals: SlaterMatrices, changed_elec
         # A is K x N x N (previous orbitals)
         # A_inv is K x N x N (previous inverse)
         # s_psi, log_psi are K (previous slogdet)
-        V = orb[:, changed_electrons] - A[:, changed_electrons]
-        Ainv_U = A_inv[..., changed_electrons]
+        V = orb.at[:, changed_electrons].get(mode="fill", fill_value=0) - A.at[:, changed_electrons].get(
+            mode="fill", fill_value=0
+        )
+        Ainv_U = A_inv.at[..., changed_electrons].get(mode="fill", fill_value=0)
         V_Ainv_U = V @ Ainv_U
         (s_delta, log_delta), inv_delta = slog_and_inverse(jnp.eye(k, dtype=dtype) + V_Ainv_U)
         # update slog det
