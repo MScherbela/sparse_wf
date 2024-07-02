@@ -115,7 +115,7 @@ def _get_static(electrons: Array, R: Nuclei, cutoff: float, cutoff_1el: float):
     dist_ee, dist_ne = get_full_distance_matrices(electrons, R)
     n_ee, n_en, n_ne, n_en_1el = get_nr_of_neighbours(dist_ee, dist_ne, cutoff, cutoff_1el)
     n_neighbours = NrOfNeighbours(
-        ee=round_to_next_step(n_ee, 1.1, 1, n_el),  # type: ignore
+        ee=round_to_next_step(n_ee, 1.1, 1, n_el - 1),  # type: ignore
         en=round_to_next_step(n_en, 1.1, 1, n_nuc),  # type: ignore
         ne=round_to_next_step(n_ne, 1.1, 1, n_el),  # type: ignore
         en_1el=round_to_next_step(n_en_1el, 1.1, 1, n_nuc),  # type: ignore
