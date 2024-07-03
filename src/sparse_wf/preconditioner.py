@@ -1,5 +1,6 @@
 from typing import NamedTuple, Optional, TypeVar
 
+import numpy as np
 import jax
 import jax.flatten_util as jfu
 import jax.numpy as jnp
@@ -88,6 +89,36 @@ def make_cg_preconditioner(
     return Preconditioner(init, precondition)
 
 
+def _get_jacjacT(local_jac_T):
+    """Compute jac @ jac.T from local/sharded jacobians.
+
+    Args:
+        local_jac_T: Jacobian transposed, shape (n_params, n_samples_per_device)
+    Returns:
+        get_jacjacT: Jacobian times Jacobian transposed, shape (n_samples_total, n_samples_total)
+    """
+    jac_T = pall_to_all(local_jac_T, split_axis=0, concat_axis=1, tiled=True)  # [n_params_per_device, n_samples_total]
+    T = psum(jac_T.T @ jac_T)
+    return T
+
+
+def get_jacjacT(local_jac, param_block_size=32768):
+    n_devices = jax.device_count()
+    n_samples_local, n_params = local_jac.shape
+    n_samples = n_samples_local * n_devices
+    n_blocks = int(np.ceil(n_params / (param_block_size * n_devices)))
+    n_params_padded = n_blocks * param_block_size * n_devices
+    local_jac_T = jnp.pad(local_jac.T, ((0, n_params_padded - n_params), (0, 0)))
+    local_jac_T = local_jac_T.reshape([n_blocks, param_block_size * n_devices, n_samples_local])
+
+    def scan_func(T, jac_T):
+        return T + _get_jacjacT(jac_T), None
+
+    T, _ = jax.lax.scan(scan_func, jnp.zeros([n_samples, n_samples]), local_jac_T)
+    T = (T + T.T) / 2
+    return T
+
+
 def make_dense_spring_preconditioner(
     wave_function: ParameterizedWaveFunction[P, S, MS],
     damping: float,
@@ -122,16 +153,16 @@ def make_dense_spring_preconditioner(
         if use_float64:
             jacobian = jacobian.astype(jnp.float64)
         jacobian -= pmean(jacobian.mean(0))
-        n_params = jacobian.shape[-1]
+        # n_params = jacobian.shape[-1]
+        # if n_params % n_dev != 0:
+        #     jacobian = jnp.pad(jacobian, ((0, 0), (0, n_dev - n_params % n_dev)))
+        # jac_T = pall_to_all(jacobian, split_axis=1, concat_axis=0, tiled=True)
+        # jacobian = jacobian[:, :n_params]  # remove padding
 
-        if n_params % n_dev != 0:
-            jacobian = jnp.pad(jacobian, ((0, 0), (0, n_dev - n_params % n_dev)))
-        jac_T = pall_to_all(jacobian, split_axis=1, concat_axis=0, tiled=True)
-        jacobian = jacobian[:, :n_params]  # remove padding
-
-        T = jac_T @ jac_T.T
-        T = (T + T.T) / 2  # better numerics
-        T = psum(T)
+        # T = jac_T @ jac_T.T
+        # T = (T + T.T) / 2  # better numerics
+        # T = psum(T)
+        T = get_jacjacT(jacobian)
 
         last_grad = natgrad_state.last_grad
         decayed_last_grad = decay_factor * last_grad
