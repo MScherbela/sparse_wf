@@ -41,7 +41,7 @@ n_sampling_steps = 50
 mcmc_stepsize = 0.1
 
 csv_file = open("benchmark.csv", "w", buffering=1)
-csv_file.write("n_el,batch_size,n_sampling_steps,n_gpus,dtype,cutoff,cutoff_1el,n_nb,n_deps_max,iteration,t_sampling_low_rank,t_sampling_full_rank,t_embed,t_energy\n")
+csv_file.write("n_el,batch_size,n_sampling_steps,n_gpus,dtype,cutoff,cutoff_1el,n_nb,n_deps_max,iteration,t_sampling_low_rank,t_sampling_full_rank,t_energy_embed,t_energy\n")
 
 # n_el_values = [20, 40]
 n_el_values = [2*(int(np.round(n))//2) for n in np.geomspace(32, 362, 8)]
