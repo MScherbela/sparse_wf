@@ -60,12 +60,20 @@ pall_to_all = functools.partial(jax.lax.all_to_all, axis_name=PMAP_AXIS_NAME)
 pidx = functools.partial(jax.lax.axis_index, axis_name=PMAP_AXIS_NAME)
 
 
-def pmax_if_pmap(x):
-    try:
-        jax.core.axis_frame(PMAP_AXIS_NAME)
-        return pmax(x)
-    except NameError:
-        return x
+def only_in_pmap(fun):
+    @functools.wraps(fun)
+    def wrapper(x):
+        try:
+            jax.core.axis_frame(PMAP_AXIS_NAME)
+            return fun(x)
+        except NameError:
+            return x
+
+    return wrapper
+
+
+pmax_if_pmap = only_in_pmap(pmax)
+psum_if_pmap = only_in_pmap(psum)
 
 
 @overload

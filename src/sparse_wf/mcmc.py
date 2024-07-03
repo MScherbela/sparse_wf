@@ -1,10 +1,12 @@
-from typing import TypeVar
+from typing import TypeVar, Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pyscf
 from jax import lax
+import jax.tree_util as jtu
+import functools
 
 from sparse_wf.api import (
     Charges,
@@ -20,11 +22,13 @@ from sparse_wf.api import (
     Width,
     WidthScheduler,
     WidthSchedulerState,
+    MCMC_proposal_type,
+    ElectronIdx,
 )
-from sparse_wf.jax_utils import jit, psum
+from sparse_wf.jax_utils import jit, psum_if_pmap
 
 
-def mh_update(
+def mh_update_all_electron(
     log_prob_fn: ClosedLogLikelihood,
     key: PRNGKeyArray,
     electrons: Electrons,
@@ -44,38 +48,116 @@ def mh_update(
     new_electrons = jnp.where(accept[..., None, None], new_electrons, electrons)
     new_log_prob = jnp.where(accept, new_log_prob, log_prob)
     num_accepts += jnp.sum(accept).astype(jnp.int32)
-
     return key, new_electrons, new_log_prob, num_accepts
 
 
-P, S = TypeVar("P"), TypeVar("S")
+def mh_update_single_electron(
+    update_logprob_fn: Callable,
+    key: PRNGKeyArray,
+    electrons: Electrons,
+    log_prob: LogAmplitude,
+    model_state: dict,
+    num_accepts: Int,
+    width: Width,
+) -> tuple[PRNGKeyArray, Electrons, LogAmplitude, dict, Int]:
+    cluster_size = 1
+    n_el = electrons.shape[-2]
+
+    # Make proposal
+    key, key_select, key_propose, key_accept = jax.random.split(key, 4)
+    idx_el_changed = jax.random.randint(key_select, [cluster_size], 0, n_el)
+    delta_r = jax.random.normal(key_propose, [cluster_size, 3], dtype=electrons.dtype) * width
+    proposed_electrons = electrons.at[idx_el_changed, :].add(delta_r)
+
+    # Accept/reject
+    proposed_logprob, proposed_model_state = update_logprob_fn(proposed_electrons, idx_el_changed, model_state)
+    log_ratio = proposed_logprob - log_prob
+    accept = log_ratio > jnp.log(jax.random.uniform(key_accept, log_ratio.shape))
+    new_electrons, new_logprob, new_model_state = jtu.tree_map(
+        lambda new, old: jnp.where(accept, new, old),
+        (proposed_electrons, proposed_logprob, proposed_model_state),
+        (electrons, log_prob, model_state),
+    )
+    num_accepts += accept.astype(jnp.int32)
+
+    return key, new_electrons, new_logprob, new_model_state, num_accepts
+
+
+P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
+
+
+def mcmc_steps_all_electron(
+    logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    steps: int,
+    key: PRNGKeyArray,
+    params: P,
+    electrons: Electrons,
+    static: S,
+    width: Width,
+):
+    def log_prob_fn(electrons: Electrons) -> LogAmplitude:
+        return 2 * jax.vmap(lambda r: logpsi_fn(params, r, static))(electrons)
+
+    def step_fn(_, x):
+        return mh_update_all_electron(log_prob_fn, *x, width)  # type: ignore
+
+    logprob = log_prob_fn(electrons)
+    num_accepts = jnp.zeros((), dtype=jnp.int32)
+    key, electrons, logprob, num_accepts = lax.fori_loop(0, steps, step_fn, (key, electrons, logprob, num_accepts))
+    pmove = psum_if_pmap(num_accepts) / (steps * electrons.shape[0] * jax.device_count())
+    return electrons, pmove
+
+
+def mcmc_steps_single_electron(
+    logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    steps: int,
+    key: PRNGKeyArray,
+    params: P,
+    electrons: Electrons,
+    static: S,
+    width: Width,
+):
+    def log_prob_fn(r: Electrons):
+        (_, logpsi), model_state = logpsi_fn.log_psi_with_state(params, r, static)
+        return 2 * logpsi, model_state
+
+    def update_log_prob_fn(r: Electrons, idx_changed: ElectronIdx, model_state):
+        (_, logpsi), model_state = logpsi_fn.log_psi_low_rank_update(params, r, idx_changed, static, model_state)
+        return 2 * logpsi, model_state
+
+    logprob, model_state = jax.vmap(log_prob_fn)(electrons)
+
+    @functools.partial(jax.vmap, in_axes=(None, 0))
+    def step_fn(_, x):
+        return mh_update_single_electron(update_log_prob_fn, *x, width)
+
+    local_batch_size = electrons.shape[0]
+    x0 = (
+        jax.random.split(key, local_batch_size),
+        electrons,
+        logprob,
+        model_state,
+        jnp.zeros(local_batch_size, dtype=jnp.int32),
+    )
+    _, electrons, logprob, model_state, num_accepts = lax.fori_loop(0, steps, step_fn, x0)
+    pmove = psum_if_pmap(jnp.sum(num_accepts)) / (steps * local_batch_size * jax.device_count())
+    return electrons, pmove
 
 
 def make_mcmc(
-    network: ParameterizedWaveFunction[P, S],
-    steps: int = 10,
-) -> MCStep[P, S]:
-    batch_network = jax.vmap(network, in_axes=(None, 0, None))
-
-    @jit(static_argnames="static")
-    def mcmc_step(
-        key: PRNGKeyArray, params: P, electrons: Electrons, static: S, width: Width
-    ) -> tuple[Electrons, PMove]:
-        def log_prob_fn(electrons: Electrons) -> LogAmplitude:
-            return 2 * batch_network(params, electrons, static)
-
-        def step_fn(_, x):
-            return mh_update(log_prob_fn, *x, width)  # type: ignore
-
-        logprob = log_prob_fn(electrons)
-        num_accepts = jnp.zeros((), dtype=jnp.int32)
-
-        key, electrons, logprob, num_accepts = lax.fori_loop(0, steps, step_fn, (key, electrons, logprob, num_accepts))
-
-        pmove = psum(num_accepts) / (steps * electrons.shape[0] * jax.device_count())
-        return electrons, pmove
-
-    return mcmc_step
+    logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    proposal: MCMC_proposal_type,
+    init_width,
+    steps: int,
+) -> tuple[MCStep[P, S], jax.Array]:
+    match proposal.lower():
+        case "all-electron":
+            mcmc_step = functools.partial(mcmc_steps_all_electron, logpsi_fn, steps)
+        case "single-electron":
+            mcmc_step = functools.partial(mcmc_steps_single_electron, logpsi_fn, steps)
+        case _:
+            raise ValueError(f"Invalid proposal: {proposal}")
+    return mcmc_step, jnp.array(init_width, dtype=jnp.float32)
 
 
 def make_width_scheduler(

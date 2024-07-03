@@ -15,7 +15,7 @@ molecule_args:
     atom: "Li 0 0 0; H 3 0 0"
     spin: 0
   chain_args:
-    element: ""
+    element: "H"
     distance: 2.0
     n: 10
   basis: sto-6g
@@ -24,19 +24,29 @@ model: moon
 
 model_args:
   n_determinants: 16
-  n_envelopes: 8
   embedding:
-    cutoff: 10.0
+    cutoff: 5.0
+    cutoff_1el: 20.0
     feature_dim: 256
     nuc_mlp_depth: 4
     pair_mlp_widths: [16, 8]
     pair_n_envelopes: 32
+    low_rank_buffer: 2
   jastrow:
     e_e_cusps: psiformer
     use_log_jastrow: True
     use_mlp_jastrow: True
     mlp_depth: 2
     mlp_width: 64
+  envelopes:
+    envelope: isotropic
+    isotropic_args:
+      n_envelopes: 8
+    glu_args:
+      n_envelopes: 8
+      width: 32
+      depth: 2
+
 
 logging_args:
   smoothing: 5000
@@ -47,6 +57,8 @@ logging_args:
   file:
     use: true
     file_name: log.txt
+  python:
+    use: true
   name_keys: []
   out_directory: "."
   collection: ""
@@ -55,6 +67,7 @@ logging_args:
 optimization:
   steps: 100_000
   burn_in: 500
+  max_batch_size: 64
   optimizer_args:
     lr_schedule: hyperbolic
     lr_schedule_args:
@@ -67,7 +80,7 @@ optimization:
         args: []
         kwargs: { max_norm: 1.0 }
   preconditioner_args:
-    preconditioner: spring_dense
+    preconditioner: spring
     spring_args:
       damping: 1.e-3
       decay_factor: 0.99
@@ -75,6 +88,7 @@ optimization:
       damping: 1.e-3
       decay_factor: 0.99
       max_batch_size: 128
+      use_float64: true
     cg_args:
       damping: 1.e-3
       maxiter: 100
@@ -86,9 +100,13 @@ optimization:
   clipping:
     clip_local_energy: 5.0
     stat: median
+  spin_operator_args:
+    operator: none
+    grad_scale: 1.e-4
 
 pretraining:
   steps: 1_000
+  sample_from: wf
   optimizer_args:
     lr_schedule: hyperbolic
     lr_schedule_args:
@@ -108,5 +126,8 @@ pretraining:
         kwargs: {}
 
 batch_size: 512
-mcmc_steps: 20
-init_width: 0.1
+
+mcmc_args:
+  proposal: "all-electron"
+  steps: 20
+  init_width: 0.1

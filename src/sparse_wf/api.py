@@ -46,6 +46,7 @@ PMoves = Float[PMove, "window_size"]
 Damping = Float[Array, ""]
 AuxData = PyTree[Float[Array, ""]]
 Step = Integer[ArrayLike, ""]
+ModelCache = PyTree[Any]
 
 
 ############################################################################
@@ -57,13 +58,17 @@ S_contra = TypeVar("S_contra", contravariant=True)
 # Parameters
 P = TypeVar("P", bound=Parameters)
 P_contra = TypeVar("P_contra", bound=Parameters, contravariant=True)
+# Model state
+MS = TypeVar("MS")
 
 
 class HFOrbitalFn(Protocol):
     def __call__(self, electrons: Electrons) -> HFOrbitals: ...
 
 
-class ParameterizedWaveFunction(Protocol[P, S]):
+class ParameterizedWaveFunction(Protocol[P, S, MS]):
+    n_up: int
+
     def init(self, key: PRNGKeyArray, electrons: Electrons) -> P: ...
     def get_static_input(self, electrons: Electrons) -> S: ...
     def orbitals(self, params: P, electrons: Electrons, static: S) -> SlaterMatrices: ...
@@ -72,6 +77,10 @@ class ParameterizedWaveFunction(Protocol[P, S]):
     def local_energy_dense(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
     def signed(self, params: P, electrons: Electrons, static: S) -> SignedLogAmplitude: ...
     def __call__(self, params: P, electrons: Electrons, static: S) -> LogAmplitude: ...
+    def log_psi_with_state(self, params: P, electrons: Electrons, static: S) -> tuple[SignedLogAmplitude, MS]: ...
+    def log_psi_low_rank_update(
+        self, params: P, electrons: Electrons, changed_electrons: ElectronIdx, static: S, state: MS
+    ) -> tuple[SignedLogAmplitude, MS]: ...
 
 
 ############################################################################
@@ -124,6 +133,7 @@ class ApplyPreconditioner(Protocol[P, S_contra]):
         electrons: Electrons,
         static: S_contra,
         dE_dlogpsi: EnergyCotangent,
+        aux_grad: P,
         natgrad_state: PreconditionerState[P],
     ) -> tuple[P, PreconditionerState[P], AuxData]: ...
 
@@ -134,6 +144,18 @@ class Preconditioner(NamedTuple, Generic[P, S]):
 
 
 ############################################################################
+# Spin Operator
+############################################################################
+SS = TypeVar("SS")  # spin state
+SpinValue = Float[Array, ""]
+
+
+class SpinOperator(Protocol[P, S_contra, SS]):
+    def init_state(self) -> SS: ...
+    def __call__(self, params: P, electrons: Electrons, static: S_contra, state: SS) -> tuple[SpinValue, P, SS]: ...
+
+
+############################################################################
 # Optimizer
 ############################################################################
 class OptState(NamedTuple, Generic[P]):
@@ -141,12 +163,13 @@ class OptState(NamedTuple, Generic[P]):
     natgrad: PreconditionerState[P]
 
 
-class TrainingState(Generic[P], struct.PyTreeNode):  # the order of inheritance is important here!
+class TrainingState(Generic[P, SS], struct.PyTreeNode):  # the order of inheritance is important here!
     key: PRNGKeyArray
     params: P
     electrons: Electrons
     opt_state: OptState[P]
     width_state: WidthSchedulerState
+    spin_state: SS
 
     def serialize(self):
         from sparse_wf.jax_utils import instance, pmap, pgather
@@ -177,48 +200,49 @@ class TrainingState(Generic[P], struct.PyTreeNode):  # the order of inheritance 
         return result
 
 
-class VMCStepFn(Protocol[P, S_contra]):
+class VMCStepFn(Protocol[P, S_contra, SS]):
     def __call__(
         self,
-        state: TrainingState[P],
+        state: TrainingState[P, SS],
         static: S_contra,
-    ) -> tuple[TrainingState[P], LocalEnergy, AuxData]: ...
+    ) -> tuple[TrainingState[P, SS], LocalEnergy, AuxData]: ...
 
 
-class SamplingStepFn(Protocol[P, S_contra]):
+class SamplingStepFn(Protocol[P, S_contra, SS]):
     def __call__(
         self,
-        state: TrainingState[P],
+        state: TrainingState[P, SS],
         static: S_contra,
-    ) -> tuple[TrainingState[P], AuxData]: ...
+    ) -> tuple[TrainingState[P, SS], AuxData]: ...
 
 
-class InitTrainState(Protocol[P]):
+class InitTrainState(Protocol[P, SS]):
     def __call__(
         self,
         key: PRNGKeyArray,
         params: P,
         electrons: Electrons,
         init_width: Width,
-    ) -> TrainingState[P]: ...
+    ) -> TrainingState[P, SS]: ...
 
 
 @dataclass(frozen=True)
-class Trainer(Generic[P, S]):
-    init: InitTrainState[P]
-    step: VMCStepFn[P, S]
-    sampling_step: SamplingStepFn[P, S]
-    wave_function: ParameterizedWaveFunction[P, S]
+class Trainer(Generic[P, S, SS]):
+    init: InitTrainState[P, SS]
+    step: VMCStepFn[P, S, SS]
+    sampling_step: SamplingStepFn[P, S, SS]
+    wave_function: ParameterizedWaveFunction[P, S, MS]
     mcmc: MCStep[P, S]
     width_scheduler: WidthScheduler
     optimizer: optax.GradientTransformation
     preconditioner: Preconditioner[P, S]
+    spin_operator: SpinOperator[P, S, SS]
 
 
 ############################################################################
 # Pretraining
 ############################################################################
-class PretrainState(TrainingState[P]):
+class PretrainState(TrainingState[P, SS]):
     pre_opt_state: optax.OptState
 
     def to_train_state(self):
@@ -228,26 +252,27 @@ class PretrainState(TrainingState[P]):
             electrons=self.electrons,
             opt_state=self.opt_state,
             width_state=self.width_state,
+            spin_state=self.spin_state,
         )
 
 
 Loss = Float[Array, ""]
 
 
-class InitPretrainState(Protocol[P]):
+class InitPretrainState(Protocol[P, SS]):
     def __call__(
         self,
-        training_state: TrainingState[P],
-    ) -> PretrainState[P]: ...
+        training_state: TrainingState[P, SS],
+    ) -> PretrainState[P, SS]: ...
 
 
-class UpdatePretrainFn(Protocol[P, S_contra]):
-    def __call__(self, state: PretrainState[P], static: S_contra) -> tuple[PretrainState[P], AuxData]: ...
+class UpdatePretrainFn(Protocol[P, S_contra, SS]):
+    def __call__(self, state: PretrainState[P, SS], static: S_contra) -> tuple[PretrainState[P, SS], AuxData]: ...
 
 
-class Pretrainer(NamedTuple, Generic[P, S]):
-    init: InitPretrainState[P]
-    step: UpdatePretrainFn[P, S]
+class Pretrainer(NamedTuple, Generic[P, S, SS]):
+    init: InitPretrainState[P, SS]
+    step: UpdatePretrainFn[P, S, SS]
 
 
 ############################################################################
@@ -268,10 +293,12 @@ class Logger(Protocol):
 ############################################################################
 class EmbeddingArgs(TypedDict):
     cutoff: float
+    cutoff_1el: float
     feature_dim: int
     nuc_mlp_depth: int
     pair_mlp_widths: tuple[int, int]
     pair_n_envelopes: int
+    low_rank_buffer: int
 
 
 class JastrowArgs(TypedDict):
@@ -282,11 +309,27 @@ class JastrowArgs(TypedDict):
     mlp_width: int
 
 
+class IsotropicEnvelopeArgs(TypedDict):
+    n_envelopes: int
+
+
+class GLUEnvelopeArgs(TypedDict):
+    n_envelopes: int
+    width: int
+    depth: int
+
+
+class EnvelopeArgs(TypedDict):
+    envelope: Literal["isotropic", "glu"]
+    isotropic_args: IsotropicEnvelopeArgs
+    glu_args: GLUEnvelopeArgs
+
+
 class ModelArgs(TypedDict):
     embedding: EmbeddingArgs
     jastrow: JastrowArgs
     n_determinants: int
-    n_envelopes: int
+    envelopes: EnvelopeArgs
 
 
 class SpringArgs(TypedDict):
@@ -296,6 +339,7 @@ class SpringArgs(TypedDict):
 
 class SpringDenseArgs(SpringArgs):
     max_batch_size: int
+    use_float64: bool
 
 
 class CgArgs(TypedDict):
@@ -334,10 +378,15 @@ class FileLoggingArgs(TypedDict):
     file_name: str
 
 
+class PythonLoggingArgs(TypedDict):
+    use: bool
+
+
 class LoggingArgs(TypedDict):
     smoothing: int
     wandb: WandBArgs
     file: FileLoggingArgs
+    python: PythonLoggingArgs
     name: str
     name_keys: Sequence[str] | None
     comment: str | None
@@ -365,17 +414,34 @@ class OptimizerArgs(TypedDict):
     transformations: Sequence[TransformationArgs]
 
 
+class SpinOperatorArgs(TypedDict):
+    operator: str
+    grad_scale: float
+
+
 class OptimizationArgs(TypedDict):
     steps: int
     burn_in: int
     optimizer_args: OptimizerArgs
     preconditioner_args: PreconditionerArgs
     clipping: ClippingArgs
+    max_batch_size: int
+    spin_operator_args: SpinOperatorArgs
 
 
 class PretrainingArgs(TypedDict):
     steps: int
     optimizer_args: OptimizerArgs
+    sample_from: Literal["hf", "wf"]
+
+
+MCMC_proposal_type = Literal["all-electron", "single-electron"]
+
+
+class MCMCArgs(TypedDict):
+    proposal: MCMC_proposal_type
+    steps: int
+    init_width: float
 
 
 class MoleculeDatabaseArgs(TypedDict):

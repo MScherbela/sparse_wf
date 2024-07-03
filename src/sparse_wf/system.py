@@ -15,7 +15,7 @@ def from_str(atom: str, spin: int = 0, **_):
 
 
 def database(hash: str | None = None, name: str | None = None, comment: str | None = None, **_):
-    assert hash is not None or name is not None or comment is not None
+    assert hash or name or comment
     from os import path
 
     try:
@@ -26,15 +26,25 @@ def database(hash: str | None = None, name: str | None = None, comment: str | No
             geometries_by_hash = json.load(inp)
     if hash:
         geom = geometries_by_hash[hash]
-    if name:
-        geometries_by_name = {g["name"]: g for g in geometries_by_hash.values()}
-        geom = geometries_by_name[name]
-    if comment:
-        geometries_by_comment = {g["comment"]: g for g in geometries_by_hash.values()}
-        geom = geometries_by_comment[comment]
+    elif name:
+        geometries_with_name = [g for g in geometries_by_hash.values() if g["name"] == name]
+        if len(geometries_with_name) != 1:
+            raise ValueError(
+                f"Expected exactly one geometry with name {name}, found {len(geometries_with_name)} in database"
+            )
+        geom = geometries_with_name[0]
+    elif comment:
+        geometries_with_comment = [g for g in geometries_by_hash.values() if g["comment"] == comment]
+        if len(geometries_with_comment) != 1:
+            raise ValueError(
+                f"Expected exactly one geometry with comment {comment}, found {len(geometries_with_comment)} in database"
+            )
+        geom = geometries_with_comment[0]
+    else:
+        raise ValueError("No hash, name, or comment provided")
 
     atom = "; ".join([f"{charge} {x} {y} {z}" for charge, (x, y, z) in zip(geom["Z"], geom["R"])])
-    return pyscf.gto.M(atom=atom, spin=geom["spin"], charge=geom["charge"], unit="bohr")
+    return pyscf.gto.M(atom=atom, spin=geom.get("spin", 0), charge=geom.get("charge", 0), unit="bohr")
 
 
 def get_molecule(molecule_args: MoleculeArgs) -> pyscf.gto.Mole:

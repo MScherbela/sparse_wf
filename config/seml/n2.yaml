@@ -4,19 +4,25 @@ seml:
   output_dir: ~/slurm-output/
 
 slurm:
-  experiments_per_job: 1
-  sbatch_options:
-    gres: gpu:1
-    cpus-per-task: 4
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:1
+      cpus-per-task: 4
 
 fixed:
-  molecule_args.args.atom: "N 0 0 0; N 2.068 0 0"
+  molecule_args.from_str_args.atom: "N 0 0 0; N 2.068 0 0"
   batch_size: 2048
+  optimization:
+    steps: 20_000
 
-grid:
-  model:
-    type: choice
-    options:
-      - moon
-      - moon2step
-      - ferminet
+none:
+  fixed:
+    optimization.spin_operator_args.operator: none
+
+splus:
+  fixed:
+    optimization.spin_operator_args.operator: splus
+  grid:
+    optimization.spin_operator_args.grad_scale:
+      type: choice
+      options: [1.e-3, 1.e-2, 1.e-1]

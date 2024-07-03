@@ -1,7 +1,8 @@
 # %%
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
-from sparse_wf.api import EmbeddingArgs, JastrowArgs
+from sparse_wf.api import EmbeddingArgs, JastrowArgs, EnvelopeArgs, IsotropicEnvelopeArgs
 from sparse_wf.model.moon import NrOfDependencies
+from sparse_wf.mcmc import make_mcmc
 import jax
 from jax.lib import xla_bridge
 import jax.numpy as jnp
@@ -29,23 +30,22 @@ def build_atom_chain(rng, n_nuc, n_el_per_nuc, batch_size):
 
 print(f"Platform: {xla_bridge.get_backend().platform}, devices: {jax.devices()}", flush=True)
 
-rng_r, rng_model = jax.random.split(jax.random.PRNGKey(0))
-batch_size = 64
+rng_r, rng_model, rng_mcmc = jax.random.split(jax.random.PRNGKey(0), 3)
+batch_size = 8
 cutoff = 5.0
-n_iterations = 5
+cutoff_1el = 20.0
+n_iterations = 10
 n_el_per_nuc = 1
 n_determinants = 16
 n_sampling_steps = 50
-
-# n_el_values = [2*(int(np.round(n))//2) for n in np.geomspace(32, 512, 9)][::-1]
-# cutoff_values = np.array([3.0, 5.0, 7.0, 9.0])
+mcmc_stepsize = 0.1
 
 csv_file = open("benchmark.csv", "w", buffering=1)
-csv_file.write("n_el,batch_size,n_sampling_steps,n_gpus,dtype,cutoff,n_nb,n_deps_max,iteration,t_sampling,t_embed,t_energy\n")
+csv_file.write("n_el,batch_size,n_sampling_steps,n_gpus,dtype,cutoff,cutoff_1el,n_nb,n_deps_max,iteration,t_sampling_low_rank,t_sampling_full_rank,t_embed,t_energy\n")
 
-# n_el_values = [20, 40, ]
-n_el_values = [2*(int(np.round(n))//2) for n in np.geomspace(32, 180, 7)]
-cutoff_values = [5.0, 3.0]
+# n_el_values = [20, 40]
+n_el_values = [2*(int(np.round(n))//2) for n in np.geomspace(32, 362, 8)]
+cutoff_values = [3.0, 4.0, 5.0]
 for cutoff in cutoff_values:
     for n_el in n_el_values:
             n_el = int(n_el)
@@ -57,40 +57,36 @@ for cutoff in cutoff_values:
             model = MoonLikeWaveFunction.create(
                 mol,
                 EmbeddingArgs(
-                    cutoff=cutoff, feature_dim=256, nuc_mlp_depth=4, pair_mlp_widths=(16, 8), pair_n_envelopes=16
+                    cutoff=cutoff, cutoff_1el=cutoff_1el, feature_dim=256, nuc_mlp_depth=4, pair_mlp_widths=(16, 8), pair_n_envelopes=16, low_rank_buffer=2
                 ),
                 JastrowArgs(e_e_cusps="psiformer", use_log_jastrow=True, use_mlp_jastrow=True, mlp_depth=2, mlp_width=64),
+                EnvelopeArgs(envelope="isotropic", isotropic_args=IsotropicEnvelopeArgs(n_envelopes=8), glu_args=None),
                 n_determinants,
-                n_envelopes=8,
             )
             params = model.init(rng_model, r[0])
             static = model.get_static_input(r)
 
-            @functools.partial(jax.jit, static_argnums=2)
-            def sampling_func(params, r, static):
-                def loop_body(i, r):
-                    logpsi = model(params, r, static)
-                    # minimally change the positions, s.t. the compiler cannot optimze away the loop
-                    update = jnp.tanh(jnp.mean(logpsi)) * 1e-12
-                    return r + update
-                return jax.lax.fori_loop(0,
-                                n_sampling_steps,
-                                loop_body,
-                                r)
+            mcmc_step_low_rank, _ = make_mcmc(model, "single-electron", mcmc_stepsize, n_sampling_steps)
+            mcmc_step_low_rank = jax.jit(mcmc_step_low_rank, static_argnums=3)
+            mcmc_step_full_rank, _ = make_mcmc(model, "all-electron", mcmc_stepsize, n_sampling_steps)
+            mcmc_step_full_rank = jax.jit(mcmc_step_full_rank, static_argnums=3)
+
             embedding_with_lap_func = jax.jit(jax.vmap(lambda p, r_, s: model.embedding.apply_with_fwd_lap(p.embedding, r_, s), in_axes=(None, 0, None)), static_argnums=2)
             energy_func = jax.jit(jax.vmap(model.local_energy, in_axes=(None, 0, None)), static_argnums=2)
 
-            timings = np.zeros([n_iterations, 3])
-            t = np.zeros(4)
+            timings = np.zeros([n_iterations, 4])
+            t = np.zeros(5)
             for n in range(n_iterations):
                 t[0] = time.perf_counter()
-                logpsi = sampling_func(params, r, static).block_until_ready()
+                r_new = mcmc_step_low_rank(rng_mcmc, params, r, static, mcmc_stepsize)[0].block_until_ready()
                 t[1] = time.perf_counter()
+                r_new = mcmc_step_full_rank(rng_mcmc, params, r, static, mcmc_stepsize)[0].block_until_ready()
+                t[2] = time.perf_counter()
                 h, deps = embedding_with_lap_func(params, r, static)
                 h = jtu.tree_map(jax.block_until_ready, h)
-                t[2] = time.perf_counter()
-                Eloc = energy_func(params, r, static).block_until_ready()
                 t[3] = time.perf_counter()
+                Eloc = energy_func(params, r, static).block_until_ready()
+                t[4] = time.perf_counter()
                 timings[n] = np.diff(t)
 
                 n_nb = static.n_neighbours.ee
@@ -103,17 +99,19 @@ for cutoff in cutoff_values:
                     n_gpus=jax.device_count(),
                     dtype="float32" if dtype is jnp.float32 else "float64",
                     cutoff=cutoff,
+                    cutoff_1el = cutoff_1el,
                     n_nb=n_nb,
                     n_deps_max=n_deps_max,
                     iteration=n,
-                    t_sampling=timings[n, 0],
-                    t_embed=timings[n, 1],
-                    t_energy=timings[n, 2],
+                    t_sampling_low_rank=timings[n, 0],
+                    t_sampling_full_rank=timings[n, 1],
+                    t_embed=timings[n, 2],
+                    t_energy=timings[n, 3],
                 )
                 csv_file.write(",".join([str(v) for v in data.values()]) + "\n")
 
                 print(
-                    f"n_el={n_el}, cutoff={cutoff:3.1f}, n_nb={n_nb:2d}, n_deps_max={n_deps_max:3d}, iteration={n}, t_sampling={timings[n, 0]:6.4f}, t_embed={timings[n, 1]:6.4f}, t_energy={timings[n, 2]:6.4f}",
+                    f"n_el={n_el}, cutoff={cutoff:3.1f}, n_nb={n_nb:2d}, n_deps_max={n_deps_max:3d}, iteration={n}",
                     flush=True,
                 )
 

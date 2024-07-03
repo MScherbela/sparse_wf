@@ -1,7 +1,7 @@
 import atexit
 import os
 from typing import Any
-
+import logging
 import numpy as np
 
 import wandb
@@ -47,6 +47,26 @@ class WandBLogger(Logger):
         wandb.config.update(config)
 
 
+class PythonLogger(Logger):
+    @only_on_main_process
+    def __init__(self, **_) -> None:
+        self.logger = logging.getLogger("sparse_wf")
+        self.logger.setLevel(logging.DEBUG)
+
+    @only_on_main_process
+    def log(self, data: dict) -> None:
+        if "opt/step" in data:
+            self.logger.info(f"Opt step {data['opt/step']}: {data}")
+        elif "pretrain/step" in data:
+            self.logger.info(f"Pretrain step {data['pretrain/step']}: {data}")
+        else:
+            self.logger.info(str(data))
+
+    @only_on_main_process
+    def log_config(self, config: dict) -> None:
+        self.logger.info("Config: " + str(config))
+
+
 class MultiLogger(Logger):
     METRICS_TO_SMOOTH = ["opt/E"]
 
@@ -65,6 +85,8 @@ class MultiLogger(Logger):
             self.loggers.append(WandBLogger(**(logging_args | logging_args["wandb"])))  # type: ignore
         if ("file" in logging_args) and (logging_args["file"]["use"]):
             self.loggers.append(FileLogger(**(logging_args | logging_args["file"])))  # type: ignore
+        if ("python" in logging_args) and (logging_args["python"]["use"]):
+            self.loggers.append(PythonLogger(**(logging_args | logging_args["python"])))  # type: ignore
 
     # TODO: This enforces that the run directory always ends with the name of the run and does not support setting the cwd as run_directory
     @property
@@ -77,7 +99,7 @@ class MultiLogger(Logger):
         # This implementation is a bit ugly, but does the job for now
         smoothed_data = {}
 
-        step = data.get("opt_step")
+        step = data.get("opt/step")
         if step is not None:
             smoothing_length = int(np.clip(step * 0.1, 1, self.smoothing_length))
         else:
