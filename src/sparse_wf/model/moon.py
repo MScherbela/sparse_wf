@@ -174,7 +174,8 @@ class MoonElecEmb(nn.Module):
         feat_ee = jnp.where(spin_mask[:, None], feat_ee_same, feat_ee_diff)
 
         # using h^init
-        feat_ee = self.activation(h + h_nb + feat_ee)
+        feat_ee += h + h_nb
+        feat_ee = self.activation(feat_ee)
 
         # contraction
         result = jnp.einsum("...id,...id->...d", feat_ee, gamma_ee)
