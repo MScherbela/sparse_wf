@@ -181,6 +181,7 @@ class MoonElecEmb(nn.Module):
         result = jnp.einsum("...id,...id->...d", feat_ee, gamma_ee)
         result = nn.Dense(self.feature_dim)(result) + nn.Dense(self.feature_dim, use_bias=False)(h)
         result = self.activation(result)
+        result = self.activation(nn.Dense(self.feature_dim)(result) + result)
         return result
 
 
