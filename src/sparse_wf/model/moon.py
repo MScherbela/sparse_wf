@@ -85,25 +85,34 @@ class DependencyMaps(NamedTuple):
 
 
 def get_max_nr_of_dependencies(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix, cutoff: float):
-    def get_max_deps(deps):
-        return pmax_if_pmap(jnp.max(jnp.sum(deps, axis=1)))
+    @functools.partial(jnp.vectorize, signature="(elec,elec),(nuc,elec),()->(),(),()")
+    def max_deps_vectorized(dist_ee: DistanceMatrix, dist_ne: DistanceMatrix, cutoff: float):
+        def get_max_deps(deps):
+            return pmax_if_pmap(jnp.max(jnp.sum(deps, axis=1)))
 
-    h0_deps = dist_ee<cutoff
-    n_deps_max_h0 = get_max_deps(h0_deps)
+        h0_deps = dist_ee<cutoff
+        n_deps_max_h0 = get_max_deps(h0_deps)
 
-    H0 = dist_ne<cutoff
-    def get_H_one_nuc(nearby_elec):
-        return (h0_deps & nearby_elec).any(axis=1)
-    H_deps = jax.vmap(get_H_one_nuc, 0, 0)(H0)
-    n_deps_max_H = get_max_deps(H_deps)
+        H0 = dist_ne<cutoff
+        def get_H_one_nuc(nearby_elec):
+            return (h0_deps & nearby_elec).any(axis=1)
+        H_deps = jax.vmap(get_H_one_nuc, 0, 0)(H0)
+        n_deps_max_H = get_max_deps(H_deps)
 
-    def get_h_out_1_elec(nearby_elec, nearby_nuc):
-        elec_connected_to_nearby_nuclei = (nearby_nuc & H_deps.T).any(axis=1)
-        return nearby_elec | elec_connected_to_nearby_nuclei
-    h_out_deps = jax.vmap(get_h_out_1_elec, 1, 0)(h0_deps, H0)
-    n_deps_max_h_out = get_max_deps(h_out_deps)
+        def get_h_out_1_elec(nearby_elec, nearby_nuc):
+            elec_connected_to_nearby_nuclei = (nearby_nuc & H_deps.T).any(axis=1)
+            return nearby_elec | elec_connected_to_nearby_nuclei
+        h_out_deps = jax.vmap(get_h_out_1_elec, (1, 1), 0)(h0_deps, H0)
+        n_deps_max_h_out = get_max_deps(h_out_deps)
 
-    return n_deps_max_h0, n_deps_max_H, n_deps_max_h_out
+        return n_deps_max_h0, n_deps_max_H, n_deps_max_h_out
+
+    n_deps = max_deps_vectorized(dist_ee, dist_ne, cutoff)
+    n_deps = jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), n_deps)
+    # max_func = lambda l: pmax_if_pmap(jnp.max(jnp.asarray(l), axis=1))
+    # n_deps_max_h0, n_deps_max_H, n_deps_max_h_out = max_func(n_deps_max_h0), max_func(n_deps_max_H), max_func(n_deps_max_h_out)
+    return n_deps
+
 
 
 def _get_static(electrons: Array, R: Nuclei, cutoff: float):
