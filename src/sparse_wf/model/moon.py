@@ -48,7 +48,7 @@ from sparse_wf.tree_utils import tree_idx
 
 class NucleusDependentParams(NamedTuple):
     filter: DynamicFilterParams
-    nuc_embedding: jnp.ndarray
+    nuc_embedding: Optional[jax.Array]
 
 
 class NrOfDependencies(NamedTuple):
@@ -190,6 +190,7 @@ class MoonEdgeFeatures(nn.Module):
     filter_dims: tuple[int, int]
     feature_dim: int
     n_envelopes: int
+    return_edge_embedding: bool = True
 
     @nn.compact
     def __call__(
@@ -201,6 +202,8 @@ class MoonEdgeFeatures(nn.Module):
         features = get_diff_features(r_center, r_neighbour)
         beta = PairwiseFilter(self.cutoff, self.filter_dims[1])(features, dynamic_params.filter)
         gamma = nn.Dense(self.feature_dim, use_bias=False)(beta)
+        if not self.return_edge_embedding:
+            return gamma
         scaled_features = features / features[..., :1] * jnp.log1p(features[..., :1])
         edge_embedding = nn.Dense(self.feature_dim, use_bias=False)(scaled_features) + dynamic_params.nuc_embedding
         return gamma, edge_embedding
@@ -482,7 +485,7 @@ class MoonEmbedding(PyTreeNode):
             nuc_mlp_depth=nuc_mlp_depth,
             elec_elec_emb=MoonElecEmb(cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
             Gamma_ne=MoonEdgeFeatures(cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
-            Gamma_en=MoonEdgeFeatures(cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes),
+            Gamma_en=MoonEdgeFeatures(cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, False),
             elec_init=MoonElecInit(cutoff_1el, pair_mlp_widths, feature_dim, pair_n_envelopes),
             nuc_mlp=MoonNucMLP(nuc_mlp_depth),
             elec_out=MoonElecOut(),
@@ -511,7 +514,7 @@ class MoonEmbedding(PyTreeNode):
         dummy_dyn_param = self._init_nuc_dependant_params(rngs[0], n_nuclei=1)
 
         params = MoonEmbeddingParams(
-            dynamic_params_en=self._init_nuc_dependant_params(rngs[1]),
+            dynamic_params_en=self._init_nuc_dependant_params(rngs[1], nuc_embedding=False),
             dynamic_params_ne=self._init_nuc_dependant_params(rngs[2]),
             dynamic_params_elec_init=self._init_nuc_dependant_params(rngs[3]),
             elec_init=self.elec_init.init(rngs[4], r_dummy, r_nb_dummy, dummy_dyn_param),
@@ -528,16 +531,21 @@ class MoonEmbedding(PyTreeNode):
         params = params.replace(scales=scales)
         return params
 
-    def _init_nuc_dependant_params(self, rng, n_nuclei=None):
+    def _init_nuc_dependant_params(self, rng, n_nuclei=None, nuc_embedding: bool = True):
         n_nuclei = n_nuclei or self.n_nuclei
         rngs = jax.random.split(rng, 4)
+        if nuc_embedding:
+            h_nuc = jax.random.normal(rngs[3], (n_nuclei, self.feature_dim), jnp.float32)
+        else:
+            h_nuc = None
+
         return NucleusDependentParams(
             filter=DynamicFilterParams(
                 scales=scale_initializer(rngs[0], self.cutoff, (n_nuclei, self.pair_n_envelopes)),
                 kernel=lecun_normal(rngs[1], (n_nuclei, 4, self.pair_mlp_widths[0])),
                 bias=jax.random.normal(rngs[2], (n_nuclei, self.pair_mlp_widths[0]), jnp.float32) * 2.0,
             ),
-            nuc_embedding=jax.random.normal(rngs[3], (n_nuclei, self.feature_dim), jnp.float32),
+            nuc_embedding=h_nuc,
         )
 
     def _get_Gamma_ne(self, params, R, r_nb_ne, dynamic_params, with_fwd_lap=False):
@@ -633,7 +641,7 @@ class MoonEmbedding(PyTreeNode):
 
         # construct electron embedding
         dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en)
-        gamma_en_out, edge_en_emb = self._get_Gamma_en(params.Gamma_en, electrons, R_nb_en, dyn_params)  # type: ignore
+        gamma_en_out = self._get_Gamma_en(params.Gamma_en, electrons, R_nb_en, dyn_params)  # type: ignore
 
         # update electron embedding
         HL_up, HL_dn = self.nuc_mlp.apply(params.nuc_mlp, H1_up, H1_dn)
@@ -735,7 +743,7 @@ class MoonEmbedding(PyTreeNode):
         # Update nuclei embeddings
         # Compute gamma_en again, but with a different set of electrons
         dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en[changed.out])
-        gamma_en_out, _ = self._get_Gamma_en(params.Gamma_en, electrons[changed.out], R_nb_en[changed.out], dyn_params)  # type: ignore
+        gamma_en_out = self._get_Gamma_en(params.Gamma_en, electrons[changed.out], R_nb_en[changed.out], dyn_params)  # type: ignore
         HL_up, HL_dn = self.nuc_mlp.apply(params.nuc_mlp, H1_up, H1_dn)
         HL_up, HL_dn = cast(tuple[jax.Array, jax.Array], (HL_up, HL_dn))
         HL_up = state.HL_up.at[changed.nuclei].set(HL_up)
@@ -842,7 +850,7 @@ class MoonEmbedding(PyTreeNode):
 
         # Step4: Get nucleus -> electron filters
         dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en)
-        gamma_en_out, edge_en_emb = self._get_Gamma_en(params.Gamma_en, electrons, R_nb_en, dyn_params, True)
+        gamma_en_out = self._get_Gamma_en(params.Gamma_en, electrons, R_nb_en, dyn_params, True)
         gamma_en_out = zeropad_jacobian(gamma_en_out, 3 * n_deps_hout)
 
         h0 = pad_jacobian(h0, dep_maps.h0_to_hout, static.n_deps.h_el_out)
