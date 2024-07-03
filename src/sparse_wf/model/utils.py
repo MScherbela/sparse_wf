@@ -68,7 +68,7 @@ def init_glu_feedforward(rng, width: int, depth: int, input_dim: int, out_dim: O
         rng, key = jax.random.split(rng)
         W = lecun_normal(key, [input_dim, d_out])
         b = jnp.zeros(d_out, jnp.float32)
-        layers.append((W, b))
+        layers.append([W, b])
         input_dim = d_out // 2
     return layers
 

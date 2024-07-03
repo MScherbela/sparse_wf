@@ -57,7 +57,7 @@ for cutoff in cutoff_values:
             model = MoonLikeWaveFunction.create(
                 mol,
                 EmbeddingArgs(
-                    cutoff=cutoff, cutoff_1el=cutoff_1el, feature_dim=256, nuc_mlp_depth=4, pair_mlp_widths=(16, 8), pair_n_envelopes=16
+                    cutoff=cutoff, cutoff_1el=cutoff_1el, feature_dim=256, nuc_mlp_depth=4, pair_mlp_widths=(16, 8), pair_n_envelopes=16, low_rank_buffer=2
                 ),
                 JastrowArgs(e_e_cusps="psiformer", use_log_jastrow=True, use_mlp_jastrow=True, mlp_depth=2, mlp_width=64),
                 EnvelopeArgs(envelope="isotropic", isotropic_args=IsotropicEnvelopeArgs(n_envelopes=8), glu_args=None),
@@ -66,9 +66,9 @@ for cutoff in cutoff_values:
             params = model.init(rng_model, r[0])
             static = model.get_static_input(r)
 
-            mcmc_step_low_rank, _ = make_mcmc(model, model.update_logpsi, "single-electron", mcmc_stepsize, n_sampling_steps)
+            mcmc_step_low_rank, _ = make_mcmc(model, "single-electron", mcmc_stepsize, n_sampling_steps)
             mcmc_step_low_rank = jax.jit(mcmc_step_low_rank, static_argnums=3)
-            mcmc_step_full_rank, _ = make_mcmc(model, model.update_logpsi, "all-electron", mcmc_stepsize, n_sampling_steps)
+            mcmc_step_full_rank, _ = make_mcmc(model, "all-electron", mcmc_stepsize, n_sampling_steps)
             mcmc_step_full_rank = jax.jit(mcmc_step_full_rank, static_argnums=3)
 
             embedding_with_lap_func = jax.jit(jax.vmap(lambda p, r_, s: model.embedding.apply_with_fwd_lap(p.embedding, r_, s), in_axes=(None, 0, None)), static_argnums=2)

@@ -1,5 +1,5 @@
 import functools
-from typing import NamedTuple, Optional, TypeAlias
+from typing import NamedTuple, TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -29,12 +29,14 @@ class NrOfNeighbours(NamedTuple):
     ee: int
     en: int
     ne: int
+    en_1el: int
 
 
 class NeighbourIndices(NamedTuple):
     ee: ElectronElectronEdges
     en: ElectronNucleiEdges
     ne: NucleiElectronEdges
+    en_1el: ElectronNucleiEdges
 
 
 @vectorize(signature="(n,d),(m,d)->(n,n),(m,n)")
@@ -64,21 +66,21 @@ def get_nr_of_neighbours(
     dist_ee: DistanceMatrix,
     dist_ne: DistanceMatrix,
     cutoff: float,
+    cutoff_1el: float,
 ):
     n_el = dist_ee.shape[-1]
     dist_ee += jnp.diag(jnp.ones(n_el, dist_ee.dtype) * jnp.inf)
     n_ee = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff, axis=-1)))
     n_ne = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-1)))
     n_en = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-2)))
-    return n_ee, n_en, n_ne
+    n_en_1el = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff_1el, axis=-2)))
+    return n_ee, n_en, n_ne, n_en_1el
 
 
-@jit(static_argnames=("n_neighbours", "cutoff_en", "cutoff_ee"))
+@jit(static_argnames=("n_neighbours", "cutoff", "cutoff_1el"))
 def get_neighbour_indices(
-    r: Electrons, R: Nuclei, n_neighbours: NrOfNeighbours, cutoff_en: float, cutoff_ee: Optional[float] = None
+    r: Electrons, R: Nuclei, n_neighbours: NrOfNeighbours, cutoff: float, cutoff_1el: float
 ) -> NeighbourIndices:
-    if cutoff_ee is None:
-        cutoff_ee = cutoff_en
     dist_ee, dist_ne = get_full_distance_matrices(r, R)
 
     def _get_ind_neighbour(dist, max_n_neighbours: int, cutoff, exclude_diagonal=False):
@@ -98,9 +100,10 @@ def get_neighbour_indices(
         return _get_ind(in_cutoff)
 
     return NeighbourIndices(
-        ee=_get_ind_neighbour(dist_ee, n_neighbours.ee, cutoff_ee, exclude_diagonal=True),
-        ne=_get_ind_neighbour(dist_ne, n_neighbours.ne, cutoff_en),
-        en=_get_ind_neighbour(dist_ne.T, n_neighbours.en, cutoff_en),
+        ee=_get_ind_neighbour(dist_ee, n_neighbours.ee, cutoff, exclude_diagonal=True),
+        ne=_get_ind_neighbour(dist_ne, n_neighbours.ne, cutoff),
+        en=_get_ind_neighbour(dist_ne.T, n_neighbours.en, cutoff),
+        en_1el=_get_ind_neighbour(dist_ne.T, n_neighbours.en_1el, cutoff_1el),
     )
 
 
@@ -250,4 +253,6 @@ def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: Neighbour
 
     # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron
     R_nb_en = get_with_fill(R, idx_nb.en, NO_NEIGHBOUR)
-    return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en
+
+    R_nb_en_1el = get_with_fill(R, idx_nb.en_1el, NO_NEIGHBOUR)
+    return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el

@@ -12,6 +12,7 @@ import random
 import argcomplete
 from argcomplete.completers import ChoicesCompleter, FilesCompleter
 
+DEFAULT_CONFIG_PATH = pathlib.Path(__file__).parent / "../../config/default.yaml"
 SPECIAL_KEYS = ["slurm"]
 N_PARAM_GROUPS = 5
 
@@ -219,8 +220,7 @@ def setup_calculations():
             return
 
     # Load the default config and the local config file
-    default_path = pathlib.Path(__file__).parent / "../../config/default.yaml"
-    default_config = load_yaml(default_path)
+    default_config = load_yaml(DEFAULT_CONFIG_PATH)
     file_config = load_yaml(args.input)
 
     # Merge the default config with the input config file; we'll not actually use this merge,
