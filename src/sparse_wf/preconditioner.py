@@ -1,5 +1,6 @@
 from typing import NamedTuple, Optional, TypeVar
 
+import numpy as np
 import jax
 import jax.flatten_util as jfu
 import jax.numpy as jnp
@@ -88,6 +89,39 @@ def make_cg_preconditioner(
     return Preconditioner(init, precondition)
 
 
+def get_jacjacT(local_jac, param_block_size=32768):
+    """Compute jac @ jac.T from local/sharded jacobians.
+
+    This function transposes the local jaobians across devices, such that all devices have all samples,
+    but only a subset of parameters.
+    From these sharded transposed jacobians the full jac @ jac.T is computed.
+    To do this memory efficiently we split the parameters into blocks of size param_block_size, and transpose block-by-block.
+    The jacobian is zero-padded as needed to make the number of parameters a multiple of the number of devices and param_block_size.
+
+    Args:
+        local_jac: Jacobian, shape (n_samples_per_device, n_params)
+    Returns:
+        T: Jacobian times Jacobian transposed, shape (n_samples_total, n_samples_total)
+    """
+    n_devices = jax.device_count()
+    n_samples_local, n_params = local_jac.shape
+    n_samples = n_samples_local * n_devices
+    n_blocks = int(np.ceil(n_params / (param_block_size * n_devices)))
+    n_params_padded = n_blocks * param_block_size * n_devices
+
+    local_jac_T = jnp.pad(local_jac.T, ((0, n_params_padded - n_params), (0, 0)))
+    local_jac_T = local_jac_T.reshape([n_blocks, param_block_size * n_devices, n_samples_local])
+
+    def scan_func(T, loc_jac_T):
+        jac_T = pall_to_all(loc_jac_T, split_axis=0, concat_axis=1, tiled=True)
+        T += psum(jac_T.T @ jac_T)
+        return T, None
+
+    T, _ = jax.lax.scan(scan_func, jnp.zeros([n_samples, n_samples]), local_jac_T)
+    T = (T + T.T) / 2  # Not required, but potentially better numerics
+    return T
+
+
 def make_dense_spring_preconditioner(
     wave_function: ParameterizedWaveFunction[P, S, MS],
     damping: float,
@@ -122,16 +156,8 @@ def make_dense_spring_preconditioner(
         if use_float64:
             jacobian = jacobian.astype(jnp.float64)
         jacobian -= pmean(jacobian.mean(0))
-        n_params = jacobian.shape[-1]
-
-        if n_params % n_dev != 0:
-            jacobian = jnp.pad(jacobian, ((0, 0), (0, n_dev - n_params % n_dev)))
-        jac_T = pall_to_all(jacobian, split_axis=1, concat_axis=0, tiled=True)
-        jacobian = jacobian[:, :n_params]  # remove padding
-
-        T = jac_T @ jac_T.T
-        T = (T + T.T) / 2  # better numerics
-        T = psum(T)
+        T = get_jacjacT(jacobian)
+        T += damping * jnp.eye(N, dtype=T.dtype) + 1 / N
 
         last_grad = natgrad_state.last_grad
         decayed_last_grad = decay_factor * last_grad
@@ -140,7 +166,6 @@ def make_dense_spring_preconditioner(
         cotangent -= jacobian @ decayed_last_grad
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
-        T += damping * jnp.eye(N, dtype=T.dtype) + 1 / N
         aux_data = {}
         aux_data["opt/log10_S_cond_nr"] = jnp.log10(jnp.linalg.cond(T))
 

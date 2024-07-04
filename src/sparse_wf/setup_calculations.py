@@ -41,6 +41,8 @@ def update_dict(original, update, allow_new_keys):
                     )
                 original[list_index] = update_dict(original[list_index], update[key], allow_new_keys)
         else:
+            if (key not in original) and (not allow_new_keys):
+                raise KeyError(f"Key {key} not found in original dict. Possible keys are {list(original.keys())}")
             original[key] = value
     return original
 
