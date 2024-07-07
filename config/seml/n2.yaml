@@ -8,21 +8,15 @@ slurm:
     sbatch_options:
       gres: gpu:1
       cpus-per-task: 4
+      mem: 32G
+      partition: gpu_h100
 
 fixed:
-  molecule_args.from_str_args.atom: "N 0 0 0; N 2.068 0 0"
-  batch_size: 2048
-  optimization:
-    steps: 20_000
+  +conf: config/n2.yaml
 
-none:
-  fixed:
-    optimization.spin_operator_args.operator: none
-
-splus:
-  fixed:
-    optimization.spin_operator_args.operator: splus
-  grid:
-    optimization.spin_operator_args.grad_scale:
-      type: choice
-      options: [1.e-3, 1.e-2, 1.e-1]
+grid:
+  seed:
+    type: choice
+    options:
+      - 0
+      - 1

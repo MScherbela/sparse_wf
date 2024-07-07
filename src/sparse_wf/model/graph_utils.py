@@ -27,6 +27,7 @@ DependencyMap = Integer[Array, "n_center n_neighbour n_deps"]
 
 class NrOfNeighbours(NamedTuple):
     ee: int
+    ee_out: int
     en: int
     ne: int
     en_1el: int
@@ -36,6 +37,7 @@ class NeighbourIndices(NamedTuple):
     ee: ElectronElectronEdges
     en: ElectronNucleiEdges
     ne: NucleiElectronEdges
+    ee_out: ElectronElectronEdges
     en_1el: ElectronNucleiEdges
 
 
@@ -71,10 +73,11 @@ def get_nr_of_neighbours(
     n_el = dist_ee.shape[-1]
     dist_ee += jnp.diag(jnp.ones(n_el, dist_ee.dtype) * jnp.inf)
     n_ee = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff, axis=-1)))
+    n_ee_out = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff * 3, axis=-1)))
     n_ne = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-1)))
     n_en = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-2)))
     n_en_1el = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff_1el, axis=-2)))
-    return n_ee, n_en, n_ne, n_en_1el
+    return n_ee, n_ee_out, n_en, n_ne, n_en_1el
 
 
 @jit(static_argnames=("n_neighbours", "cutoff", "cutoff_1el"))
@@ -103,6 +106,7 @@ def get_neighbour_indices(
         ee=_get_ind_neighbour(dist_ee, n_neighbours.ee, cutoff, exclude_diagonal=True),
         ne=_get_ind_neighbour(dist_ne, n_neighbours.ne, cutoff),
         en=_get_ind_neighbour(dist_ne.T, n_neighbours.en, cutoff),
+        ee_out=_get_ind_neighbour(dist_ee, n_neighbours.ee_out, cutoff * 3, exclude_diagonal=True),
         en_1el=_get_ind_neighbour(dist_ne.T, n_neighbours.en_1el, cutoff_1el),
     )
 
@@ -115,8 +119,12 @@ def get_with_fill(
     return jnp.asarray(arr).at[ind].get(mode="fill", fill_value=fill)
 
 
-def get_neighbour_features(h: FwdLaplArray, ind_neighbour: Integer[Array, "n_center n_neighbour"]) -> FwdLaplArray:
-    return jtu.tree_map(lambda x: x.at[..., ind_neighbour, :].get(mode="fill", fill_value=0.0), h)
+def get_neighbour_features(
+    h: FwdLaplArray,
+    ind_neighbour: Integer[Array, "n_center n_neighbour"],
+    fill_value: float = 0.0,
+) -> FwdLaplArray:
+    return jtu.tree_map(lambda x: x.at[..., ind_neighbour, :].get(mode="fill", fill_value=fill_value), h)
 
 
 # @functools.partial(jnp.vectorize, excluded=(3,), signature="(n_nb,deps_nb),(deps_center),(deps_frozen)->(deps_out)")
@@ -255,4 +263,8 @@ def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: Neighbour
     R_nb_en = get_with_fill(R, idx_nb.en, NO_NEIGHBOUR)
 
     R_nb_en_1el = get_with_fill(R, idx_nb.en_1el, NO_NEIGHBOUR)
-    return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el
+
+    # Out connection
+    r_nb_ee_out = get_with_fill(electrons, idx_nb.ee_out, NO_NEIGHBOUR)
+    spin_nb_ee_out = get_with_fill(spins, idx_nb.ee_out, 0.0)
+    return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el, r_nb_ee_out, spin_nb_ee_out
