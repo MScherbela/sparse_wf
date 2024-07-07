@@ -127,8 +127,8 @@ class Jastrow(nn.Module):
         return self.mlp(embeddings) * self.mlp_scale + jnp.array([0, self.log_bias])
 
     def _mlp_to_logpsi(self, jastrows):
-        logpsi = jnp.zeros(())
-        sign = jnp.ones(())
+        logpsi = jnp.zeros((), dtype=jastrows.dtype)
+        sign = jnp.ones((), dtype=jastrows.dtype)
         if self.use_mlp_jastrow:
             logpsi += jastrows[..., 0].sum()
         if self.use_log_jastrow:

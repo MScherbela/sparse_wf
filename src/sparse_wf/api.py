@@ -427,6 +427,7 @@ class OptimizationArgs(TypedDict):
     clipping: ClippingArgs
     max_batch_size: int
     spin_operator_args: SpinOperatorArgs
+    energy_operator: str
 
 
 class PretrainingArgs(TypedDict):

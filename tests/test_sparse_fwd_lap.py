@@ -6,7 +6,7 @@ from sparse_wf.model.utils import get_relative_tolerance
 from utils import build_atom_chain, build_model, change_float_dtype
 
 # ruff: noqa: E402 # Allow setting environment variables before importing jax
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+# os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
 import jax
