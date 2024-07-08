@@ -180,7 +180,7 @@ class TrainingState(Generic[P, SS], struct.PyTreeNode):  # the order of inherita
             return pgather(electrons, axis=0, tiled=True)
 
         result = self.replace(electrons=gather_electrons(self.electrons))  # include electrons from all devices
-        result = instance(self)  # only return a single copy of parameters, opt_state, etc.
+        result = instance(result)  # only return a single copy of parameters, opt_state, etc.
         return to_bytes(result)
 
     def deserialize(self, data: bytes, batch_size=None):
@@ -195,11 +195,11 @@ class TrainingState(Generic[P, SS], struct.PyTreeNode):  # the order of inherita
                 logging.warning(
                     f"Batch size {batch_size} is smaller than the original batch size {loaded_batch_size}. Cropping."
                 )
+                electrons = electrons[:batch_size]
             elif batch_size > loaded_batch_size:
                 logging.warning(
                     f"Batch size {batch_size} is larger than the original batch size {loaded_batch_size}. Using loaded batch-size."
                 )
-            electrons = electrons[:batch_size]
 
         electrons = electrons.reshape(jax.process_count(), jax.local_device_count(), -1, *electrons.shape[1:])
         electrons = electrons[jax.process_index()]
