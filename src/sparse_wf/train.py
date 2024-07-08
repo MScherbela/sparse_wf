@@ -151,7 +151,7 @@ def main(
     state = pretrainer.init(state)
 
     logging.info("Pretraining")
-    aux_data: dict[str, jax.Array] = dict()
+    aux_data: dict[str, jax.Array] = {"mcmc/max_cluster_size": jnp.array([10], jnp.int32)}
     for step in range(pretraining["steps"]):
         static = StaticInput(model=wf.get_static_input(state.electrons), mcmc=cluster_size_scheduler.step(aux_data))
         state, aux_data = pretrainer.step(state, static)
