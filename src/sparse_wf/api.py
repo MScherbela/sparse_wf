@@ -178,9 +178,8 @@ class TrainingState(Generic[P, SS], struct.PyTreeNode):  # the order of inherita
         def gather_electrons(electrons):
             return pgather(electrons, axis=0, tiled=True)
 
+        result = self.replace(electrons=gather_electrons(self.electrons))  # include electrons from all devices
         result = instance(self)  # only return a single copy of parameters, opt_state, etc.
-        # include electrons from all devices
-        result = result.replace(electrons=gather_electrons(self.electrons)[0])
         return to_bytes(result)
 
     def deserialize(self, data: bytes):
