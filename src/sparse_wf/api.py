@@ -93,7 +93,7 @@ class ClosedLogLikelihood(Protocol):
 class MCStep(Protocol[P_contra, S_contra]):
     def __call__(
         self, key: PRNGKeyArray, params: P_contra, electrons: Electrons, static: S_contra, width: Width
-    ) -> tuple[Electrons, PMove]: ...
+    ) -> tuple[Electrons, dict]: ...
 
 
 class WidthSchedulerState(NamedTuple):
@@ -435,13 +435,31 @@ class PretrainingArgs(TypedDict):
     sample_from: Literal["hf", "wf"]
 
 
-MCMC_proposal_type = Literal["all-electron", "single-electron"]
+MCMC_proposal_type = Literal["all-electron", "single-electron", "cluster-update"]
+
+
+class MCMCProposalArg(TypedDict):
+    init_width: int
+
+
+class MCMCAllElectronArgs(MCMCProposalArg):
+    steps: int
+
+
+class MCMCSingleElectronArgs(MCMCProposalArg):
+    sweeps: int
+
+
+class MCMCClusterUpdateArgs(MCMCProposalArg):
+    sweeps: int
+    cluster_radius: float
 
 
 class MCMCArgs(TypedDict):
     proposal: MCMC_proposal_type
-    steps: int
-    init_width: float
+    all_electron_args: MCMCAllElectronArgs
+    single_electron_args: MCMCSingleElectronArgs
+    cluster_update_args: MCMCClusterUpdateArgs
 
 
 class MoleculeDatabaseArgs(TypedDict):
@@ -469,6 +487,13 @@ class MoleculeArgs(TypedDict):
     basis: str
 
 
-class StaticInput(NamedTuple):
-    n_neighbours: dict
-    n_deps: dict
+class MCMCStaticArgs(NamedTuple):
+    max_cluster_size: int
+
+
+class StaticInput(NamedTuple, Generic[S]):
+    model: S
+    mcmc: MCMCStaticArgs
+
+    def to_log_data(self):
+        return {"mcmc/max_cluster_size": self.mcmc.max_cluster_size, **self.model.to_log_data()}

@@ -12,6 +12,7 @@ from sparse_wf.api import (
     ParameterizedWaveFunction,
     MCStep,
     WidthScheduler,
+    StaticInput,
 )
 from sparse_wf.jax_utils import pmap, pmean
 
@@ -40,12 +41,12 @@ def make_pretrainer(
         )
 
     @pmap(static_broadcasted_argnums=1)
-    def step(state: PretrainState[P, SS], static: S) -> tuple[PretrainState[P, SS], AuxData]:
+    def step(state: PretrainState[P, SS], static: StaticInput[S]) -> tuple[PretrainState[P, SS], AuxData]:
         targets = wave_function.hf_transformation(batch_src_orbitals(state.electrons))
 
         @jax.value_and_grad
         def loss_and_grad(params):
-            predicted_orbitals = batch_orbitals(params, state.electrons, static)
+            predicted_orbitals = batch_orbitals(params, state.electrons, static.model)
             return sum(((o - p_o) ** 2).mean() for o, p_o in zip(targets, predicted_orbitals))
 
         # Update
@@ -55,8 +56,8 @@ def make_pretrainer(
 
         # MCMC
         key, subkey = jax.random.split(state.key)
-        electrons, pmove = mcmc_step(subkey, params, state.electrons, static, state.width_state.width)
-        width_state = width_scheduler.update(state.width_state, pmove)
+        electrons, stats = mcmc_step(subkey, params, state.electrons, static, state.width_state.width)
+        width_state = width_scheduler.update(state.width_state, stats["mcmc/pmove"])
 
         return state.replace(
             key=key,
@@ -64,10 +65,6 @@ def make_pretrainer(
             electrons=electrons,
             pre_opt_state=opt_state,
             width_state=width_state,
-        ), {
-            "pretrain/loss": loss_val,
-            "mcmc/pmove": pmove,
-            "mcmc/stepsize": state.width_state.width,
-        }
+        ), {"pretrain/loss": loss_val, "mcmc/stepsize": state.width_state.width, **stats}
 
     return Pretrainer(init, step)

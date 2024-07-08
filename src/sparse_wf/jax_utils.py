@@ -74,6 +74,7 @@ def only_in_pmap(fun):
 
 pmax_if_pmap = only_in_pmap(pmax)
 psum_if_pmap = only_in_pmap(psum)
+pmean_if_pmap = only_in_pmap(pmean)
 
 
 @overload
