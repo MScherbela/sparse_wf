@@ -27,7 +27,7 @@ from sparse_wf.api import (
     MCMCStaticArgs,
     StaticInput,
 )
-from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap
+from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap, psum_if_pmap
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
 
 
@@ -147,10 +147,11 @@ def mcmc_steps_all_electron(
     def step_fn(_, x):
         return mh_update_all_electron(log_prob_fn, *x, width)  # type: ignore
 
+    local_batch_size = electrons.shape[0]
     logprob = log_prob_fn(electrons)
     stats = dict(num_accepts=jnp.zeros((), dtype=jnp.int32))
     key, electrons, logprob, stats = lax.fori_loop(0, steps, step_fn, (key, electrons, logprob, stats))
-    summary_stats = {"mcmc/pmove": pmean_if_pmap(jnp.mean(stats["num_accepts"]) / steps)}
+    summary_stats = {"mcmc/pmove": psum_if_pmap(stats["num_accepts"]) / (steps * local_batch_size * jax.device_count())}
     return electrons, summary_stats
 
 
