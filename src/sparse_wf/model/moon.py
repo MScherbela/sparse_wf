@@ -345,16 +345,14 @@ def get_all_dependencies(idx_nb: NeighbourIndices, n_deps_max: NrOfDependencies)
     dep_map_Gamma_ne_to_H = get_dep_map_for_all_centers(idx_nb.ne[..., None], deps_H)
 
     # Step 3: Output electron embeddings depend on themselves, their neighbouring electrons and all dependencies of their neighbouring nuclei
-    deps_neighbours = get_deps_nb(deps_H, idx_nb.en)
-    deps_hout = merge_dependencies(deps_neighbours, deps_h0, jnp.arange(n_el)[:, None], n_deps_max.h_el_out)
-    dep_map_H_to_hout = get_dep_map_for_all_centers(deps_neighbours, deps_hout)
-    dep_map_h0_to_hout = jax.vmap(get_dependency_map)(deps_h0, deps_hout)
-
     # Step 4: Initial electron embeddings to output electron embeddings
-    deps_neighbours = get_deps_nb(self_dependency, idx_nb.ee_out)
-    deps_hout = merge_dependencies(deps_neighbours, deps_hout, jnp.arange(n_el)[:, None], n_deps_max.h_el_out)
-    deps_neighbours = get_deps_nb(jnp.arange(n_el)[:, None], idx_nb.ee_out)
-    dep_map_hinit_to_hout = get_dep_map_for_all_centers(deps_neighbours, deps_hout)
+    deps_neighbouring_nuc = get_deps_nb(deps_H, idx_nb.en)
+    deps_neighbouring_hinit = get_deps_nb(self_dependency, idx_nb.ee_out)
+    deps_hout = merge_dependencies(deps_neighbouring_nuc, deps_h0, jnp.arange(n_el)[:, None], n_deps_max.h_el_out)
+    deps_hout = merge_dependencies(deps_neighbouring_hinit, deps_hout, jnp.arange(n_el)[:, None], n_deps_max.h_el_out)
+    dep_map_H_to_hout = get_dep_map_for_all_centers(deps_neighbouring_nuc, deps_hout)
+    dep_map_h0_to_hout = jax.vmap(get_dependency_map)(deps_h0, deps_hout)
+    dep_map_hinit_to_hout = get_dep_map_for_all_centers(deps_neighbouring_hinit, deps_hout)
 
     # Assert that dependencies are consistent with static dims
     assert deps_h0.shape[-1] == n_deps_max.h_el_initial
