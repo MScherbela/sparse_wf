@@ -139,7 +139,7 @@ def main(
     state = trainer.init(device_keys, params, electrons, mcmc_state)
     if load_checkpoint:
         with open(load_checkpoint, "rb") as f:
-            state = state.deserialize(f.read())
+            state = state.deserialize(f.read(), batch_size)
     assert_identical_copies(state.params)
 
     hf_orbitals_fn = make_hf_orbitals(mol)

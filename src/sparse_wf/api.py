@@ -9,6 +9,7 @@ from flax.serialization import to_bytes, from_bytes
 from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree
 from pyscf.scf.hf import SCF
 from typing import Literal
+import logging
 
 AnyArray = Array | list | np.ndarray
 Int = Integer[Array, ""]
@@ -182,12 +183,24 @@ class TrainingState(Generic[P, SS], struct.PyTreeNode):  # the order of inherita
         result = instance(self)  # only return a single copy of parameters, opt_state, etc.
         return to_bytes(result)
 
-    def deserialize(self, data: bytes):
+    def deserialize(self, data: bytes, batch_size=None):
         from sparse_wf.jax_utils import replicate
 
         state_with_all_electrons = from_bytes(self, data)
         # Distribute electrons to devices
         electrons = state_with_all_electrons.electrons
+        if batch_size is not None:
+            loaded_batch_size = electrons.shape[0]
+            if batch_size < loaded_batch_size:
+                logging.warning(
+                    f"Batch size {batch_size} is smaller than the original batch size {loaded_batch_size}. Cropping."
+                )
+            elif batch_size > loaded_batch_size:
+                logging.warning(
+                    f"Batch size {batch_size} is larger than the original batch size {loaded_batch_size}. Using loaded batch-size."
+                )
+            electrons = electrons[:batch_size]
+
         electrons = electrons.reshape(jax.process_count(), jax.local_device_count(), -1, *electrons.shape[1:])
         electrons = electrons[jax.process_index()]
         # We have to create new keys for all devices
