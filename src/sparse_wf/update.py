@@ -86,13 +86,21 @@ def make_trainer(
             spin_state=replicate(spin_operator.init_state()),
         )
 
-    @pmap(static_broadcasted_argnums=1)
-    def sampling_step(state: TrainingState[P, SS], static: StaticInput[S]):
+    @pmap(static_broadcasted_argnums=(1, 2))
+    def sampling_step(state: TrainingState[P, SS], static: StaticInput[S], compute_energy: bool):
         key, subkey = jax.random.split(state.key)
         electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, stats["mcmc/pmove"])
         state = state.replace(key=key, electrons=electrons, width_state=width_state)
         aux_data = {"mcmc/stepsize": state.width_state.width} | stats
+        if compute_energy:
+            E_loc = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
+                state.params, electrons, static.model
+            )
+            E_mean = pmean(E_loc.mean())
+            E_std = pmean(((E_loc - E_mean) ** 2).mean()) ** 0.5
+            aux_data["eval/E"] = E_mean
+            aux_data["eval/E_std"] = E_std
         return state, aux_data
 
     @pmap(static_broadcasted_argnums=1)

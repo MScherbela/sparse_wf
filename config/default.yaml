@@ -50,6 +50,7 @@ model_args:
 
 logging_args:
   smoothing: 5000
+  checkpoint_every: 10_000
   wandb:
     use: true
     entity: tum_daml_nicholas
@@ -124,6 +125,12 @@ pretraining:
       - name: scale_by_trust_ratio
         args: []
         kwargs: {}
+
+load_checkpoint: ""
+
+evaluation:
+  steps: 0
+  compute_energy: True
 
 batch_size: 512
 

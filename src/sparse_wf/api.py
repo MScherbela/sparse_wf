@@ -209,9 +209,7 @@ class VMCStepFn(Protocol[P, S_contra, SS]):
 
 class SamplingStepFn(Protocol[P, S_contra, SS]):
     def __call__(
-        self,
-        state: TrainingState[P, SS],
-        static: S_contra,
+        self, state: TrainingState[P, SS], static: S_contra, compute_energy: bool
     ) -> tuple[TrainingState[P, SS], AuxData]: ...
 
 
@@ -383,6 +381,7 @@ class PythonLoggingArgs(TypedDict):
 
 class LoggingArgs(TypedDict):
     smoothing: int
+    checkpoint_every: int
     wandb: WandBArgs
     file: FileLoggingArgs
     python: PythonLoggingArgs
@@ -432,6 +431,11 @@ class PretrainingArgs(TypedDict):
     steps: int
     optimizer_args: OptimizerArgs
     sample_from: Literal["hf", "wf"]
+
+
+class EvaluationArgs(TypedDict):
+    steps: int
+    compute_energy: bool
 
 
 MCMC_proposal_type = Literal["all-electron", "single-electron", "cluster-update"]
