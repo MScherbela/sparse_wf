@@ -397,6 +397,7 @@ def get_changed_embeddings(
         num_changed_out,
         changed_h0,
     )
+    # TODO(ms,cluster): return EmbeddingChanges, NrOfChanges[Int]
     return EmbeddingChanges(changed_h0, changed_nuclei, changed_out)
 
 
@@ -602,6 +603,7 @@ class MoonEmbedding(PyTreeNode):
         return_scales: bool = False,
         return_state: bool = False,
     ) -> ElectronEmb | tuple[ElectronEmb, MoonScales] | tuple[ElectronEmb, MoonState]:
+        # TODO(ms,cluster): idx_nb, actual_static = self.get_neighbour_indices(electrons, static.n_neighbours)
         idx_nb = self.get_neighbour_indices(electrons, static.n_neighbours)
         spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el = get_neighbour_coordinates(
             electrons, self.R, idx_nb, self.spins
@@ -669,6 +671,7 @@ class MoonEmbedding(PyTreeNode):
                 HL_up=HL_up,
                 HL_dn=HL_dn,
                 h_out=h_out,
+                # TODO(ms,cluster): static=actual_static
             )
         return h_out
 
@@ -680,6 +683,9 @@ class MoonEmbedding(PyTreeNode):
         static: StaticInputMoon,
         state: MoonState,
     ):
+        # TODO(ms,cluster): idx_nb, actual_static = self.get_neighbour_indices(electrons, static.n_neighbours)
+        # actual_static = jtu.tree_map(jnp.maximum, state.static, actual_static)
+
         idx_nb = self.get_neighbour_indices(electrons, static.n_neighbours)
         spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el = get_neighbour_coordinates(
             electrons, self.R, idx_nb, self.spins
@@ -771,6 +777,7 @@ class MoonEmbedding(PyTreeNode):
                 HL_up=HL_up,
                 HL_dn=HL_dn,
                 h_out=h_out,
+                # TODO(ms,cluster): static=actual_static
             ),
         )
 

@@ -99,6 +99,7 @@ def get_neighbour_indices(
 
         return _get_ind(in_cutoff)
 
+    # TODO(ms,cluster): return NeighbourIndices, NrOfNeigbours[Int]
     return NeighbourIndices(
         ee=_get_ind_neighbour(dist_ee, n_neighbours.ee, cutoff, exclude_diagonal=True),
         ne=_get_ind_neighbour(dist_ne, n_neighbours.ne, cutoff),

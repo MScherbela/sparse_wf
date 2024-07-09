@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 all_data = {}
-logfiles = Path.glob(Path("/storage/scherbelam20/runs/sparse_wf/cluster_update"), "C6H4_eval_batch32*/log.txt")
+logfiles = Path.glob(Path("/storage/scherbelam20/runs/sparse_wf/cluster_update"), "C16H4_eval_batch16*/log.txt")
 for logfile in logfiles:
     run_name = logfile.parent.name
     eval_data = []
@@ -35,7 +35,7 @@ def get_integrated_corr_time(corr, cutoff=1e-2):
 
 corr_cutoff = 0.5e-2
 t_energy = 0.1
-n_carbon_atoms = 6
+n_carbon_atoms = 16
 n_el = 6*n_carbon_atoms + 4
 n_atoms = n_carbon_atoms + 4
 
@@ -44,7 +44,7 @@ df_corr = []
 proposal_colors = {"single-electron": "C0", "all-electron": "C1", "cluster-update": "C2"}
 for run_name in sorted(all_data.keys()):
     config, data = all_data[run_name]
-    run_name = run_name.replace("C6H4_eval_batch32_", "")
+    run_name = run_name.replace("C16H4_eval_batch16_", "")
     proposal = config["mcmc_args"]["proposal"]
     cluster_radius = np.nan
     if proposal == "cluster-update":
@@ -56,8 +56,11 @@ for run_name in sorted(all_data.keys()):
         steps = n_el * config["mcmc_args"]["single_electron_args"]["sweeps"]
 
     color = proposal_colors[proposal]
+    if "eval/E" not in data.columns:
+        continue
     energy = data["eval/E"].values
-    energy = energy[1000:]
+    if len(energy) < 1000:
+        continue
 
     corr = get_autocorrelation(energy)
     ind_cut = get_ind_cut(corr, corr_cutoff)
@@ -79,7 +82,6 @@ for run_name in sorted(all_data.keys()):
     ax.set_ylabel("Correlation coeff.")
     fig.savefig(f"ac_{run_name}.png", dpi=100)
 
-#%%
 df_corr = pd.DataFrame(df_corr)
 df_corr["cluster_radius"] = df_corr["cluster_radius"].fillna(0)
 df_corr = df_corr.sort_values(["proposal", "cluster_radius", "steps"])
