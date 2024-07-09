@@ -76,6 +76,7 @@ def proposal_cluster_update(
     width: Width,
     max_cluster_size: int,
 ) -> tuple[Electrons, ElectronIdx, jax.Array, Int]:
+    dtype = electrons.dtype
     n_el = electrons.shape[-2]
     idx_center = idx_step % len(R)
     R_center = R[idx_center]
@@ -84,9 +85,9 @@ def proposal_cluster_update(
     dist_before_move = jnp.linalg.norm(electrons - R_center, axis=-1)
     log_p_select1 = -dist_before_move / cluster_radius
 
-    do_move = log_p_select1 >= jnp.log(jax.random.uniform(rng_select, (n_el,)))
+    do_move = log_p_select1 >= jnp.log(jax.random.uniform(rng_select, (n_el,), dtype))
     idx_el_changed = jnp.nonzero(do_move, fill_value=NO_NEIGHBOUR, size=max_cluster_size)[0]
-    dr = jax.random.normal(rng_move, (max_cluster_size, 3)) * width
+    dr = jax.random.normal(rng_move, (max_cluster_size, 3), dtype) * width
     proposed_electrons = electrons.at[idx_el_changed].add(dr, mode="drop")
 
     dist_after_move = jnp.linalg.norm(proposed_electrons - R_center, axis=-1)
