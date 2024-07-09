@@ -60,7 +60,7 @@ def proposal_single_electron(
     # key_select, key_propose = jax.random.split(key)
     n_el = electrons.shape[-2]
     # idx_el_changed = jax.random.randint(key_select, [1], 0, n_el)
-    idx_el_changed = jnp.array([idx_step % n_el]).astype(jnp.float32)
+    idx_el_changed = jnp.array([idx_step % n_el]).astype(jnp.int32)
     delta_r = jax.random.normal(key, [1, 3], dtype=electrons.dtype) * width
     proposed_electrons = electrons.at[idx_el_changed, :].add(delta_r)
     proposal_log_ratio = jnp.zeros([], dtype=electrons.dtype)
