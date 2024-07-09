@@ -57,10 +57,11 @@ def mh_update_all_electron(
 def proposal_single_electron(
     idx_step: int, key: PRNGKeyArray, electrons: Electrons, width: Width, max_cluster_size: int = 1
 ) -> tuple[Electrons, ElectronIdx, jax.Array, Int]:
-    key_select, key_propose = jax.random.split(key)
+    # key_select, key_propose = jax.random.split(key)
     n_el = electrons.shape[-2]
-    idx_el_changed = jax.random.randint(key_select, [1], 0, n_el)
-    delta_r = jax.random.normal(key_propose, [1, 3], dtype=electrons.dtype) * width
+    # idx_el_changed = jax.random.randint(key_select, [1], 0, n_el)
+    idx_el_changed = jnp.array([idx_step % n_el]).astype(jnp.float32)
+    delta_r = jax.random.normal(key, [1, 3], dtype=electrons.dtype) * width
     proposed_electrons = electrons.at[idx_el_changed, :].add(delta_r)
     proposal_log_ratio = jnp.zeros([], dtype=electrons.dtype)
     actual_cluster_size = jnp.ones([], dtype=jnp.int32)
