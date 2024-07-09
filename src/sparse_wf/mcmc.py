@@ -260,6 +260,12 @@ def make_width_scheduler(
     return WidthScheduler(init, update)
 
 
+def round_with_padding(n: int, max_val: int, factor: float = 1.1, min_val: int = 1) -> int:
+    power = np.log(n) / np.log(factor)
+    n_padded = factor ** np.ceil(power)
+    return int(np.clip(n_padded, min_val, max_val))
+
+
 class ClusterSizeScheduler:
     def __init__(self, n_el, cluster_size_buffer=2):
         self.n_el = n_el
@@ -269,7 +275,7 @@ class ClusterSizeScheduler:
         # Stats should already by averaged over batch and devices, but will have a local device dimension which must be reduced
         mcmc_stats = jax.tree_map(lambda x: x.mean(), mcmc_stats)
         max_cluster_size = int(mcmc_stats.get("mcmc/max_cluster_size", self.n_el))
-        max_cluster_size = min(max_cluster_size + self.cluster_size_buffer, self.n_el)
+        max_cluster_size = round_with_padding(max_cluster_size + self.cluster_size_buffer, self.n_el)
         return MCMCStaticArgs(max_cluster_size=max_cluster_size)
 
 
