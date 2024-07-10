@@ -41,18 +41,20 @@ n_atoms = n_carbon_atoms + 4
 
 plt.close("all")
 df_corr = []
-proposal_colors = {"single-electron": "C0", "all-electron": "C1", "cluster-update": "C2"}
+proposal_colors = {"single-electron": "C0", "single-electron-sweep": "navy", "all-electron": "C1", "cluster-update": "C2"}
 for run_name in sorted(all_data.keys()):
     config, data = all_data[run_name]
     run_name = run_name.replace("C16H4_eval_batch16_", "")
     proposal = config["mcmc_args"]["proposal"]
+    if "sweep" in run_name:
+        proposal += "-sweep"
     cluster_radius = np.nan
     if proposal == "cluster-update":
         steps = n_atoms * config["mcmc_args"]["cluster_update_args"]["sweeps"]
         cluster_radius = config["mcmc_args"]["cluster_update_args"]["cluster_radius"]
     elif proposal == "all-electron":
         steps = config["mcmc_args"]["all_electron_args"]["steps"]
-    elif proposal == "single-electron":
+    elif proposal in ["single-electron", "single-electron-sweep"]:
         steps = n_el * config["mcmc_args"]["single_electron_args"]["sweeps"]
 
     color = proposal_colors[proposal]
@@ -104,9 +106,10 @@ for ax in axes:
     ax.set_xlabel("MCMC inter-steps")
     ax.set_ylabel("Autocorrelation time / opt_steps")
     ax.set_ylabel("Autocorrelation time / single MCMC update")
-    ax.set_ylim([0, None])
+    # ax.set_ylim([0, None])
+    ax.set_yscale("log")
     ax.grid(alpha=0.5)
-fig.suptitle("Autcorrelation times, C6H4")
+fig.suptitle("Autcorrelation times, C16H4")
 fig.tight_layout()
 fig.savefig("correlation_summary.png", dpi=400)
 

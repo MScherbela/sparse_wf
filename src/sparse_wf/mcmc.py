@@ -231,7 +231,7 @@ def make_mcmc(
 
 def make_width_scheduler(
     window_size: int = 20,
-    target_pmove: float = 0.525,
+    target_pmove: float = 0.234,
     error: float = 0.025,
     width_multiplier: float = 1.1,
 ) -> WidthScheduler:
