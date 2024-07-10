@@ -290,8 +290,7 @@ class MoonElecOut(nn.Module):
         gamma_ee_same = nn.Dense(dim, use_bias=False)(beta_ee)
         gamma_ee_diff = nn.Dense(dim, use_bias=False)(beta_ee)
         gamma_ee = jnp.where(spin_mask[:, None], gamma_ee_same, gamma_ee_diff)
-        hinit_msg = gamma_ee.sum(-2)
-        # hinit_msg = jnp.einsum("...id,...id->...d", hinit_nb, gamma_ee)
+        hinit_msg = jnp.einsum("...id,...id->...d", nn.silu(elec + hinit_nb), gamma_ee)
 
         out = nn.silu(nn.Dense(dim)(elec) + hinit_msg)  # TODO: The first layer here can also be pulled outside
         out = nn.silu(nn.Dense(dim)(out) + msg)
