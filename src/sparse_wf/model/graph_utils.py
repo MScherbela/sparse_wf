@@ -1,5 +1,5 @@
 import functools
-from typing import NamedTuple, TypeAlias
+from typing import TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -8,8 +8,8 @@ import numpy as np
 from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer, Shaped
 
-from sparse_wf.api import Electrons, Int, Nuclei, Spins
-from sparse_wf.jax_utils import jit, pmax_if_pmap, vectorize
+from sparse_wf.api import Electrons, Int, Nuclei
+from sparse_wf.jax_utils import pmax_if_pmap, vectorize
 from sparse_wf.model.utils import slog_and_inverse
 
 NO_NEIGHBOUR = 1_000_000
@@ -23,20 +23,6 @@ NucleiElectronEdges = Integer[Array, "n_nuclei n_nb_ne"]
 Dependant = Integer[Array, "n_dependants"]
 Dependency = Integer[Array, "n_deps"]
 DependencyMap = Integer[Array, "n_center n_neighbour n_deps"]
-
-
-class NrOfNeighbours(NamedTuple):
-    ee: int
-    en: int
-    ne: int
-    en_1el: int
-
-
-class NeighbourIndices(NamedTuple):
-    ee: ElectronElectronEdges
-    en: ElectronNucleiEdges
-    ne: NucleiElectronEdges
-    en_1el: ElectronNucleiEdges
 
 
 @vectorize(signature="(n,d),(m,d)->(n,n),(m,n)")
@@ -75,37 +61,6 @@ def get_nr_of_neighbours(
     n_en = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-2)))
     n_en_1el = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff_1el, axis=-2)))
     return n_ee, n_en, n_ne, n_en_1el
-
-
-@jit(static_argnames=("n_neighbours", "cutoff", "cutoff_1el"))
-def get_neighbour_indices(
-    r: Electrons, R: Nuclei, n_neighbours: NrOfNeighbours, cutoff: float, cutoff_1el: float
-) -> NeighbourIndices:
-    dist_ee, dist_ne = get_full_distance_matrices(r, R)
-
-    def _get_ind_neighbour(dist, max_n_neighbours: int, cutoff, exclude_diagonal=False):
-        if exclude_diagonal:
-            n_particles = dist.shape[-1]
-            dist += jnp.diag(jnp.inf * jnp.ones(n_particles, dist.dtype))
-        in_cutoff = dist < cutoff
-
-        # TODO: dynamically assert that n_neighbours <= max_n_neighbours
-        n_neighbours = jnp.max(jnp.sum(in_cutoff, axis=-1))  # noqa: F841
-
-        @jax.vmap
-        def _get_ind(in_cutoff_):
-            indices = jnp.nonzero(in_cutoff_, size=max_n_neighbours, fill_value=NO_NEIGHBOUR)[0]
-            return jnp.unique(indices, size=max_n_neighbours, fill_value=NO_NEIGHBOUR)
-
-        return _get_ind(in_cutoff)
-
-    # TODO(ms,cluster): return NeighbourIndices, NrOfNeigbours[Int]
-    return NeighbourIndices(
-        ee=_get_ind_neighbour(dist_ee, n_neighbours.ee, cutoff, exclude_diagonal=True),
-        ne=_get_ind_neighbour(dist_ne, n_neighbours.ne, cutoff),
-        en=_get_ind_neighbour(dist_ne.T, n_neighbours.en, cutoff),
-        en_1el=_get_ind_neighbour(dist_ne.T, n_neighbours.en_1el, cutoff_1el),
-    )
 
 
 def get_with_fill(
@@ -237,23 +192,3 @@ def densify_jacobian_by_zero_padding(h: FwdLaplArray, n_deps_out):
     n_deps_sparse = jac.shape[0]
     padding = jnp.zeros([n_deps_out - n_deps_sparse, *jac.shape[1:]], jac.dtype)
     return FwdLaplArray(x=h.x, jacobian=FwdJacobian(jnp.concatenate([jac, padding], axis=0)), laplacian=h.laplacian)
-
-
-def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: NeighbourIndices, spins: Spins):
-    # [n_el  x n_neighbouring_electrons] - spin of each adjacent electron for each electron
-    spin_nb_ee = get_with_fill(spins, idx_nb.ee, 0.0)
-
-    # [n_el  x n_neighbouring_electrons x 3] - position of each adjacent electron for each electron
-    r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)
-
-    # [n_nuc  x n_neighbouring_electrons] - spin of each adjacent electron for each nucleus
-    spin_nb_ne = get_with_fill(spins, idx_nb.ne, 0.0)
-
-    # [n_nuc x n_neighbouring_electrons x 3] - position of each adjacent electron for each nuclei
-    r_nb_ne = get_with_fill(electrons, idx_nb.ne, NO_NEIGHBOUR)
-
-    # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron
-    R_nb_en = get_with_fill(R, idx_nb.en, NO_NEIGHBOUR)
-
-    R_nb_en_1el = get_with_fill(R, idx_nb.en_1el, NO_NEIGHBOUR)
-    return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el

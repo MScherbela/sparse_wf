@@ -26,7 +26,11 @@ def get_autocorrelation(energy, max_lag=1000):
     return np.array([1, *corr])
 
 def get_ind_cut(corr, cutoff=1e-2):
-    return np.where(corr < cutoff)[0][5]
+    indices_below_cutoff = np.where(corr < cutoff)[0]
+    if len(indices_below_cutoff) < 6:
+        return len(corr)
+    else:
+        return indices_below_cutoff[5]
 
 def get_integrated_corr_time(corr, cutoff=1e-2):
     ind_cut = get_ind_cut(corr, cutoff)
@@ -72,7 +76,7 @@ for run_name in sorted(all_data.keys()):
     df_corr.append(dict(run_name=run_name, tau=tau, cluster_radius=cluster_radius, proposal=proposal, steps=steps))
 
 
-    print(f"{run_name:<20}: tau={tau:4.1f}, t={t_step:4.2f} sec, t_s={t_sampling:4.2f} sec, tau*t_s={tau*t_sampling:4.2f} sec")
+    print(f"{run_name:<35}: tau={tau:5.1f}")
     fig, ax = plt.subplots(1,1)
     ax.semilogy(corr, label=run_name, color=color)
     ax.set_ylim([corr_cutoff, 1.1])
@@ -83,6 +87,7 @@ for run_name in sorted(all_data.keys()):
     ax.set_xlabel("MCMC steps")
     ax.set_ylabel("Correlation coeff.")
     fig.savefig(f"ac_{run_name}.png", dpi=100)
+    fig.close()
 
 df_corr = pd.DataFrame(df_corr)
 df_corr["cluster_radius"] = df_corr["cluster_radius"].fillna(0)

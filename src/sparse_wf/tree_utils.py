@@ -77,3 +77,7 @@ def tree_take(tree: T, idx, axis) -> T:
         return jnp.take(x, indices, axis)
 
     return jtu.tree_map(take, tree)
+
+
+def tree_maximum(tree1, tree2):
+    return jtu.tree_map(jnp.maximum, tree1, tree2)
