@@ -520,6 +520,7 @@ class MoonEmbedding(PyTreeNode):
         pair_mlp_widths: tuple[int, int],
         pair_n_envelopes: int,
         low_rank_buffer: int,
+        **_,
     ):
         return cls(
             R=R,
@@ -552,7 +553,7 @@ class MoonEmbedding(PyTreeNode):
     def get_neighbour_indices(self, electrons: Electrons, n_neighbours: NrOfNeighbours):
         return get_neighbour_indices(electrons, self.R, n_neighbours, self.cutoff, self.cutoff_1el)
 
-    def init(self, rng: Array, electrons: Array, static: StaticInputMoon) -> Parameters:
+    def init(self, rng: Array, electrons: Array, static: StaticInputMoon):
         dtype = electrons.dtype
         rngs = jax.random.split(rng, 10)
         r_dummy = jnp.zeros([3], dtype)
