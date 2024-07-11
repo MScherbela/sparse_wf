@@ -387,12 +387,14 @@ class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInput, Embedding
         scale_seq = iter_list_with_pad(params.scales)
 
         # Changed out
+        max_affected = (static.n_neighbours.ee + 1 + self.low_rank_buffer) * len(changed_electrons)
+        max_affected = min(max_affected, self.n_electrons)
         changed_out = affected_particles(
             state.electrons[changed_electrons],
             state.electrons,
             electrons[changed_electrons],
             electrons,
-            (static.n_neighbours.ee + 1 + self.low_rank_buffer) * len(changed_electrons),
+            max_affected,
             cutoff=self.cutoff,
             include=changed_electrons,
         )

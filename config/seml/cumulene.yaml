@@ -1,0 +1,50 @@
+seml:
+  executable: train_with_seml.py
+  project_root_dir: ../../
+  output_dir: ~/slurm-output/
+
+slurm:
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:1
+      cpus-per-task: 4
+      partition: gpu_h100
+      mem: 64G
+
+fixed:
+  molecule_args:
+    method: database
+  batch_size: 2048
+  optimization:
+    steps: 20_000
+    energy_operator: sparse
+  mcmc_args:
+    proposal: single-electron
+  logging_args.name_keys:
+    - model_args.embedding.embedding
+    - model_args.embedding.new.n_updates
+    - model_args.embedding.new.cutoff
+
+grid:
+  molecule_args:
+    database_args:
+      name:
+        type: choice
+        options:
+          - cumulene_C4H4_0deg
+          - cumulene_C6H4_0deg
+
+new_embedding:
+  fixed:
+    model_args.embedding.embedding: new
+  grid:
+    model_args.embedding.new.n_updates:
+      type: choice
+      options: [1, 2, 4]
+    model_args.embedding.new.cutoff:
+      type: choice
+      options: [6.0, 9.0]
+
+moon_embedding:
+  fixed:
+    model_args.embedding.embedding: moon
