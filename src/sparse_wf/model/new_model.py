@@ -79,9 +79,10 @@ class ElecInit(nn.Module):
         h_init = jnp.einsum("...Jd,...Jd->...d", features, Gamma)
         h_init = nn.LayerNorm()(h_init)
         h_init = (GatedLinearUnit(self.feature_dim)(h_init) + h_init) / jnp.sqrt(2)
+        h_init = self.activation(nn.Dense(self.feature_dim)(h_init))
         h_init_same = nn.Dense(self.feature_dim * self.n_updates)(h_init)
         h_init_diff = nn.Dense(self.feature_dim * self.n_updates)(h_init)
-        h_init = self.activation(nn.Dense(self.feature_dim)(h_init))
+        h_init = nn.Dense(self.feature_dim)(h_init)
         return h_init, jnp.split(h_init_same, self.n_updates, -1), jnp.split(h_init_diff, self.n_updates, -1)
 
 
@@ -133,11 +134,16 @@ class ElecUpdate(nn.Module):
         spin_mask = (spin == spin_nb)[..., None]
 
         # message passing
-        h_nb = jnp.where(spin_mask, nb_same, nb_diff)
-        msg = jnp.einsum("...Jd,...Jd->...d", gamma, nn.silu((h_nb + h) / jnp.sqrt(2.0)))
+        same_msg = jnp.where(spin_mask, nn.silu((nb_same + h) / jnp.sqrt(2.0)), jnp.zeros_like(nb_same))
+        same_msg = jnp.einsum("...Jd,...Jd->...d", gamma, same_msg)
+        diff_msg = jnp.where(spin_mask, jnp.zeros_like(nb_diff), nn.silu((nb_diff + h) / jnp.sqrt(2.0)))
+        diff_msg = jnp.einsum("...Jd,...Jd->...d", gamma, diff_msg)
 
         # combination
-        out = nn.silu((h + msg) / jnp.sqrt(2.0))
+        out = nn.silu(
+            (h + nn.Dense(feat_dim, use_bias=False)(same_msg) + nn.Dense(feat_dim, use_bias=False)(diff_msg))
+            / jnp.sqrt(3.0)
+        )
         out = nn.silu(nn.Dense(feat_dim)(out))
         out = nn.silu(nn.Dense(feat_dim)(out))
 
