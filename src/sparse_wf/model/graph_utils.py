@@ -268,3 +268,18 @@ def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: Neighbour
     r_nb_ee_out = get_with_fill(electrons, idx_nb.ee_out, NO_NEIGHBOUR)
     spin_nb_ee_out = get_with_fill(spins, idx_nb.ee_out, 0.0)
     return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el, r_nb_ee_out, spin_nb_ee_out
+
+
+# Finding affected electrons
+def affected_particles(old_x, old_y, new_x, new_y, num_changes, cutoff, include=None):
+    dist_old = jnp.linalg.norm(old_x[:, None] - old_y[None], axis=-1)
+    dist_new = jnp.linalg.norm(new_x[:, None] - new_y[None], axis=-1)
+    # we only care whether they were close or after the move, not which of these.
+    dist_shortest = jnp.minimum(dist_old, dist_new)
+    dist_shortest = jnp.min(dist_shortest, axis=0)  # shortest path to any particle
+    # top k returns the k largest values and indices from an array, since we want the smallest distances we negate them
+    neg_dists, order = jax.lax.top_k(-dist_shortest, num_changes)
+    affected = jnp.where(neg_dists > (-cutoff), order, NO_NEIGHBOUR)
+    if include is None:
+        return affected
+    return jnp.unique(jnp.concatenate([affected, include]), size=num_changes, fill_value=NO_NEIGHBOUR)

@@ -18,6 +18,7 @@ from sparse_wf.model.graph_utils import (
     DistanceMatrix,
     NeighbourIndices,
     NrOfNeighbours,
+    affected_particles,
     get_dependency_map,
     get_full_distance_matrices,
     get_neighbour_coordinates,
@@ -244,6 +245,7 @@ class MoonElecInit(nn.Module):
     def setup(self):
         self.edge = MoonEdgeFeatures(self.cutoff, self.filter_dims, self.feature_dim, self.n_envelopes)
         self.glu = GatedLinearUnit(self.feature_dim)
+        self.dense = nn.Dense(self.feature_dim)
         self.dense_same = nn.Dense(self.feature_dim, use_bias=False)
         self.dense_diff = nn.Dense(self.feature_dim, use_bias=False)
 
@@ -256,7 +258,7 @@ class MoonElecInit(nn.Module):
     ):
         features, Gamma = nn_vmap(self.edge, in_axes=(None, 0, 0))(r, R_nb, dynamic_params)  # vmap over nuclei
         result = jnp.einsum("...Jd,...Jd->...d", features, Gamma)
-        h_init = self.glu(result)
+        h_init = self.dense(self.glu(result))
         h_init_same = self.dense_same(self.activation(h_init))
         h_init_diff = self.dense_diff(self.activation(h_init))
         return h_init, h_init_same, h_init_diff
@@ -401,26 +403,13 @@ def get_changed_embeddings(
         n_electrons,
     )
 
-    # Finding affected electrons
-    def affected_particles(old_x, old_y, new_x, new_y, num_changes, include=None, cutoff=cutoff):
-        dist_old = jnp.linalg.norm(old_x[:, None] - old_y[None], axis=-1)
-        dist_new = jnp.linalg.norm(new_x[:, None] - new_y[None], axis=-1)
-        # we only care whether they were close or after the move, not which of these.
-        dist_shortest = jnp.minimum(dist_old, dist_new)
-        dist_shortest = jnp.min(dist_shortest, axis=0)  # shortest path to any particle
-        # top k returns the k largest values and indices from an array, since we want the smallest distances we negate them
-        neg_dists, order = jax.lax.top_k(-dist_shortest, num_changes)
-        affected = jnp.where(neg_dists > (-cutoff), order, NO_NEIGHBOUR)
-        if include is None:
-            return affected
-        return jnp.unique(jnp.concatenate([affected, include]), size=num_changes, fill_value=NO_NEIGHBOUR)
-
     changed_h0 = affected_particles(
         previous_electrons[changed_electrons],
         previous_electrons,
         electrons[changed_electrons],
         electrons,
         num_changed_h0,
+        cutoff=cutoff,
     )
     changed_nuclei = affected_particles(
         previous_electrons[changed_h0],
@@ -428,6 +417,7 @@ def get_changed_embeddings(
         electrons[changed_h0],
         nuclei,
         num_changed_nuclei,
+        cutoff=cutoff,
     )
     changed_msg = affected_particles(
         nuclei[changed_nuclei],
@@ -435,7 +425,8 @@ def get_changed_embeddings(
         nuclei[changed_nuclei],
         electrons,
         num_changed_out,
-        changed_h0,
+        cutoff=cutoff,
+        include=changed_h0,
     )
     changed_out = affected_particles(
         previous_electrons[changed_electrons],

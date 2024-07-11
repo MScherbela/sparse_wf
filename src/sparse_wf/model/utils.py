@@ -58,7 +58,7 @@ class GatedLinearUnit(nn.Module):
     def __call__(self, x: Float[Array, "*batch_dims inp_dim"]) -> Float[Array, "*batch_dims out_dim"]:
         x = nn.Dense(2 * self.out_dim, use_bias=False)(x)
         x, gate = jnp.split(x, 2, axis=-1)
-        return nn.Dense(self.out_dim, use_bias=False)(x * nn.silu(gate))
+        return x * nn.silu(gate)
 
 
 def init_glu_feedforward(rng, width: int, depth: int, input_dim: int, out_dim: Optional[int] = None):

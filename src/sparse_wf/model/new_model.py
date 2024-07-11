@@ -1,15 +1,25 @@
-from collections.abc import Iterator
+import functools
 from typing import Callable, Literal, NamedTuple, cast, overload
+
 import flax.linen as nn
-from flax.struct import PyTreeNode
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-
+from flax.struct import PyTreeNode
 from jaxtyping import Array, Float, Integer
-from sparse_wf.api import ElectronEmb, Electrons, Int, Nuclei, Charges, Parameters
-from sparse_wf.jax_utils import jit, nn_vmap, pmap, rng_sequence
-from sparse_wf.model.graph_utils import NO_NEIGHBOUR, get_full_distance_matrices, round_to_next_step
+
+from sparse_wf.api import ElectronEmb, ElectronIdx, Electrons, Int, Nuclei, Charges, Parameters
+from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap, pmap, rng_sequence
+from sparse_wf.model.graph_utils import (
+    NO_NEIGHBOUR,
+    Dependency,
+    _pad_jacobian_to_output_deps,
+    affected_particles,
+    get_dependency_map,
+    get_full_distance_matrices,
+    round_to_next_step,
+    zeropad_jacobian,
+)
 from sparse_wf.model.moon import GatedLinearUnit
 from sparse_wf.model.utils import (
     DynamicFilterParams,
@@ -57,23 +67,21 @@ class ElecInit(nn.Module):
     n_updates: int
     activation: Callable = nn.silu
 
-    def setup(self):
-        self.edge = EdgeFeatures(self.cutoff, self.filter_dims, self.feature_dim, self.n_envelopes)
-        self.glu = GatedLinearUnit(self.feature_dim)
-        self.dense_same = nn.Dense(self.feature_dim * self.n_updates, use_bias=False)
-        self.dense_diff = nn.Dense(self.feature_dim * self.n_updates, use_bias=False)
-
+    @nn.compact
     def __call__(
         self,
         r: Float[Array, " dim=3"],
         R_nb: Float[Array, "n_neighbours dim=3"],
         dynamic_params: NucleusDependentParams,
     ):
-        features, Gamma = nn_vmap(self.edge, in_axes=(None, 0, 0))(r, R_nb, dynamic_params)  # vmap over nuclei
-        result = jnp.einsum("...Jd,...Jd->...d", features, Gamma)
-        h_init = self.glu(result)
-        h_init_same = self.dense_same(self.activation(h_init))
-        h_init_diff = self.dense_diff(self.activation(h_init))
+        edge_feat = EdgeFeatures(self.cutoff, self.filter_dims, self.feature_dim, self.n_envelopes)
+        features, Gamma = nn_vmap(edge_feat, in_axes=(None, 0, 0))(r, R_nb, dynamic_params)  # vmap over nuclei
+        h_init = jnp.einsum("...Jd,...Jd->...d", features, Gamma)
+        h_init = nn.LayerNorm()(h_init)
+        h_init = (GatedLinearUnit(self.feature_dim)(h_init) + h_init) / jnp.sqrt(2)
+        h_init_same = nn.Dense(self.feature_dim * self.n_updates)(h_init)
+        h_init_diff = nn.Dense(self.feature_dim * self.n_updates)(h_init)
+        h_init = self.activation(nn.Dense(self.feature_dim)(h_init))
         return h_init, jnp.split(h_init_same, self.n_updates, -1), jnp.split(h_init_diff, self.n_updates, -1)
 
 
@@ -88,11 +96,11 @@ class ElecElecEdges(nn.Module):
     def __call__(
         self,
         r: Float[Array, " dim=3"],
-        r_nb: Float[Array, "n_neighbours dim=3"],
+        r_nb: Float[Array, " dim=3"],
         s: Int,
-        s_nb: Integer[Array, " n_neighbours"],
+        s_nb: Int,
     ):
-        features_ee = jax.vmap(get_diff_features, in_axes=(None, 0))(r, r_nb)
+        features_ee = get_diff_features(r, r_nb)
         beta = PairwiseFilter(self.cutoff, self.filter_dims[1], name="beta_ee")
         dynamic_params_ee = DynamicFilterParams(
             scales=self.param("ee_scales", scale_initializer, self.cutoff, (self.n_envelopes,)),
@@ -106,7 +114,7 @@ class ElecElecEdges(nn.Module):
         beta_ee = beta(features_ee, dynamic_params_ee)
         gamma_ee_same = nn.Dense(self.feature_dim * self.n_updates, use_bias=False)(beta_ee)
         gamma_ee_diff = nn.Dense(self.feature_dim * self.n_updates, use_bias=False)(beta_ee)
-        gamma = jnp.where((s == s_nb)[..., None], gamma_ee_same, gamma_ee_diff)
+        gamma = jnp.where(s == s_nb, gamma_ee_same, gamma_ee_diff)
         return jnp.split(gamma, self.n_updates, -1)
 
 
@@ -126,13 +134,10 @@ class ElecUpdate(nn.Module):
 
         # message passing
         h_nb = jnp.where(spin_mask, nb_same, nb_diff)
-        msg = jnp.einsum("...Jd,...Jd->...d", gamma, nn.silu(h_nb + h))
-
-        # update
-        h = nn.silu(nn.Dense(feat_dim)(h))
+        msg = jnp.einsum("...Jd,...Jd->...d", gamma, nn.silu((h_nb + h) / jnp.sqrt(2.0)))
 
         # combination
-        out = nn.silu(nn.Dense(feat_dim)(h + msg))
+        out = nn.silu(nn.Dense(feat_dim)((h + msg) / jnp.sqrt(2.0)))
         out = nn.silu(nn.Dense(feat_dim)(out))
 
         # Skip connection
@@ -147,7 +152,12 @@ class EmbeddingParams(NamedTuple):
     scales: tuple[ScalingParam, ...]
 
 
-class EmbeddingState(NamedTuple): ...
+class EmbeddingState(NamedTuple):
+    electrons: jax.Array
+    h_init: jax.Array
+    h_init_same: tuple[jax.Array, ...]
+    h_init_diff: tuple[jax.Array, ...]
+    h_out: jax.Array
 
 
 class NrOfNeighbours(NamedTuple):
@@ -165,12 +175,10 @@ class StaticInput(NamedTuple):
         }
 
 
-class DefaultList(list):
-    def __iter__(self) -> Iterator:
-        iterator = super().__iter__()
-        yield from iterator
-        while True:
-            yield None
+def iter_list_with_pad(lst, pad=None):
+    yield from lst
+    while True:
+        yield pad
 
 
 class AppendingList(list):
@@ -288,7 +296,7 @@ class Embedding(PyTreeNode):
         params = EmbeddingParams(
             dynamic_params_en=self._init_nuc_dependant_params(next(rng_seq)),
             init_params=self.elec_init.init(next(rng_seq), r_dummy, r_nb_dummy, dummy_dyn_param),
-            edge_params=self.edge.init(next(rng_seq), r_dummy, r_nb_dummy, spin_dummy, spin_nb_dummy),
+            edge_params=self.edge.init(next(rng_seq), r_dummy, r_dummy, spin_dummy, spin_dummy),
             update_params=tuple(
                 upd.init(
                     next(rng_seq),
@@ -345,22 +353,23 @@ class Embedding(PyTreeNode):
         return_scales: bool = False,
         return_state: bool = False,
     ):
-        if return_state:
-            raise NotImplementedError("return_state not implemented")
-
-        scale_seq = iter(DefaultList(params.scales))
+        scale_seq = iter_list_with_pad(params.scales)
         new_scales = AppendingList()
 
+        # Indexing
         en_idx, ee_idx = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff, self.cutoff_1el)
         R_nb = jnp.array(self.R).at[en_idx].get(mode="fill", fill_value=NO_NEIGHBOUR)
         s_nb = self.spins.at[ee_idx].get(mode="fill", fill_value=0)
         r_nb = electrons.at[ee_idx].get(mode="fill", fill_value=NO_NEIGHBOUR)
 
+        # hinit
         init_fn = jax.vmap(self.elec_init.apply, in_axes=(None, 0, 0, 0))  # type: ignore
         dyn_params = jtu.tree_map(lambda x: x[en_idx], params.dynamic_params_en)
         h_init, h_init_same, h_init_diff = init_fn(params.init_params, electrons, R_nb, dyn_params)  # type: ignore
         h_init, new_scales.h_init = normalize(h_init, next(scale_seq), return_scale=True)
-        edge_fn = jax.vmap(self.edge.apply, in_axes=(None, 0, 0, 0, 0))
+
+        # edges
+        edge_fn = jax.vmap(jax.vmap(self.edge.apply, in_axes=(None, None, 0, None, 0)), in_axes=(None, 0, 0, 0, 0))
         edges = cast(tuple[jax.Array, ...], edge_fn(params.edge_params, electrons, r_nb, self.spins, s_nb))
 
         # update layers
@@ -371,9 +380,167 @@ class Embedding(PyTreeNode):
             diff, new_scales.diff = normalize(diff, next(scale_seq), return_scale=True)
             h = fwd_fn(p, h, edg, same[ee_idx], diff[ee_idx], self.spins, s_nb)
             h, new_scales.h = normalize(h, next(scale_seq), return_scale=True)
+
+        # return
+        if return_state:
+            return h, EmbeddingState(
+                electrons=electrons,
+                h_init=h_init,
+                h_init_same=h_init_same,
+                h_init_diff=h_init_diff,
+                h_out=h,
+            )
         if return_scales:
             return h, tuple(new_scales)
         return h
+
+    def low_rank_update(
+        self,
+        params: EmbeddingParams,
+        electrons: Electrons,
+        changed_electrons: ElectronIdx,
+        static: StaticInput,
+        state: EmbeddingState,
+    ):
+        scale_seq = iter_list_with_pad(params.scales)
+
+        # Changed out
+        changed_out = affected_particles(
+            state.electrons[changed_electrons],
+            state.electrons,
+            electrons[changed_electrons],
+            electrons,
+            (static.n_neighbours.ee + 1) * len(changed_electrons),
+            cutoff=self.cutoff,
+            include=changed_electrons,
+        )
+
+        # Indexing
+        en_idx, ee_idx = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff, self.cutoff_1el)
+        en_idx = en_idx[changed_electrons]
+        ee_idx = ee_idx[changed_out]
+        R_nb = jnp.array(self.R).at[en_idx].get(mode="fill", fill_value=NO_NEIGHBOUR)
+        s_nb = self.spins.at[ee_idx].get(mode="fill", fill_value=0)
+        r_nb = electrons.at[ee_idx].get(mode="fill", fill_value=NO_NEIGHBOUR)
+
+        # hinit
+        init_fn = jax.vmap(self.elec_init.apply, in_axes=(None, 0, 0, 0))  # type: ignore
+        dyn_params = jtu.tree_map(lambda x: x[en_idx], params.dynamic_params_en)
+        h_init, h_init_same, h_init_diff = init_fn(params.init_params, electrons[changed_electrons], R_nb, dyn_params)  # type: ignore
+        h_init = normalize(h_init, next(scale_seq))
+
+        # Update state
+        h_init = state.h_init.at[changed_electrons].set(h_init)
+        h_init_same = [h.at[changed_electrons].set(h_new) for h, h_new in zip(state.h_init_same, h_init_same)]
+        h_init_diff = [h.at[changed_electrons].set(h_new) for h, h_new in zip(state.h_init_diff, h_init_diff)]
+
+        # edges
+        edge_fn = jax.vmap(jax.vmap(self.edge.apply, in_axes=(None, None, 0, None, 0)), in_axes=(None, 0, 0, 0, 0))
+        edges = cast(
+            tuple[jax.Array, ...],
+            edge_fn(params.edge_params, electrons[changed_out], r_nb, self.spins[changed_out], s_nb),
+        )
+
+        # update layers
+        h = h_init[changed_out]
+        for module, p, edg, same, diff in zip(self.updates, params.update_params, edges, h_init_same, h_init_diff):
+            fwd_fn = jax.vmap(module.apply, in_axes=(None, 0, 0, 0, 0, 0, 0))  # type: ignore
+            same = normalize(same, next(scale_seq))
+            diff = normalize(diff, next(scale_seq))
+            h = fwd_fn(p, h, edg, same[ee_idx], diff[ee_idx], self.spins[changed_out], s_nb)
+            h = normalize(h, next(scale_seq))
+
+        # prepare output
+        h = state.h_out.at[changed_out].set(h)
+        out_state = EmbeddingState(
+            electrons=electrons,
+            h_init=h_init,
+            h_init_same=h_init_same,
+            h_init_diff=h_init_diff,
+            h_out=h,
+        )
+        return h, changed_out, out_state
+
+    def apply_with_fwd_lap(
+        self,
+        params: EmbeddingParams,
+        electrons: Array,
+        static: StaticInput,
+    ):
+        scale_seq = iter_list_with_pad(params.scales)
+        # Indexing
+        en_idx, ee_idx = get_neighbour_indices(electrons, self.R, static.n_neighbours, self.cutoff, self.cutoff_1el)
+        dep_out, dep_map, dep_map_gamma = get_all_dependencies(ee_idx)
+        n_dep_out = static.n_neighbours.ee + 1
+        R_nb = jnp.array(self.R).at[en_idx].get(mode="fill", fill_value=NO_NEIGHBOUR)
+        s_nb = self.spins.at[ee_idx].get(mode="fill", fill_value=0)
+        r_nb = electrons.at[ee_idx].get(mode="fill", fill_value=NO_NEIGHBOUR)
+
+        pad_jacobian = jax.vmap(_pad_jacobian_to_output_deps, in_axes=(0, 0, None), out_axes=0)
+        pad_pairwise_jacobian = jax.vmap(pad_jacobian, in_axes=(1, 1, None), out_axes=1)
+
+        @functools.partial(jax.vmap, in_axes=(0, None))
+        @functools.partial(fwd_lap, argnums=0)
+        def _normalize(arr, scale):
+            return normalize(arr, scale)
+
+        # hinit
+        @jax.vmap
+        @functools.partial(fwd_lap, argnums=0)
+        def get_hinit(r, R_nb, dyn_params):
+            return self.elec_init.apply(params.init_params, r, R_nb, dyn_params)
+
+        dyn_params = jtu.tree_map(lambda x: x[en_idx], params.dynamic_params_en)
+        h_init, h_init_same, h_init_diff = get_hinit(electrons, R_nb, dyn_params)
+        h_init = _normalize(h_init, next(scale_seq))
+
+        # edges
+        @jax.vmap
+        @functools.partial(jax.vmap, in_axes=(None, 0, None, 0))
+        @functools.partial(fwd_lap, argnums=(0, 1))
+        def get_edges(r, r_nb, s, s_nb):
+            return self.edge.apply(params.edge_params, r, r_nb, s, s_nb)
+
+        edges = get_edges(electrons, r_nb, self.spins, s_nb)
+
+        # update layers
+        h = h_init
+        h = jax.vmap(zeropad_jacobian, in_axes=(0, None))(h, 3 * n_dep_out)
+        for module, p, edg, same, diff in zip(self.updates, params.update_params, edges, h_init_same, h_init_diff):
+
+            @functools.partial(jax.vmap, in_axes=0)
+            @functools.partial(fwd_lap, argnums=(0, 1, 2, 3))
+            def fwd_fn(h, edg, same, diff, s, s_nb):
+                return module.apply(p, h, edg, same, diff, s, s_nb)
+
+            # Padding
+            def to_pairwise(x):
+                x = _normalize(x, next(scale_seq))
+                x = jtu.tree_map(lambda x: x.at[ee_idx].get(mode="fill", fill_value=0), x)
+                return pad_pairwise_jacobian(x, dep_map, n_dep_out)
+
+            same, diff = to_pairwise(same), to_pairwise(diff)
+            edg = pad_pairwise_jacobian(edg, dep_map_gamma, n_dep_out)
+
+            from folx.api import FwdJacobian, FwdLaplArray
+
+            def move_nb_axis(x: FwdLaplArray):
+                return FwdLaplArray(
+                    x=x.x,
+                    jacobian=FwdJacobian(jnp.swapaxes(x.jacobian.data, 1, 2)),
+                    laplacian=x.laplacian,
+                )
+
+            edg, same, diff = move_nb_axis(edg), move_nb_axis(same), move_nb_axis(diff)
+            # Fwd pass
+            h = fwd_fn(h, edg, same, diff, self.spins, s_nb)
+            h = _normalize(h, next(scale_seq))
+
+        @functools.partial(jax.vmap, in_axes=0, out_axes=-2)
+        def move_axis(x):
+            return x
+
+        return move_axis(h), dep_out
 
     def get_static_input(self, electrons: Electrons) -> StaticInput:
         if electrons.ndim == 4:
@@ -417,3 +584,29 @@ def get_neighbour_indices(
     en_idx = _get_ind_neighbour(dist_ne.T, n_neighbours.en, cutoff_1el)
     ee_idx = _get_ind_neighbour(dist_ee, n_neighbours.ee, cutoff, exclude_diagonal=True)
     return en_idx, ee_idx
+
+
+@jit
+def get_all_dependencies(ee_idx: jax.Array):
+    """Get the indices of electrons on which each embedding will depend on."""
+    n_el = ee_idx.shape[-2]
+    batch_dims = ee_idx.shape[:-2]
+    self_dependency = jnp.arange(n_el)[:, None]
+    self_dependency = jnp.tile(self_dependency, batch_dims + (1, 1))
+
+    get_dep_map_for_all_centers = jax.vmap(jax.vmap(get_dependency_map, in_axes=(0, None)))
+
+    # hinit to h
+    deps: Dependency = jnp.concatenate([self_dependency, ee_idx], axis=-1)
+    deps_neighbours = ee_idx[..., None]
+    dep_map = get_dep_map_for_all_centers(deps_neighbours, deps)
+    # Gamma to h
+    deps_gamma = jnp.concatenate(
+        [
+            jnp.tile(self_dependency[..., None, :], (1,) * len(batch_dims) + (1, deps_neighbours.shape[-2], 1)),
+            deps_neighbours,
+        ],
+        axis=-1,
+    )
+    gamma_dep_map = get_dep_map_for_all_centers(deps_gamma, deps)
+    return deps, dep_map, gamma_dep_map
