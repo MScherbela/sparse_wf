@@ -1,5 +1,5 @@
 import functools
-from typing import Callable, Literal, NamedTuple, cast, overload
+from typing import Callable, NamedTuple, cast
 
 import flax.linen as nn
 import jax
@@ -8,7 +8,7 @@ import jax.tree_util as jtu
 from flax.struct import PyTreeNode
 from jaxtyping import Array, Float, Integer
 
-from sparse_wf.api import ElectronEmb, ElectronIdx, Electrons, Int, Nuclei, Charges, Parameters
+from sparse_wf.api import ElectronIdx, Electrons, Embedding, Int, Nuclei, Charges, Parameters
 from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap, pmap, rng_sequence
 from sparse_wf.model.graph_utils import (
     NO_NEIGHBOUR,
@@ -137,11 +137,12 @@ class ElecUpdate(nn.Module):
         msg = jnp.einsum("...Jd,...Jd->...d", gamma, nn.silu((h_nb + h) / jnp.sqrt(2.0)))
 
         # combination
-        out = nn.silu(nn.Dense(feat_dim)((h + msg) / jnp.sqrt(2.0)))
+        out = nn.silu((h + msg) / jnp.sqrt(2.0))
+        out = nn.silu(nn.Dense(feat_dim)(out))
         out = nn.silu(nn.Dense(feat_dim)(out))
 
         # Skip connection
-        return out + h
+        return (out + h) / jnp.sqrt(2.0)
 
 
 class EmbeddingParams(NamedTuple):
@@ -203,7 +204,7 @@ get_static_pmapped = pmap(_get_static, in_axes=(0, None, None, None))
 get_static_jitted = jit(_get_static)
 
 
-class Embedding(PyTreeNode):
+class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInput, EmbeddingState]):
     # Molecule
     R: Nuclei
     Z: Charges
@@ -218,6 +219,9 @@ class Embedding(PyTreeNode):
     pair_n_envelopes: int
     nuc_mlp_depth: int
     n_updates: int
+
+    # Low rank
+    low_rank_buffer: int
 
     # Submodules
     elec_init: ElecInit
@@ -237,6 +241,7 @@ class Embedding(PyTreeNode):
         nuc_mlp_depth: int,
         pair_mlp_widths: tuple[int, int],
         pair_n_envelopes: int,
+        low_rank_buffer: int,
         n_updates: int,
         **_,
     ):
@@ -252,6 +257,7 @@ class Embedding(PyTreeNode):
             pair_n_envelopes=pair_n_envelopes,
             nuc_mlp_depth=nuc_mlp_depth,
             n_updates=n_updates,
+            low_rank_buffer=low_rank_buffer,
             elec_init=ElecInit(cutoff_1el, pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
             edge=ElecElecEdges(cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
             updates=tuple(ElecUpdate() for _ in range(n_updates)),
@@ -315,40 +321,10 @@ class Embedding(PyTreeNode):
         params = params._replace(scales=scales)
         return params
 
-    @overload
     def apply(
         self,
         params: EmbeddingParams,
         electrons: Electrons,
-        static: StaticInput,
-        return_scales: Literal[False] = False,
-        return_state: Literal[False] = False,
-    ) -> ElectronEmb: ...
-
-    @overload
-    def apply(
-        self,
-        params: EmbeddingParams,
-        electrons: Electrons,
-        static: StaticInput,
-        return_scales: Literal[True],
-        return_state: Literal[False] = False,
-    ) -> tuple[ElectronEmb, tuple[ScalingParam, ...]]: ...
-
-    @overload
-    def apply(
-        self,
-        params: EmbeddingParams,
-        electrons: Electrons,
-        static: StaticInput,
-        return_scales: Literal[False],
-        return_state: Literal[True],
-    ) -> tuple[ElectronEmb, EmbeddingState]: ...
-
-    def apply(
-        self,
-        params: EmbeddingParams,
-        electrons: Array,
         static: StaticInput,
         return_scales: bool = False,
         return_state: bool = False,
@@ -410,7 +386,7 @@ class Embedding(PyTreeNode):
             state.electrons,
             electrons[changed_electrons],
             electrons,
-            (static.n_neighbours.ee + 1) * len(changed_electrons),
+            (static.n_neighbours.ee + 1 + self.low_rank_buffer) * len(changed_electrons),
             cutoff=self.cutoff,
             include=changed_electrons,
         )

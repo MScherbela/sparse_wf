@@ -8,7 +8,7 @@ import numpy as np
 from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer, Shaped
 
-from sparse_wf.api import Electrons, Int, Nuclei, Spins
+from sparse_wf.api import Electrons, Int, Nuclei, Spins, Dependant, Dependency, DependencyMap
 from sparse_wf.jax_utils import jit, pmax_if_pmap, vectorize
 from sparse_wf.model.utils import slog_and_inverse
 
@@ -19,10 +19,6 @@ DistanceMatrix: TypeAlias = Float[Array, "n1 n2"]
 ElectronElectronEdges = Integer[Array, "n_electrons n_nb_ee"]
 ElectronNucleiEdges = Integer[Array, "n_electrons n_nb_en"]
 NucleiElectronEdges = Integer[Array, "n_nuclei n_nb_ne"]
-
-Dependant = Integer[Array, "n_dependants"]
-Dependency = Integer[Array, "n_deps"]
-DependencyMap = Integer[Array, "n_center n_neighbour n_deps"]
 
 
 class NrOfNeighbours(NamedTuple):

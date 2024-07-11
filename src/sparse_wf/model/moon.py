@@ -1,5 +1,5 @@
 import functools
-from typing import Callable, Literal, NamedTuple, Optional, TypedDict, cast, overload
+from typing import Callable, NamedTuple, Optional, TypedDict, cast
 
 import flax.linen as nn
 import jax
@@ -9,7 +9,7 @@ from flax.struct import PyTreeNode
 from jaxtyping import Array, Float, Integer
 
 from folx.api import FwdLaplArray
-from sparse_wf.api import Charges, ElectronEmb, ElectronIdx, Electrons, Int, Nuclei, NucleiIdx, Parameters
+from sparse_wf.api import Charges, ElectronIdx, Electrons, Embedding, Int, Nuclei, NucleiIdx, Parameters
 from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap, pmap, pmax_if_pmap
 from sparse_wf.model.graph_utils import (
     NO_NEIGHBOUR,
@@ -471,7 +471,7 @@ class MoonState(PyTreeNode):
     h_out: Array
 
 
-class MoonEmbedding(PyTreeNode):
+class MoonEmbedding(PyTreeNode, Embedding[MoonEmbeddingParams, StaticInputMoon, MoonState]):
     # Molecule
     R: Nuclei
     Z: Charges
@@ -614,36 +614,6 @@ class MoonEmbedding(PyTreeNode):
         get_gamma = jax.vmap(get_gamma, in_axes=0, out_axes=-3)  # vmap over centers (electrons)
         return get_gamma(r, R_nb_en, dynamic_params)
 
-    @overload
-    def apply(
-        self,
-        params: MoonEmbeddingParams,
-        electrons: Electrons,
-        static: StaticInputMoon,
-        return_scales: Literal[False] = False,
-        return_state: Literal[False] = False,
-    ) -> ElectronEmb: ...
-
-    @overload
-    def apply(
-        self,
-        params: MoonEmbeddingParams,
-        electrons: Electrons,
-        static: StaticInputMoon,
-        return_scales: Literal[True],
-        return_state: Literal[False] = False,
-    ) -> tuple[ElectronEmb, MoonScales]: ...
-
-    @overload
-    def apply(
-        self,
-        params: MoonEmbeddingParams,
-        electrons: Electrons,
-        static: StaticInputMoon,
-        return_scales: Literal[False],
-        return_state: Literal[True],
-    ) -> tuple[ElectronEmb, MoonState]: ...
-
     def apply(
         self,
         params: MoonEmbeddingParams,
@@ -651,7 +621,7 @@ class MoonEmbedding(PyTreeNode):
         static: StaticInputMoon,
         return_scales: bool = False,
         return_state: bool = False,
-    ) -> ElectronEmb | tuple[ElectronEmb, MoonScales] | tuple[ElectronEmb, MoonState]:
+    ):
         idx_nb = self.get_neighbour_indices(electrons, static.n_neighbours)
         spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el, r_nb_ee_out, spin_nb_ee_out = (
             get_neighbour_coordinates(electrons, self.R, idx_nb, self.spins)
