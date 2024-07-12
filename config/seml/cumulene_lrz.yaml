@@ -18,6 +18,8 @@ slurm:
       partition: mcml-hgx-a100-80x4
 
 fixed:
+  pretraining:
+    steps: 10_000
   logging_args.wandb.project: "ngao_cumulene"
   molecule_args:
     method: database
