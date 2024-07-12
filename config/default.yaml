@@ -30,7 +30,6 @@ model_args:
       cutoff: 5.0
       cutoff_1el: 20.0
       feature_dim: 256
-      nuc_mlp_depth: 4
       pair_mlp_widths: [16, 8]
       pair_n_envelopes: 32
       low_rank_buffer: 2

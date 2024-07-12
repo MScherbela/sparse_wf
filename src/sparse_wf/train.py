@@ -1,19 +1,19 @@
 import logging
 import os
-from typing import Optional, Any
+import time
+from typing import Any, Optional
 
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
-
 # ruff: noqa: E402
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-from sparse_wf.api import AuxData, LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs, MCMCArgs
-from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, get_from_main_process
+
+from sparse_wf.api import AuxData, LoggingArgs, MCMCArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
+from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, get_from_main_process, pmap, replicate
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
-
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 
 # from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
@@ -21,12 +21,10 @@ from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
-from sparse_wf.scf import make_hf_orbitals, make_hf_logpsi
+from sparse_wf.scf import make_hf_logpsi, make_hf_orbitals
 from sparse_wf.spin_operator import make_spin_operator
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
-import time
-
 
 jax.config.update("jax_default_matmul_precision", "float32")
 jax.config.update("jax_enable_x64", True)

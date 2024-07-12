@@ -6,8 +6,8 @@ seml:
 slurm:
   - experiments_per_job: 1
     sbatch_options:
-      gres: gpu:1
-      cpus-per-task: 4
+      gres: gpu:2
+      cpus-per-task: 8
       partition: gpu_h100
       mem: 64G
 
@@ -32,7 +32,7 @@ grid:
         type: choice
         options:
           - cumulene_C4H4_0deg
-          - cumulene_C6H4_0deg
+          # - cumulene_C6H4_0deg
 
 new_embedding:
   fixed:
@@ -40,11 +40,10 @@ new_embedding:
   grid:
     model_args.embedding.new.n_updates:
       type: choice
-      options: [1, 2, 4]
+      options: [1]
     model_args.embedding.new.cutoff:
       type: choice
-      options: [6.0, 9.0]
-
-moon_embedding:
-  fixed:
-    model_args.embedding.embedding: moon
+      options: [3.0, 6.0]
+# moon_embedding:
+#   fixed:
+#     model_args.embedding.embedding: moon
