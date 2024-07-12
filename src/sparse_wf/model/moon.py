@@ -490,7 +490,7 @@ class MoonEmbedding(PyTreeNode):
     ) -> StaticInputMoon:
         n_el = r.shape[-2]
         dist_ee, dist_ne = get_full_distance_matrices(r, self.R)
-        dist_en = dist_ne.T
+        dist_en = jnp.swapaxes(dist_ne, -1, -2)
         dist_ee = dist_ee.at[..., np.arange(n_el), np.arange(n_el)].set(np.inf)
 
         # Neighbours
@@ -514,7 +514,7 @@ class MoonEmbedding(PyTreeNode):
         dist_ee_new, dist_ne_new = get_full_distance_matrices(r_new, self.R)
         dist_ee = jnp.minimum(dist_ee, dist_ee_new)
         dist_ne = jnp.minimum(dist_ne, dist_ne_new)
-        dist_en = dist_ne.T
+        dist_en = jnp.swapaxes(dist_ne, -1, -2)
 
         is_affected_r = jnp.zeros(n_el, dtype=jnp.bool_).at[idx_changed].set(True)
         is_affected_h0 = is_affected_r | jnp.any((dist_ee < self.cutoff) & is_affected_r[None, :], axis=-1)

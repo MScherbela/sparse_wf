@@ -156,7 +156,9 @@ def main(
         wf, pretraining_mcmc_step, mcmc_width_scheduler, hf_orbitals_fn, make_optimizer(**pretraining["optimizer_args"])
     )
     state = pretrainer.init(state)
-    static = StaticInput(model=pmap(lambda r: pmax(wf.get_static_input(r)))(state.electrons), mcmc=MCMCStaticArgs(1))
+    static = StaticInput(
+        model=pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons), mcmc=MCMCStaticArgs(1)
+    )
     static = to_static(static)
 
     logging.info("Pretraining")
