@@ -33,7 +33,7 @@ model_args:
       pair_mlp_widths: [16, 8]
       pair_n_envelopes: 32
       low_rank_buffer: 2
-      n_updates: 2
+      n_updates: 1
     moon:
       cutoff: 5.0
       cutoff_1el: 20.0
