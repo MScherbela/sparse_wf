@@ -2,6 +2,8 @@ import logging
 import os
 from typing import Optional, Any
 
+from sparse_wf.static_args import StaticScheduler
+
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
 # ruff: noqa: E402
@@ -19,7 +21,6 @@ from sparse_wf.api import (
     EvaluationArgs,
     MCMCArgs,
     StaticInput,
-    StaticScheduler,
 )
 from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, get_from_main_process
 from sparse_wf.loggers import MultiLogger
@@ -115,7 +116,7 @@ def main(
     electrons = init_electrons(subkey, mol, batch_size)
     mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
-    static_scheduler = StaticScheduler()
+    static_scheduler = StaticScheduler(n_el)
     # cluster_size_scheduler = ClusterSizeScheduler(n_el)
 
     # We want the parameters to be identical so we use the main_key here
