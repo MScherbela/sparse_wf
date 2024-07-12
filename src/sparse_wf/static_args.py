@@ -37,7 +37,7 @@ class StaticScheduler:
         self.step = (self.step + 1) % self.history_length
         static = jtu.tree_map(lambda x: int(jnp.max(x)), self.history)
         static = StaticInput(
-            mcmc=round_with_padding(static.mcmc, self.padding_factor, self.n_electrons),
+            mcmc=jax.tree_map(lambda n: round_with_padding(n, self.padding_factor, self.n_electrons), static.mcmc),
             model=static.model.round_with_padding(self.padding_factor, self.n_electrons, self.n_nuclei),
         )
 
