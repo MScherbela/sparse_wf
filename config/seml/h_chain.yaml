@@ -6,12 +6,19 @@ seml:
 slurm:
   - experiments_per_job: 1
     sbatch_options:
-      gres: gpu:2
+      gres: gpu:8
       cpus-per-task: 16
-      partition: gpu_h100
       mem: 64G
+      partition: mcml-dgx-a100-40x8
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:4
+      cpus-per-task: 16
+      mem: 64G
+      partition: mcml-hgx-a100-80x4
 
 fixed:
+  logging_args.wandb.project: "ngao_hchain"
   molecule_args:
     method: chain
     chain_args:
@@ -20,35 +27,19 @@ fixed:
       n: 30
   batch_size: 2048
   optimization:
-    steps: 20_000
-    # energy_operator: dense
+    steps: 100_000
     energy_operator: sparse
   mcmc_args:
-    # proposal: all-electron
     proposal: single-electron
 
 grid:
-  model_args.embedding.n_updates:
+  molecule_args.chain_args.n:
     type: choice
-    options: [2, 4]
-  model_args.embedding.cutoff:
-    type: choice
-    options: [5.0, 9.0]
-
-none:
-  fixed:
-    optimization.spin_operator_args.operator: none
-# splus:
-#   fixed:
-#     optimization.spin_operator_args.operator: splus
-#   grid:
-#     optimization.spin_operator_args.grad_scale:
-#       type: choice
-#       options: [1.e-3]
-
-# cutoff:
-#   fixed:
-#     optimization.spin_operator_args.operator: none
-#     model_args:
-#       embedding:
-#         cutoff: 5.0
+    options:
+      - 10
+      - 20
+      - 40
+      - 80
+      - 160
+      - 320
+      - 640
