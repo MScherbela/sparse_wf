@@ -69,6 +69,19 @@ class PythonLogger(Logger):
         self.logger.info("Config: " + str(config))
 
 
+def flatten_dict(d: dict, parent_key: str = "", sep: str = ".") -> dict:
+    if hasattr(d, "_asdict"):  # e.g. NamedTuple
+        d = d._asdict()
+    items: list[tuple[str, Any]] = []
+    for k, v in d.items():
+        new_key = parent_key + sep + k if parent_key else k
+        if isinstance(v, dict) or hasattr(v, "_asdict"):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+
 class MultiLogger(Logger):
     METRICS_TO_SMOOTH = ["opt/E", "eval/E"]
 
@@ -121,6 +134,7 @@ class MultiLogger(Logger):
         return data
 
     def log(self, data: dict) -> None:
+        data = flatten_dict(data)
         data = self.smoothen_data(data)
         for logger in self.loggers:
             logger.log(data)

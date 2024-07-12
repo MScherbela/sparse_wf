@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar
 import jax
+import jax.tree_util as jtu
+import jax.numpy as jnp
 import numpy as np
 import optax
 from flax import struct
@@ -10,6 +12,7 @@ from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree
 from pyscf.scf.hf import SCF
 from typing import Literal
 import logging
+from sparse_wf.tree_utils import tree_zeros_like
 
 AnyArray = Array | list | np.ndarray
 Int = Integer[Array, ""]
@@ -71,7 +74,9 @@ class ParameterizedWaveFunction(Protocol[P, S, MS]):
     n_up: int
 
     def init(self, key: PRNGKeyArray, electrons: Electrons) -> P: ...
-    def get_static_input(self, electrons: Electrons) -> S: ...
+    def get_static_input(
+        self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+    ) -> S: ...
     def orbitals(self, params: P, electrons: Electrons, static: S) -> SlaterMatrices: ...
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices: ...
     def local_energy(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
@@ -513,3 +518,23 @@ class StaticInput(NamedTuple, Generic[S]):
 
     def to_log_data(self):
         return {"mcmc/max_cluster_size": self.mcmc.max_cluster_size, **self.model.to_log_data()}
+
+    def to_int(self) -> "StaticInput[int]":
+        return jtu.tree_map(int, self)
+
+
+class StaticScheduler:
+    def __init__(self, history_length: int = 5):
+        self.step = 0
+        self.history_length = history_length
+        self.history: Optional[StaticInput[np.array]] = None
+
+    def __call__(self, actual_static: StaticInput[Int]) -> StaticInput[int]:
+        if self.history is None:
+            self.history = tree_zeros_like(actual_static, jnp.int32, self.history_length)
+        self.history = jtu.tree_map(
+            lambda history, new: history.at[self.step].set(jnp.max(new)), self.history, actual_static
+        )
+        self.step = (self.step + 1) % self.history_length
+        static = jtu.tree_map(lambda x: int(jnp.max(x)), self.history)
+        return static

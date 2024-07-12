@@ -1,4 +1,4 @@
-from typing import Sequence, cast
+from typing import Sequence, cast, Optional
 
 import flax.linen as nn
 import jax
@@ -142,7 +142,9 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None, None], PyTre
     mol: pyscf.gto.Mole
     ferminet: FermiNetOrbitals
 
-    def get_static_input(self, electrons: Electrons):
+    def get_static_input(
+        self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+    ):
         return None
 
     @classmethod

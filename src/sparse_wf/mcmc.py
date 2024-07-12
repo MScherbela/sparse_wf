@@ -29,6 +29,7 @@ from sparse_wf.api import (
 )
 from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap, psum_if_pmap
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
+from sparse_wf.tree_utils import tree_add, tree_maximum, tree_zeros_like
 
 
 def mh_update_all_electron(
@@ -128,6 +129,8 @@ def mh_update_low_rank(
     stats["num_accepts"] += jnp.sum(accept).astype(jnp.int32)
     stats["max_cluster_size"] = jnp.maximum(stats["max_cluster_size"], actual_cluster_size)
     stats["mean_cluster_size"] = stats["mean_cluster_size"] + actual_cluster_size
+    stats["static_mean"] = tree_add(stats["static_mean"], new_model_state.embedding.static)
+    stats["static_max"] = tree_maximum(stats["static_max"], new_model_state.embedding.static)
     return key, new_electrons, new_logprob, new_model_state, stats
 
 
@@ -178,27 +181,51 @@ def mcmc_steps_low_rank(
     logprob, model_state = jax.vmap(log_prob_fn)(electrons)
 
     @functools.partial(jax.vmap, in_axes=(None, 0))
-    def step_fn(i, x):
-        return mh_update_low_rank(update_log_prob_fn, proposal_fn, static.mcmc.max_cluster_size, i, *x, width)
+    def step_fn(i, carry):
+        key, electrons, log_prob, model_state, static_mean, static_max, num_accept = carry
+        key, key_propose, key_accept = jax.random.split(key, 3)
+
+        # Make proposal
+        proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size = proposal_fn(
+            i, key_propose, electrons, width, static.mcmc.max_cluster_size
+        )
+
+        # Track actual static neigbour counts
+        actual_model_static = logpsi_fn.get_static_input(electrons, proposed_electrons, idx_el_changed)
+        actual_static = StaticInput(
+            model=actual_model_static, mcmc=MCMCStaticArgs(max_cluster_size=actual_cluster_size)
+        )
+        static_mean = tree_add(static_mean, actual_static)
+        static_max = tree_maximum(static_max, actual_static)
+
+        # Accept/reject
+        proposed_logprob, proposed_model_state = update_log_prob_fn(proposed_electrons, idx_el_changed, model_state)
+        log_ratio = proposal_log_ratio + proposed_logprob - log_prob
+        accept = log_ratio > jnp.log(jax.random.uniform(key_accept, log_ratio.shape))
+        electrons, log_prob, model_state = jtu.tree_map(
+            lambda new, old: jnp.where(accept, new, old),
+            (proposed_electrons, proposed_logprob, proposed_model_state),
+            (electrons, log_prob, model_state),
+        )
+        num_accept += accept.astype(jnp.int32)
+        return key, electrons, log_prob, model_state, static_mean, static_max, num_accept
 
     local_batch_size = electrons.shape[0]
-    stats = dict(
-        num_accepts=jnp.zeros(local_batch_size, dtype=jnp.int32),
-        max_cluster_size=jnp.zeros(local_batch_size, dtype=jnp.int32),
-        mean_cluster_size=jnp.zeros(local_batch_size, dtype=jnp.int32),
-    )
+    actual_static = StaticInput(model=logpsi_fn.get_static_input(electrons), mcmc=MCMCStaticArgs(max_cluster_size=0))
     x0 = (
         jax.random.split(key, local_batch_size),
         electrons,
         logprob,
         model_state,
-        stats,
+        tree_zeros_like(actual_static, jnp.int32, local_batch_size),
+        tree_zeros_like(actual_static, jnp.int32, local_batch_size),
+        jnp.zeros(local_batch_size, dtype=jnp.int32),
     )
-    _, electrons, logprob, model_state, stats = lax.fori_loop(0, steps, step_fn, x0)
+    _, electrons, _, _, static_mean, static_max, num_accept = lax.fori_loop(0, steps, step_fn, x0)
     summary_stats = {
-        "mcmc/pmove": pmean_if_pmap(jnp.mean(stats["num_accepts"]) / steps),
-        "mcmc/max_cluster_size": pmax_if_pmap(jnp.max(stats["max_cluster_size"])),
-        "mcmc/mean_cluster_size": pmean_if_pmap(jnp.mean(stats["mean_cluster_size"]) / steps),
+        "mcmc/pmove": pmean_if_pmap(jnp.mean(num_accept) / steps),
+        "static/mean": jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
+        "static/max": jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
     }
     return electrons, summary_stats
 

@@ -19,10 +19,11 @@ from sparse_wf.api import (
     EvaluationArgs,
     MCMCArgs,
     StaticInput,
+    StaticScheduler,
 )
 from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, get_from_main_process
 from sparse_wf.loggers import MultiLogger
-from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler, ClusterSizeScheduler
+from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler, MCMCStaticArgs
 
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 
@@ -114,7 +115,8 @@ def main(
     electrons = init_electrons(subkey, mol, batch_size)
     mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
-    cluster_size_scheduler = ClusterSizeScheduler(n_el)
+    static_scheduler = StaticScheduler()
+    # cluster_size_scheduler = ClusterSizeScheduler(n_el)
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
@@ -155,13 +157,13 @@ def main(
         wf, pretraining_mcmc_step, mcmc_width_scheduler, hf_orbitals_fn, make_optimizer(**pretraining["optimizer_args"])
     )
     state = pretrainer.init(state)
+    static = StaticInput(model=wf.get_static_input(state.electrons), mcmc=MCMCStaticArgs(1)).to_int()
 
     logging.info("Pretraining")
-    aux_data: dict[str, jax.Array] = {"mcmc/max_cluster_size": jnp.array([10], jnp.int32)}
     for step in range(pretraining["steps"]):
-        static = StaticInput(model=wf.get_static_input(state.electrons), mcmc=cluster_size_scheduler.step(aux_data))
         state, aux_data = pretrainer.step(state, static)
-        log_data = to_log_data(aux_data) | static.to_log_data()
+        static = static_scheduler(aux_data["static/max"])  # type: ignore
+        log_data = to_log_data(aux_data)
         log_data["pretrain/step"] = step
         loggers.log(log_data)
         if np.isnan(log_data["pretrain/loss"]):
@@ -172,17 +174,17 @@ def main(
 
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
-        static = StaticInput(model=wf.get_static_input(state.electrons), mcmc=cluster_size_scheduler.step(aux_data))
         state, aux_data = trainer.sampling_step(state, static, False)
-        log_data = to_log_data(aux_data) | static.to_log_data()
+        static = static_scheduler(aux_data["static/max"])  # type: ignore
+        log_data = to_log_data(aux_data)
         loggers.log(log_data)
 
     logging.info("Training")
     for opt_step in range(optimization["steps"]):
-        static = StaticInput(model=wf.get_static_input(state.electrons), mcmc=cluster_size_scheduler.step(aux_data))
         t0 = time.perf_counter()
         state, _, aux_data = trainer.step(state, static)
-        log_data = to_log_data(aux_data) | static.to_log_data()
+        static = static_scheduler(aux_data["static/max"])  # type: ignore
+        log_data = to_log_data(aux_data)
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0
         log_data["opt/step"] = opt_step
@@ -196,10 +198,10 @@ def main(
 
     logging.info("Evaluation")
     for eval_step in range(evaluation["steps"]):
-        static = StaticInput(model=wf.get_static_input(state.electrons), mcmc=cluster_size_scheduler.step(aux_data))
         t0 = time.perf_counter()
         state, aux_data = trainer.sampling_step(state, static, evaluation["compute_energy"])
-        log_data = to_log_data(aux_data) | static.to_log_data()
+        static = static_scheduler(aux_data["static/max"])  # type: ignore
+        log_data = to_log_data(aux_data)
         t1 = time.perf_counter()
         log_data["eval/t_step"] = t1 - t0
         log_data["eval/step"] = eval_step

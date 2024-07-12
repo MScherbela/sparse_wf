@@ -12,7 +12,7 @@ from jaxtyping import Array, Float, Integer
 
 from folx.api import FwdLaplArray
 from sparse_wf.api import Charges, ElectronEmb, ElectronIdx, Electrons, Int, Nuclei, NucleiIdx, Parameters, Spins
-from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap, pmap
+from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap
 from sparse_wf.model.graph_utils import (
     NO_NEIGHBOUR,
     Dependency,
@@ -23,12 +23,10 @@ from sparse_wf.model.graph_utils import (
     get_dependency_map,
     get_full_distance_matrices,
     get_neighbour_features,
-    get_nr_of_neighbours,
     get_with_fill,
     merge_dependencies,
     pad_jacobian,
     pad_pairwise_jacobian,
-    round_to_next_step,
     zeropad_jacobian,
 )
 from sparse_wf.model.utils import (
@@ -43,7 +41,7 @@ from sparse_wf.model.utils import (
     normalize,
     scale_initializer,
 )
-from sparse_wf.tree_utils import tree_idx, tree_maximum
+from sparse_wf.tree_utils import tree_idx
 
 T = TypeVar("T")
 
@@ -423,7 +421,6 @@ class MoonState(PyTreeNode):
     HL_up: Array
     HL_dn: Array
     h_out: Array
-    static: StaticInputMoon[Int]
 
 
 # def get_max_nr_of_dependencies(
@@ -529,41 +526,71 @@ class MoonEmbedding(PyTreeNode):
     def spins(self):
         return jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
 
+    def get_static_input(
+        self, r: Electrons, r_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+    ) -> StaticInputMoon:
+        n_el = r.shape[-2]
+        dist_ee, dist_ne = get_full_distance_matrices(r, self.R)
+        dist_en = dist_ne.T
+        dist_ee = dist_ee.at[..., np.arange(n_el), np.arange(n_el)].set(np.inf)
+
+        # Neighbours
+        n_neighbours = NrOfNeighbours(
+            ee=jnp.max(jnp.sum(dist_ee < self.cutoff, axis=-1, dtype=jnp.int32)),
+            en=jnp.max(jnp.sum(dist_en < self.cutoff, axis=-1, dtype=jnp.int32)),
+            ne=jnp.max(jnp.sum(dist_ne < self.cutoff, axis=-1, dtype=jnp.int32)),
+            en_1el=jnp.max(jnp.sum(dist_en < self.cutoff_1el, axis=-1, dtype=jnp.int32)),
+        )
+
+        # Dependencies
+        n_deps = NrOfDependencies(
+            h_el_initial=n_neighbours.ee + 1,
+            H_nuc=jnp.max(jnp.sum(dist_ne < self.cutoff * 2, axis=-1, dtype=jnp.int32)),
+            h_el_out=jnp.max(jnp.sum(dist_ee < self.cutoff * 3, axis=-1, dtype=jnp.int32)) + 1,
+        )
+        if (r_new is None) or (idx_changed is None):
+            return StaticInputMoon(n_deps, n_neighbours, NrOfChanges(1, 1, 1))
+
+        # Changes for low-rank updates
+        dist_ee_new, dist_ne_new = get_full_distance_matrices(r_new, self.R)
+        dist_ee = jnp.minimum(dist_ee, dist_ee_new)
+        dist_ne = jnp.minimum(dist_ne, dist_ne_new)
+        dist_en = dist_ne.T
+
+        is_affected_r = jnp.zeros(n_el, dtype=jnp.bool_).at[idx_changed].set(True)
+        is_affected_h0 = is_affected_r | jnp.any((dist_ee < self.cutoff) & is_affected_r[None, :], axis=-1)
+        is_affected_H = jnp.any((dist_ne < self.cutoff) & is_affected_h0[None, :], axis=-1)
+        is_affected_out = is_affected_h0 | jnp.any((dist_en < self.cutoff) & is_affected_H[None, :], axis=-1)
+        n_changes = NrOfChanges(
+            jnp.sum(is_affected_h0, dtype=jnp.int32),
+            jnp.sum(is_affected_H, dtype=jnp.int32),
+            jnp.sum(is_affected_out, dtype=jnp.int32),
+        )
+        return StaticInputMoon(n_deps, n_neighbours, n_changes)
+
     def get_neighbour_indices(
         self,
         r: Electrons,
         max_n_neighbours: NrOfNeighbours[int],
-    ) -> tuple[NrOfNeighbours[Int], NeighbourIndices]:
+    ) -> NeighbourIndices:
         n_el = r.shape[-2]
         dist_ee, dist_ne = get_full_distance_matrices(r, self.R)
         dist_en = dist_ne.T
         dist_ee = dist_ee.at[..., np.arange(n_el), np.arange(n_el)].set(np.inf)
 
         @functools.partial(jax.vmap, in_axes=(0, None, None))  # vmap over centers
-        def _get_neighbours(dist, cutoff, max_size: Optional[int] = None):
-            in_cutoff = dist < cutoff
-            n_neighbours_actual = jnp.sum(in_cutoff, dtype=jnp.int32)
-            if max_size is None:
-                return n_neighbours_actual
-            else:
-                neg_dists, indices = jax.lax.top_k(-dist, max_size)
-                indices = jnp.where(neg_dists > -cutoff, indices, NO_NEIGHBOUR)
-                return n_neighbours_actual, indices
+        def _get_neighbours(dist, cutoff, max_size: int):
+            neg_dists, indices = jax.lax.top_k(-dist, max_size)
+            indices = jnp.where(neg_dists > -cutoff, indices, NO_NEIGHBOUR)
+            return indices
 
         # Neighbours
-        n_ee, ind_ee = _get_neighbours(dist_ee, max_n_neighbours.ee, self.cutoff)
-        n_ne, ind_ne = _get_neighbours(dist_ne, max_n_neighbours.ne, self.cutoff)
-        n_en, ind_en = _get_neighbours(dist_en, max_n_neighbours.en, self.cutoff)
-        n_en_1el, ind_en_1el = _get_neighbours(dist_en, max_n_neighbours.en_1el, self.cutoff_1el)
-        n_neighbours = NrOfNeighbours(ee=jnp.max(n_ee), en=jnp.max(n_en), ne=jnp.max(n_ne), en_1el=jnp.max(n_en_1el))
-        ind_neighbours = NeighbourIndices(ee=ind_ee, en=ind_en, ne=ind_ne, en_1el=ind_en_1el)
-        return n_neighbours, ind_neighbours
-
-        # # Dependencies
-        # n_deps_h0 = n_neighbours.ee + 1
-        # n_deps_H = jnp.sum(_get_neighbours(dist_ne, self.cutoff * 2)[0], dtype=jnp.int32)
-        # n_deps_hout = jnp.sum(_get_neighbours(dist_ne, self.cutoff * 3)[0], dtype=jnp.int32)
-        # n_deps = NrOfDependencies(h_el_initial=n_deps_h0, H_nuc=n_deps_H, h_el_out=n_deps_hout)
+        return NeighbourIndices(
+            ee=_get_neighbours(dist_ee, self.cutoff, max_n_neighbours.ee),
+            en=_get_neighbours(dist_en, self.cutoff, max_n_neighbours.en),
+            ne=_get_neighbours(dist_ne, self.cutoff, max_n_neighbours.ne),
+            en_1el=_get_neighbours(dist_en, self.cutoff_1el, max_n_neighbours.en_1el),
+        )
 
     def init(self, rng: Array, electrons: Array, static: StaticInputMoon) -> Parameters:
         dtype = electrons.dtype
@@ -664,8 +691,7 @@ class MoonEmbedding(PyTreeNode):
         return_scales: bool = False,
         return_state: bool = False,
     ) -> ElectronEmb | tuple[ElectronEmb, MoonScales] | tuple[ElectronEmb, MoonState]:
-        # TODO(ms,cluster): idx_nb, actual_static = self.get_neighbour_indices(electrons, static.n_neighbours)
-        n_neighbours_actual, idx_nb = self.get_neighbour_indices(electrons, static.n_neighbours)
+        idx_nb = self.get_neighbour_indices(electrons, static.n_neighbours)
         spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el = get_neighbour_coordinates(
             electrons, self.R, idx_nb, self.spins
         )
@@ -722,7 +748,6 @@ class MoonEmbedding(PyTreeNode):
         if return_scales:
             return h_out, params.scales  # type: ignore
 
-        zero = jnp.zeros([], jnp.int32)
         if return_state:
             return h_out, MoonState(
                 electrons=electrons,
@@ -733,11 +758,6 @@ class MoonEmbedding(PyTreeNode):
                 HL_up=HL_up,
                 HL_dn=HL_dn,
                 h_out=h_out,
-                static=StaticInputMoon(
-                    n_neighbours=n_neighbours_actual,
-                    n_deps=NrOfDependencies(zero, zero, zero),
-                    n_changes=NrOfChanges(zero, zero, zero),
-                ),
             )
         return h_out
 
@@ -752,7 +772,7 @@ class MoonEmbedding(PyTreeNode):
         # TODO(ms,cluster): idx_nb, actual_static = self.get_neighbour_indices(electrons, static.n_neighbours)
         # actual_static = jtu.tree_map(jnp.maximum, state.static, actual_static)
 
-        n_neighbours_actual, idx_nb = self.get_neighbour_indices(electrons, static.n_neighbours)
+        idx_nb = self.get_neighbour_indices(electrons, static.n_neighbours)
         spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el = get_neighbour_coordinates(
             electrons, self.R, idx_nb, self.spins
         )
@@ -835,7 +855,6 @@ class MoonEmbedding(PyTreeNode):
         h_out = cast(jax.Array, h_out)
         h_out = state.h_out.at[idx_changed.out].set(h_out)
 
-        zero = jnp.zeros([], jnp.int32)
         return (
             h_out,
             idx_changed.out,
@@ -848,18 +867,13 @@ class MoonEmbedding(PyTreeNode):
                 HL_up=HL_up,
                 HL_dn=HL_dn,
                 h_out=h_out,
-                static=StaticInputMoon(
-                    n_neighbours=tree_maximum(state.static.n_neighbours, n_neighbours_actual),
-                    n_changes=tree_maximum(state.static.n_changes, n_changes_actual),
-                    n_deps=NrOfDependencies(zero, zero, zero),
-                ),
             ),
         )
 
     def apply_with_fwd_lap(
         self, params: MoonEmbeddingParams, electrons: Electrons, static: StaticInputMoon
     ) -> tuple[FwdLaplArray, Dependency]:
-        _, idx_nb = self.get_neighbour_indices(electrons, static.n_neighbours)
+        idx_nb = self.get_neighbour_indices(electrons, static.n_neighbours)
         spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el = get_neighbour_coordinates(
             electrons, self.R, idx_nb, self.spins
         )
@@ -949,28 +963,3 @@ class MoonEmbedding(PyTreeNode):
         apply_elec_out = jax.vmap(apply_elec_out, in_axes=-2, out_axes=-2)
         h_out = apply_elec_out(h0, msg)
         return h_out, deps.h_el_out
-
-    def get_static_input(self, electrons: Array) -> StaticInputMoon:
-        if electrons.ndim == 4:
-            # [device x local_batch x el x 3] => electrons are split across gpus;
-            n_neighbours, n_dependencies = get_static_pmapped(electrons, self.R, self.cutoff, self.cutoff_1el)
-            # Data is synchronized across all devices, so we can just take the 0-th element
-            n_dependencies = [int(x[0]) for x in n_dependencies]
-            n_neighbours = [int(x[0]) for x in n_neighbours]
-        else:
-            n_neighbours, n_dependencies = get_static_jitted(electrons, self.R, self.cutoff, self.cutoff_1el)
-            n_dependencies = [int(x) for x in n_dependencies]
-            n_neighbours = [int(x) for x in n_neighbours]
-
-        n_neighbours = NrOfNeighbours(*n_neighbours)
-        n_dependencies = NrOfDependencies(*n_dependencies)
-        n_changes = NrOfChanges(
-            h0=n_dependencies.h_el_initial + self.low_rank_buffer,
-            nuclei=n_dependencies.H_nuc + self.low_rank_buffer,
-            out=n_dependencies.h_el_out + self.low_rank_buffer,
-        )
-        return StaticInputMoon(
-            n_neighbours=n_neighbours,
-            n_deps=n_dependencies,
-            n_changes=n_changes,
-        )

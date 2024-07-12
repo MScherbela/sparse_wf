@@ -87,7 +87,7 @@ for run_name in sorted(all_data.keys()):
     ax.set_xlabel("MCMC steps")
     ax.set_ylabel("Correlation coeff.")
     fig.savefig(f"ac_{run_name}.png", dpi=100)
-    fig.close()
+    # fig.close()
 
 df_corr = pd.DataFrame(df_corr)
 df_corr["cluster_radius"] = df_corr["cluster_radius"].fillna(0)

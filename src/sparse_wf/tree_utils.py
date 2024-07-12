@@ -79,5 +79,13 @@ def tree_take(tree: T, idx, axis) -> T:
     return jtu.tree_map(take, tree)
 
 
+def tree_max(tree, axis=None):
+    return jtu.tree_map(lambda x: jnp.max(x, axis), tree)
+
+
 def tree_maximum(tree1, tree2):
     return jtu.tree_map(jnp.maximum, tree1, tree2)
+
+
+def tree_zeros_like(tree, dtype=None, shape=None):
+    return jtu.tree_map(lambda x: jnp.zeros_like(x, dtype, shape), tree)
