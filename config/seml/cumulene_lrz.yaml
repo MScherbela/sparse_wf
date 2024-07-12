@@ -21,7 +21,7 @@ fixed:
   logging_args.wandb.project: "ngao_cumulene"
   molecule_args:
     method: database
-  batch_size: 4096
+  batch_size: 2048
   optimization:
     steps: 100_000
     energy_operator: sparse
