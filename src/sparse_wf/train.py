@@ -117,7 +117,6 @@ def main(
     mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
     static_scheduler = StaticScheduler(n_el)
-    # cluster_size_scheduler = ClusterSizeScheduler(n_el)
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)

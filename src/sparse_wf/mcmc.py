@@ -10,7 +10,6 @@ import functools
 
 from sparse_wf.api import (
     Charges,
-    ClosedLogLikelihood,
     Electrons,
     Int,
     LogAmplitude,
@@ -32,27 +31,66 @@ from sparse_wf.model.graph_utils import NO_NEIGHBOUR
 from sparse_wf.tree_utils import tree_add, tree_maximum, tree_zeros_like
 
 
-def mh_update_all_electron(
-    log_prob_fn: ClosedLogLikelihood,
-    key: PRNGKeyArray,
-    electrons: Electrons,
-    log_prob: LogAmplitude,
-    stats: dict,
-    width: Width,
-) -> tuple[PRNGKeyArray, Electrons, LogAmplitude, dict]:
-    key, subkey = jax.random.split(key)
-    eps = jax.random.normal(subkey, electrons.shape, dtype=electrons.dtype) * width
-    new_electrons = electrons + eps
-    new_log_prob = log_prob_fn(new_electrons)
-    log_ratio = new_log_prob - log_prob
+P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
-    key, subkey = jax.random.split(key)
-    u = jax.random.uniform(subkey, log_ratio.shape)
-    accept = log_ratio > jnp.log(u)
-    new_electrons = jnp.where(accept[..., None, None], new_electrons, electrons)
-    new_log_prob = jnp.where(accept, new_log_prob, log_prob)
-    stats["num_accepts"] += jnp.sum(accept).astype(jnp.int32)
-    return key, new_electrons, new_log_prob, stats
+
+def mcmc_steps_all_electron(
+    logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    steps: int,
+    key: PRNGKeyArray,
+    params: P,
+    electrons: Electrons,
+    static: StaticInput[S],
+    width: Width,
+):
+    n_el = electrons.shape[-2]
+
+    def log_prob_fn(electrons: Electrons) -> LogAmplitude:
+        return 2 * logpsi_fn(params, electrons, static.model)
+
+    @functools.partial(jax.vmap, in_axes=(None, 0))
+    def step_fn(_, carry):
+        key, electrons, log_prob, static_mean, static_max, num_accept = carry
+        key, key_propose, key_accept = jax.random.split(key, 3)
+
+        # Make proposal
+        eps = jax.random.normal(key_propose, electrons.shape, dtype=electrons.dtype) * width
+        new_electrons = electrons + eps
+        new_log_prob = log_prob_fn(new_electrons)
+
+        # Track actual static neigbour counts
+        actual_model_static = logpsi_fn.get_static_input(electrons, new_electrons, np.arange(n_el))
+        actual_static = StaticInput(model=actual_model_static, mcmc=MCMCStaticArgs(n_el))
+        static_mean = tree_add(static_mean, actual_static)
+        static_max = tree_maximum(static_max, actual_static)
+
+        # Accept/reject
+        log_ratio = new_log_prob - log_prob
+        u = jax.random.uniform(key_accept, log_ratio.shape)
+        accept = log_ratio > jnp.log(u)
+        new_electrons = jnp.where(accept, new_electrons, electrons)
+        new_log_prob = jnp.where(accept, new_log_prob, log_prob)
+        num_accept += accept.astype(jnp.int32)
+        return key, electrons, log_prob, static_mean, static_max, num_accept
+
+    local_batch_size = electrons.shape[0]
+    logprob = jax.vmap(log_prob_fn)(electrons)
+    actual_static = StaticInput(model=logpsi_fn.get_static_input(electrons), mcmc=MCMCStaticArgs(max_cluster_size=0))
+    x0 = (
+        jax.random.split(key, local_batch_size),
+        electrons,
+        logprob,
+        tree_zeros_like(actual_static, jnp.int32, local_batch_size),
+        tree_zeros_like(actual_static, jnp.int32, local_batch_size),
+        jnp.zeros(local_batch_size, dtype=jnp.int32),
+    )
+    _, electrons, _, static_mean, static_max, num_accept = lax.fori_loop(0, steps, step_fn, x0)
+    summary_stats = {
+        "mcmc/pmove": psum_if_pmap(jnp.mean(num_accept) / steps),
+        "static/mean": jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
+        "static/max": jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
+    }
+    return electrons, summary_stats
 
 
 def proposal_single_electron(
@@ -97,67 +135,6 @@ def proposal_cluster_update(
     proposal_log_ratio = jnp.sum(log_p_select2) - jnp.sum(log_p_select1)
     actual_cluster_size = jnp.sum(do_move).astype(jnp.int32)
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
-
-
-def mh_update_low_rank(
-    update_logprob_fn: Callable,
-    proposal_fn: Callable,
-    max_cluster_size: int,
-    idx_step: int,
-    key: PRNGKeyArray,
-    electrons: Electrons,
-    log_prob: LogAmplitude,
-    model_state: dict,
-    stats: dict,
-    width: Width,
-) -> tuple[PRNGKeyArray, Electrons, LogAmplitude, dict, dict]:
-    # Make proposal
-    key, key_propose, key_accept = jax.random.split(key, 3)
-    proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size = proposal_fn(
-        idx_step, key_propose, electrons, width, max_cluster_size
-    )
-
-    # Accept/reject
-    proposed_logprob, proposed_model_state = update_logprob_fn(proposed_electrons, idx_el_changed, model_state)
-    log_ratio = proposal_log_ratio + proposed_logprob - log_prob
-    accept = log_ratio > jnp.log(jax.random.uniform(key_accept, log_ratio.shape))
-    new_electrons, new_logprob, new_model_state = jtu.tree_map(
-        lambda new, old: jnp.where(accept, new, old),
-        (proposed_electrons, proposed_logprob, proposed_model_state),
-        (electrons, log_prob, model_state),
-    )
-    stats["num_accepts"] += jnp.sum(accept).astype(jnp.int32)
-    stats["max_cluster_size"] = jnp.maximum(stats["max_cluster_size"], actual_cluster_size)
-    stats["mean_cluster_size"] = stats["mean_cluster_size"] + actual_cluster_size
-    stats["static_mean"] = tree_add(stats["static_mean"], new_model_state.embedding.static)
-    stats["static_max"] = tree_maximum(stats["static_max"], new_model_state.embedding.static)
-    return key, new_electrons, new_logprob, new_model_state, stats
-
-
-P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
-
-
-def mcmc_steps_all_electron(
-    logpsi_fn: ParameterizedWaveFunction[P, S, MS],
-    steps: int,
-    key: PRNGKeyArray,
-    params: P,
-    electrons: Electrons,
-    static: StaticInput[S],
-    width: Width,
-):
-    def log_prob_fn(electrons: Electrons) -> LogAmplitude:
-        return 2 * jax.vmap(lambda r: logpsi_fn(params, r, static.model))(electrons)
-
-    def step_fn(_, x):
-        return mh_update_all_electron(log_prob_fn, *x, width)  # type: ignore
-
-    local_batch_size = electrons.shape[0]
-    logprob = log_prob_fn(electrons)
-    stats = dict(num_accepts=jnp.zeros((), dtype=jnp.int32))
-    key, electrons, logprob, stats = lax.fori_loop(0, steps, step_fn, (key, electrons, logprob, stats))
-    summary_stats = {"mcmc/pmove": psum_if_pmap(stats["num_accepts"]) / (steps * local_batch_size * jax.device_count())}
-    return electrons, summary_stats
 
 
 def mcmc_steps_low_rank(
