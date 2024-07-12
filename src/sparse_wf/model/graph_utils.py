@@ -9,7 +9,7 @@ from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer, Shaped
 
 from sparse_wf.api import Electrons, Int, Nuclei
-from sparse_wf.jax_utils import pmax_if_pmap, vectorize
+from sparse_wf.jax_utils import vectorize
 from sparse_wf.model.utils import slog_and_inverse
 
 NO_NEIGHBOUR = 1_000_000
@@ -30,37 +30,6 @@ def get_full_distance_matrices(r: Electrons, R: Nuclei) -> tuple[DistanceMatrix,
     dist_ee = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
     dist_ne = jnp.linalg.norm(R[:, None, :] - r[None, :, :], axis=-1)
     return dist_ee, dist_ne
-
-
-def round_to_next_step(
-    n: int | Int,
-    padding_factor: float,
-    n_neighbours_min: int,
-    n_neighbours_max: int,
-) -> Int:
-    # jittable version of the following if statement:
-    # if padding_factor == 1.0:
-    pad_1_result = jnp.maximum(n, n_neighbours_min)
-    # else:
-    power_padded = jnp.log(n) / jnp.log(padding_factor)
-    pad_else_result = jnp.maximum(n_neighbours_min, padding_factor ** jnp.ceil(power_padded))
-    result = jnp.where(padding_factor == 1.0, pad_1_result, pad_else_result)
-    return jnp.round(jnp.minimum(result, n_neighbours_max)).astype(int)
-
-
-def get_nr_of_neighbours(
-    dist_ee: DistanceMatrix,
-    dist_ne: DistanceMatrix,
-    cutoff: float,
-    cutoff_1el: float,
-):
-    n_el = dist_ee.shape[-1]
-    dist_ee += jnp.diag(jnp.ones(n_el, dist_ee.dtype) * jnp.inf)
-    n_ee = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff, axis=-1)))
-    n_ne = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-1)))
-    n_en = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-2)))
-    n_en_1el = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff_1el, axis=-2)))
-    return n_ee, n_en, n_ne, n_en_1el
 
 
 def get_with_fill(

@@ -1,9 +1,14 @@
 from sparse_wf.api import Int, StaticInput
 from sparse_wf.tree_utils import tree_zeros_like
 from typing import Optional
+import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
+
+
+def to_static(static: StaticInput[jax.Array]) -> StaticInput[int]:
+    return jtu.tree_map(lambda x: int(jnp.max(x)), static)
 
 
 class StaticScheduler:

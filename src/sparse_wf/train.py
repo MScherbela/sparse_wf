@@ -2,8 +2,6 @@ import logging
 import os
 from typing import Optional, Any
 
-from sparse_wf.static_args import StaticScheduler
-
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
 # ruff: noqa: E402
@@ -22,7 +20,8 @@ from sparse_wf.api import (
     MCMCArgs,
     StaticInput,
 )
-from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, get_from_main_process
+from sparse_wf.static_args import StaticScheduler, to_static
+from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, pmax, get_from_main_process
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler, MCMCStaticArgs
 
@@ -157,7 +156,8 @@ def main(
         wf, pretraining_mcmc_step, mcmc_width_scheduler, hf_orbitals_fn, make_optimizer(**pretraining["optimizer_args"])
     )
     state = pretrainer.init(state)
-    static = StaticInput(model=wf.get_static_input(state.electrons), mcmc=MCMCStaticArgs(1)).to_int()
+    static = StaticInput(model=pmap(lambda r: pmax(wf.get_static_input(r)))(state.electrons), mcmc=MCMCStaticArgs(1))
+    static = to_static(static)
 
     logging.info("Pretraining")
     for step in range(pretraining["steps"]):

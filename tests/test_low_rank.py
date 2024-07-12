@@ -1,9 +1,11 @@
 # %%
 import functools
 import os
+import socket
 
 # ruff: noqa: E402 # Allow setting environment variables before importing jax
-# os.environ["CUDA_VISIBLE_DEVICES"] = ""
+if socket.gethostname() == "gpu1-mat":
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
 
@@ -15,6 +17,7 @@ import pytest
 from jax import config as jax_config
 from sparse_wf.mcmc import init_electrons
 from sparse_wf.model.utils import get_relative_tolerance
+from sparse_wf.static_args import to_static
 
 from utils import build_atom_chain, build_model, change_float_dtype
 
@@ -30,9 +33,10 @@ def setup_inputs(dtype):
     model = build_model(mol)
     model = jtu.tree_map(lambda x: change_float_dtype(x, dtype), model)
     electrons = init_electrons(rng_r, mol, batch_size=1)[0]
+    n_el = electrons.shape[-2]
     params = model.init(rng_params, electrons)
     params, electrons = jtu.tree_map(lambda x: change_float_dtype(x, dtype), (params, electrons))
-    static_args = model.get_static_input(electrons)
+    static_args = to_static(model.get_static_input(electrons, electrons, np.arange(n_el)))
     return model, electrons, params, static_args
 
 
@@ -63,3 +67,8 @@ def test_low_rank_update_logpsi(dtype):
         params, electrons_new_new, idx_changed, static_args, state_new
     )
     assert jnp.allclose(logpsi_new_new_update, logpsi_new_new, rtol=get_relative_tolerance(dtype))
+
+
+if __name__ == "__main__":
+    for dtype in [jnp.float32, jnp.float64]:
+        test_low_rank_update_logpsi(dtype)
