@@ -23,9 +23,12 @@ fixed:
     method: database
   batch_size: 2048
   optimization:
-    max_batch_size: 8
+    max_batch_size: 1
     steps: 100_000
     energy_operator: sparse
+    preconditioner_args:
+      spring_dense_args:
+        max_batch_size: 32
   mcmc_args:
     proposal: single-electron
   logging_args.name_keys:
@@ -42,14 +45,14 @@ grid:
       name:
         type: choice
         options:
-          - cumulene_C4H4_0deg
-          - cumulene_C4H4_90deg
-          - cumulene_C5H4_0deg
-          - cumulene_C5H4_90deg
-          - cumulene_C10H4_0deg
-          - cumulene_C10H4_90deg
-          - cumulene_C20H4_0deg
-          - cumulene_C20H4_90deg
+          # - cumulene_C4H4_0deg
+          # - cumulene_C4H4_90deg
+          # - cumulene_C5H4_0deg
+          # - cumulene_C5H4_90deg
+          # - cumulene_C10H4_0deg
+          # - cumulene_C10H4_90deg
+          # - cumulene_C20H4_0deg
+          # - cumulene_C20H4_90deg
           - cumulene_C30H4_0deg
           - cumulene_C30H4_90deg
           - cumulene_C40H4_0deg
