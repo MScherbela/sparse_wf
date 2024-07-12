@@ -20,7 +20,7 @@ from sparse_wf.api import (
     MCMCArgs,
     StaticInput,
 )
-from sparse_wf.static_args import StaticScheduler, to_static
+from sparse_wf.static_args import StaticScheduler
 from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, pmax, get_from_main_process
 from sparse_wf.loggers import MultiLogger
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler, MCMCStaticArgs
@@ -115,7 +115,7 @@ def main(
     electrons = init_electrons(subkey, mol, batch_size)
     mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
-    static_scheduler = StaticScheduler(n_el)
+    static_scheduler = StaticScheduler(n_el, len(R))
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
@@ -156,10 +156,8 @@ def main(
         wf, pretraining_mcmc_step, mcmc_width_scheduler, hf_orbitals_fn, make_optimizer(**pretraining["optimizer_args"])
     )
     state = pretrainer.init(state)
-    static = StaticInput(
-        model=pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons), mcmc=MCMCStaticArgs(1)
-    )
-    static = to_static(static)
+    model_static = pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons)
+    static = static_scheduler(StaticInput(model_static, MCMCStaticArgs(1)))
 
     logging.info("Pretraining")
     for step in range(pretraining["steps"]):

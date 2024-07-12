@@ -13,6 +13,7 @@ from jaxtyping import Array, Float, Integer
 from folx.api import FwdLaplArray
 from sparse_wf.api import Charges, ElectronEmb, ElectronIdx, Electrons, Int, Nuclei, NucleiIdx, Parameters, Spins
 from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap
+from sparse_wf.static_args import round_with_padding
 from sparse_wf.model.graph_utils import (
     NO_NEIGHBOUR,
     Dependency,
@@ -81,6 +82,25 @@ class StaticInputMoon(NamedTuple, Generic[T]):
             "static/n_deps_H": self.n_deps.H_nuc,
             "static/n_deps_hout": self.n_deps.h_el_out,
         }
+
+    def round_with_padding(self, padding_factor, n_el, n_nuc):
+        n_neighbours = NrOfNeighbours(
+            ee=round_with_padding(self.n_neighbours.ee, padding_factor, n_el - 1),
+            en=round_with_padding(self.n_neighbours.en, padding_factor, n_nuc),
+            ne=round_with_padding(self.n_neighbours.ne, padding_factor, n_el),
+            en_1el=round_with_padding(self.n_neighbours.en_1el, padding_factor, n_nuc),
+        )
+        n_deps = NrOfDependencies(
+            h_el_initial=n_neighbours.ee + 1,
+            H_nuc=round_with_padding(self.n_deps.H_nuc, padding_factor, n_el),
+            h_el_out=round_with_padding(self.n_deps.h_el_out, padding_factor, n_el),
+        )
+        n_changes = NrOfChanges(
+            h0=round_with_padding(self.n_changes.h0, padding_factor, n_el),
+            nuclei=round_with_padding(self.n_changes.nuclei, padding_factor, n_nuc),
+            out=round_with_padding(self.n_changes.out, padding_factor, n_el),
+        )
+        return StaticInputMoon(n_deps, n_neighbours, n_changes)
 
 
 class NeighbourIndices(NamedTuple):
