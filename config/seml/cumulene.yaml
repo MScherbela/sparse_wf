@@ -33,17 +33,3 @@ grid:
         options:
           - cumulene_C4H4_0deg
           # - cumulene_C6H4_0deg
-
-new_embedding:
-  fixed:
-    model_args.embedding.embedding: new
-  grid:
-    model_args.embedding.new.n_updates:
-      type: choice
-      options: [1]
-    model_args.embedding.new.cutoff:
-      type: choice
-      options: [6.0, 9.0]
-# moon_embedding:
-#   fixed:
-#     model_args.embedding.embedding: moon

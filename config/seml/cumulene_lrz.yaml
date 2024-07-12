@@ -23,6 +23,7 @@ fixed:
     method: database
   batch_size: 2048
   optimization:
+    max_batch_size: 8
     steps: 100_000
     energy_operator: sparse
   mcmc_args:

@@ -77,7 +77,7 @@ optimization:
   energy_operator: sparse
   steps: 100_000
   burn_in: 500
-  max_batch_size: 64
+  max_batch_size: 16
   optimizer_args:
     lr_schedule: hyperbolic
     lr_schedule_args:
