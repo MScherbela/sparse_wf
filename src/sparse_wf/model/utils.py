@@ -7,7 +7,7 @@ import jax.nn as jnn
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike, Float
 
-from sparse_wf.api import ElectronIdx, Electrons, HFOrbitals, Int, SignedLogAmplitude, SlaterMatrices
+from sparse_wf.api import ElectronIdx, Electrons, HFOrbitals, Int, ScalingParam, SignedLogAmplitude, SlaterMatrices
 from sparse_wf.jax_utils import vectorize
 
 ElecInp = Float[Array, "*batch n_electrons n_in"]
@@ -58,7 +58,7 @@ class GatedLinearUnit(nn.Module):
     def __call__(self, x: Float[Array, "*batch_dims inp_dim"]) -> Float[Array, "*batch_dims out_dim"]:
         x = nn.Dense(2 * self.out_dim, use_bias=False)(x)
         x, gate = jnp.split(x, 2, axis=-1)
-        return nn.Dense(self.out_dim, use_bias=False)(x * nn.silu(gate))
+        return x * nn.silu(gate)
 
 
 def init_glu_feedforward(rng, width: int, depth: int, input_dim: int, out_dim: Optional[int] = None):
@@ -202,11 +202,13 @@ def signed_logpsi_from_orbitals(orbitals: SlaterMatrices, return_state: bool = F
     # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
     # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
     sign, logdet = functools.reduce(
-        lambda x, y: (x[0] * y[0], x[1] + y[1]), slogdets, (jnp.ones((), dtype=dtype), jnp.zeros((), dtype=dtype))
+        lambda x, y: (x[0] * y[0], x[1] + y[1]),  # type: ignore
+        slogdets,
+        (jnp.ones((), dtype=dtype), jnp.zeros((), dtype=dtype)),
     )
     logpsi, signpsi = jnn.logsumexp(logdet, b=sign, return_sign=True)
     if return_state:
-        return (signpsi, logpsi), LogPsiState(orbitals, inverses, slogdets)
+        return (signpsi, logpsi), LogPsiState(orbitals, inverses, slogdets)  # type: ignore
     return (signpsi, logpsi)
 
 
@@ -383,9 +385,6 @@ def get_diff_features(
 
 
 get_diff_features_vmapped = jax.vmap(get_diff_features, in_axes=(None, 0, None, 0))
-
-
-ScalingParam = Float[Array, ""]
 
 
 def normalize(x, scale: ScalingParam | None, return_scale=False):

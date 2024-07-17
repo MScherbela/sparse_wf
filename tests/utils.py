@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import numpy as np
 from pyscf.gto import Mole
 
-from sparse_wf.api import EmbeddingArgs, EnvelopeArgs, JastrowArgs
+from sparse_wf.api import EmbeddingArgs, MoonEmbeddingArgs, EnvelopeArgs, JastrowArgs, NewEmbeddingArgs
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
 
 
@@ -18,13 +18,26 @@ def build_model(mol):
         mol,
         n_determinants=2,
         embedding=EmbeddingArgs(
-            cutoff=2.0,
-            cutoff_1el=20.0,
-            feature_dim=128,
-            nuc_mlp_depth=2,
-            pair_mlp_widths=(16, 8),
-            pair_n_envelopes=32,
-            low_rank_buffer=2,
+            embedding="new",
+            new=NewEmbeddingArgs(
+                cutoff=2.0,
+                cutoff_1el=20.0,
+                feature_dim=128,
+                nuc_mlp_depth=2,
+                pair_mlp_widths=(16, 8),
+                pair_n_envelopes=32,
+                low_rank_buffer=2,
+                n_updates=2,
+            ),
+            moon=MoonEmbeddingArgs(
+                cutoff=2.0,
+                cutoff_1el=20.0,
+                feature_dim=128,
+                nuc_mlp_depth=2,
+                pair_mlp_widths=(16, 8),
+                pair_n_envelopes=32,
+                low_rank_buffer=2,
+            ),
         ),
         jastrow=JastrowArgs(
             e_e_cusps="psiformer",

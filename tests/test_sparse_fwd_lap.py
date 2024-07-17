@@ -1,12 +1,14 @@
 # %%
 import functools
 import os
+import socket
 
 from sparse_wf.model.utils import get_relative_tolerance
 from utils import build_atom_chain, build_model, change_float_dtype
 
 # ruff: noqa: E402 # Allow setting environment variables before importing jax
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+if socket.gethostname() == "gpu1-mat":
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Disable GPUs on the HGX, because otherwise it will use all GPUs
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
 import jax

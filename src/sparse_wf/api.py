@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar
+from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar, overload
 import jax
 import numpy as np
 import optax
@@ -48,6 +48,11 @@ AuxData = PyTree[Float[Array, ""]]
 Step = Integer[ArrayLike, ""]
 ModelCache = PyTree[Any]
 
+ScalingParam = Float[Array, ""]
+
+Dependant = Integer[Array, "n_dependants"]
+Dependency = Integer[Array, "n_deps"]
+DependencyMap = Integer[Array, "n_center n_neighbour n_deps"]
 
 ############################################################################
 # Wave function
@@ -64,6 +69,59 @@ MS = TypeVar("MS")
 
 class HFOrbitalFn(Protocol):
     def __call__(self, electrons: Electrons) -> HFOrbitals: ...
+
+
+P2 = TypeVar("P2", bound=Parameters)
+ES = TypeVar("ES")
+
+
+class Embedding(Protocol[P2, S, ES]):
+    feature_dim: int
+
+    @overload
+    def apply(
+        self,
+        params: P2,
+        electrons: Electrons,
+        static: S,
+        return_scales: Literal[False] = False,
+        return_state: Literal[False] = False,
+    ) -> ElectronEmb: ...
+
+    @overload
+    def apply(
+        self,
+        params: P2,
+        electrons: Electrons,
+        static: S,
+        return_scales: Literal[True],
+        return_state: Literal[False] = False,
+    ) -> tuple[ElectronEmb, PyTree[ScalingParam]]: ...
+
+    @overload
+    def apply(
+        self,
+        params: P2,
+        electrons: Electrons,
+        static: S,
+        return_scales: Literal[False],
+        return_state: Literal[True],
+    ) -> tuple[ElectronEmb, ES]: ...
+
+    def apply(
+        self,
+        params: P2,
+        electrons: Electrons,
+        static: S,
+        return_scales: bool = False,
+        return_state: bool = False,
+    ): ...
+    def init(self, key: PRNGKeyArray, electrons: Electrons, static: S) -> P2: ...
+    def get_static_input(self, electrons: Electrons) -> S: ...
+    def low_rank_update(
+        self, params: P2, electrons: Electrons, changed_electrons: ElectronIdx, static: S, state: ES
+    ) -> tuple[ElectronEmb, ElectronIdx, ES]: ...
+    def apply_with_fwd_lap(self, params: P2, electrons: Electrons, static: S) -> tuple[ElectronEmb, Dependency]: ...
 
 
 class ParameterizedWaveFunction(Protocol[P, S, MS]):
@@ -291,7 +349,17 @@ class Logger(Protocol):
 ############################################################################
 # Arguments
 ############################################################################
-class EmbeddingArgs(TypedDict):
+class NewEmbeddingArgs(TypedDict):
+    cutoff: float
+    cutoff_1el: float
+    feature_dim: int
+    pair_mlp_widths: tuple[int, int]
+    pair_n_envelopes: int
+    low_rank_buffer: int
+    n_updates: int
+
+
+class MoonEmbeddingArgs(TypedDict):
     cutoff: float
     cutoff_1el: float
     feature_dim: int
@@ -299,6 +367,12 @@ class EmbeddingArgs(TypedDict):
     pair_mlp_widths: tuple[int, int]
     pair_n_envelopes: int
     low_rank_buffer: int
+
+
+class EmbeddingArgs(TypedDict):
+    embedding: Literal["moon", "new"]
+    moon: MoonEmbeddingArgs
+    new: NewEmbeddingArgs
 
 
 class JastrowArgs(TypedDict):
@@ -427,6 +501,7 @@ class OptimizationArgs(TypedDict):
     clipping: ClippingArgs
     max_batch_size: int
     spin_operator_args: SpinOperatorArgs
+    energy_operator: str
 
 
 class PretrainingArgs(TypedDict):

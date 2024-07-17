@@ -11,7 +11,7 @@ from pyscf.gto import Mole
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.mcmc import init_electrons
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
-from sparse_wf.api import JastrowArgs, EmbeddingArgs
+from sparse_wf.api import JastrowArgs, MoonEmbeddingArgs, EmbeddingArgs, NewEmbeddingArgs
 
 jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
@@ -28,11 +28,26 @@ def build_model(mol):
     return MoonLikeWaveFunction.create(
         mol,
         embedding=EmbeddingArgs(
-            cutoff=2.0,
-            feature_dim=64,
-            nuc_mlp_depth=2,
-            pair_mlp_widths=(8, 4),
-            pair_n_envelopes=7,
+            embedding="new",
+            new=NewEmbeddingArgs(
+                cutoff=2.0,
+                cutoff_1el=20.0,
+                feature_dim=128,
+                nuc_mlp_depth=2,
+                pair_mlp_widths=(16, 8),
+                pair_n_envelopes=32,
+                low_rank_buffer=2,
+                n_updates=2,
+            ),
+            moon=MoonEmbeddingArgs(
+                cutoff=2.0,
+                cutoff_1el=20.0,
+                feature_dim=128,
+                nuc_mlp_depth=2,
+                pair_mlp_widths=(16, 8),
+                pair_n_envelopes=32,
+                low_rank_buffer=2,
+            ),
         ),
         n_envelopes=8,
         n_determinants=2,
@@ -42,7 +57,7 @@ def build_model(mol):
             use_mlp_jastrow=True,
             mlp_depth=2,
             mlp_width=8,
-        )
+        ),
     )
 
 
@@ -78,10 +93,12 @@ def to_zero_padded(x, dependencies):
     jac_out = jac_out.reshape([n_el * 3, *jac.shape[2:]])
     return FwdLaplArray(x.x, FwdJacobian(data=jac_out), x.laplacian)
 
+
 def print_diff(h_dense, h_sparse):
     def _diff_string(a, b):
         diff = jnp.linalg.norm(a - b)
         return f"abs={diff:.1e} rel={diff / jnp.linalg.norm(a):.1e}"
+
     print(f"Value:     {_diff_string(h_dense.x, h_sparse.x)}")
     print(f"Jacobian:  {_diff_string(h_dense.jacobian.data, h_sparse.jacobian.data)}")
     print(f"Laplacian: {_diff_string(h_dense.laplacian, h_sparse.laplacian)}")

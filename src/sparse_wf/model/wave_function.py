@@ -1,5 +1,5 @@
 import functools
-from typing import Literal, NamedTuple, cast, overload
+from typing import Generic, Literal, NamedTuple, TypeVar, cast, overload
 
 import einops
 import flax.linen as nn
@@ -16,6 +16,7 @@ from sparse_wf.api import (
     ElectronEmb,
     ElectronIdx,
     Electrons,
+    Embedding,
     EmbeddingArgs,
     HFOrbitals,
     JastrowArgs,
@@ -32,10 +33,11 @@ from sparse_wf.api import (
 from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.model.envelopes import EfficientIsotropicEnvelopes, GLUEnvelopes, Envelope
+from sparse_wf.model.new_model import NewEmbedding
 from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.graph_utils import slogdet_with_sparse_fwd_lap, zeropad_jacobian
 from sparse_wf.model.jastrow import Jastrow, JastrowState
-from sparse_wf.model.moon import MoonEmbedding, MoonState, StaticInputMoon
+from sparse_wf.model.moon import MoonEmbedding
 from sparse_wf.model.utils import (
     LogPsiState,
     hf_orbitals_to_fulldet_orbitals,
@@ -45,8 +47,13 @@ from sparse_wf.model.utils import (
 )
 
 
-class MoonLikeParams(NamedTuple):
-    embedding: Parameters
+T = TypeVar("T")
+S = TypeVar("S")
+ES = TypeVar("ES")
+
+
+class MoonLikeParams(NamedTuple, Generic[T]):
+    embedding: T
     to_orbitals: Parameters
     envelope: Parameters
     jastrow: Parameters
@@ -57,14 +64,14 @@ class OrbitalState(NamedTuple):
     orbitals: jax.Array
 
 
-class LowRankState(NamedTuple):
-    embedding: MoonState
+class LowRankState(NamedTuple, Generic[T]):
+    embedding: T
     orbitals: OrbitalState
     determinant: LogPsiState
     jastrow: JastrowState
 
 
-class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon, LowRankState], PyTreeNode):
+class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRankState[ES]], PyTreeNode):
     # Molecule
     R: Nuclei
     Z: Charges
@@ -77,7 +84,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
     # Submodules
     to_orbitals: nn.Dense
     envelope: Envelope
-    embedding: MoonEmbedding
+    embedding: Embedding[T, S, ES]
     jastrow: Jastrow
 
     @property
@@ -114,8 +121,16 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         elif envelopes["envelope"] == "glu":
             env = GLUEnvelopes(Z, n_determinants, n_electrons, **envelopes["glu_args"])  # type: ignore
         else:
-            raise ValueError(f"Unknown envelope type {envelopes['envelope']}")
+            raise ValueError(f"Unknown envelope type {envelopes['+envelope']}")
 
+        emb_mod: MoonEmbedding | NewEmbedding
+        match embedding["embedding"].lower():
+            case "moon":
+                emb_mod = MoonEmbedding.create(R, Z, n_electrons, n_up, **embedding["moon"])
+            case "new":
+                emb_mod = NewEmbedding.create(R, Z, n_electrons, n_up, **embedding["new"])
+            case _:
+                raise ValueError(f"Unknown embedding type {embedding['embedding']}")
         return cls(
             R=R,
             Z=Z,
@@ -128,14 +143,14 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
                 bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
             ),
             envelope=env,  # type: ignore
-            embedding=MoonEmbedding.create(R, Z, n_electrons, n_up, **embedding),
+            embedding=emb_mod,  # type: ignore
             jastrow=Jastrow(n_up, **jastrow),
         )
 
     @overload
     def _orbitals(
         self,
-        params: MoonLikeParams,
+        params: MoonLikeParams[T],
         electrons: Electrons,
         embeddings: ElectronEmb,
         return_state: Literal[False] = False,
@@ -144,7 +159,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
     @overload
     def _orbitals(
         self,
-        params: MoonLikeParams,
+        params: MoonLikeParams[T],
         electrons: Electrons,
         embeddings: ElectronEmb,
         return_state: Literal[True],
@@ -152,7 +167,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
 
     def _orbitals(
         self,
-        params: MoonLikeParams,
+        params: MoonLikeParams[T],
         electrons: Electrons,
         embeddings: ElectronEmb,
         return_state: bool = False,
@@ -169,7 +184,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
 
     def _orbitals_low_rank(
         self,
-        params: MoonLikeParams,
+        params: MoonLikeParams[T],
         electrons: Electrons,
         embeddings: ElectronEmb,
         position_changed_electrons: ElectronIdx,
@@ -188,7 +203,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         return (swap_bottom_blocks(orbitals, self.n_up),), OrbitalState(envelopes, raw_orbitals)
 
     def _orbitals_with_fwd_lap(
-        self, params: MoonLikeParams, electrons: Electrons, embeddings: ElectronEmb
+        self, params: MoonLikeParams[T], electrons: Electrons, embeddings: ElectronEmb
     ) -> tuple[FwdLaplArray]:
         # vmap over electrons
         @functools.partial(jax.vmap, in_axes=(0, -2), out_axes=-2)
@@ -208,7 +223,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         orbitals = jtu.tree_map(lambda o: swap_bottom_blocks(o, self.n_up), orbitals)
         return orbitals
 
-    def _logpsi_with_fwd_lap(self, params, electrons, static):
+    def _logpsi_with_fwd_lap(self, params: MoonLikeParams[T], electrons: Electrons, static: S):
         embeddings, dependencies = self.embedding.apply_with_fwd_lap(params.embedding, electrons, static)
         orbitals = self._orbitals_with_fwd_lap(params, electrons, embeddings)
 
@@ -221,7 +236,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         logpsi = tree_add(logpsi, logpsi_jastrow)
         return logpsi
 
-    def signed(self, params: MoonLikeParams, electrons: Electrons, static: StaticInputMoon) -> SignedLogAmplitude:
+    def signed(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> SignedLogAmplitude:
         embeddings = self.embedding.apply(params.embedding, electrons, static)
         orbitals = self._orbitals(params, electrons, embeddings)
         signpsi, logpsi = signed_logpsi_from_orbitals(orbitals)
@@ -230,38 +245,36 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
         logpsi += log_J
         return signpsi, logpsi
 
-    def orbitals(self, params: MoonLikeParams, electrons: Electrons, static: StaticInputMoon) -> SlaterMatrices:
+    def orbitals(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> SlaterMatrices:
         embeddings = self.embedding.apply(params.embedding, electrons, static)
         orbitals = self._orbitals(params, electrons, embeddings)
         return cast(SlaterMatrices, orbitals)
 
-    def orbitals_with_fwd_lap(
-        self, params: MoonLikeParams, electrons: Electrons, static: StaticInputMoon
-    ) -> FwdLaplArray:
+    def orbitals_with_fwd_lap(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> FwdLaplArray:
         embeddings, dependencies = self.embedding.apply_with_fwd_lap(params.embedding, electrons, static)
         orbitals = self._orbitals_with_fwd_lap(params, electrons, embeddings)
         return orbitals, dependencies
 
-    def __call__(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LogAmplitude:
+    def __call__(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LogAmplitude:
         return self.signed(params, electrons, static)[1]
 
-    def get_static_input(self, electrons: Electrons) -> StaticInputMoon:
+    def get_static_input(self, electrons: Electrons) -> S:
         return self.embedding.get_static_input(electrons)
 
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
-    def local_energy(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LocalEnergy:
+    def local_energy(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LocalEnergy:
         logpsi = self._logpsi_with_fwd_lap(params, electrons, static)
         kinetic_energy = -0.5 * (logpsi.laplacian.sum() + jnp.vdot(logpsi.jacobian.data, logpsi.jacobian.data))
         potential = potential_energy(electrons, self.R, self.Z)
         return kinetic_energy + potential
 
-    def local_energy_dense(self, params: Parameters, electrons: Electrons, static: StaticInputMoon) -> LocalEnergy:
+    def local_energy_dense(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LocalEnergy:
         return make_local_energy(self, self.R, self.Z)(params, electrons, static)
 
     def log_psi_with_state(
-        self, params: Parameters, electrons: Electrons, static: StaticInputMoon
+        self, params: MoonLikeParams[T], electrons: Electrons, static: S
     ) -> tuple[SignedLogAmplitude, LowRankState]:
         embeddings, state = self.embedding.apply(
             params.embedding,
@@ -284,10 +297,10 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[Parameters, StaticInputMoon
 
     def log_psi_low_rank_update(
         self,
-        params: Parameters,
+        params: MoonLikeParams[T],
         electrons: Electrons,
         changed_electrons: ElectronIdx,
-        static: StaticInputMoon,
+        static: S,
         state: LowRankState,
     ) -> tuple[SignedLogAmplitude, LowRankState]:
         embeddings, changed_embeddings, embedding_state = self.embedding.low_rank_update(

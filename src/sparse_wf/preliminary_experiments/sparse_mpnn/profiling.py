@@ -1,8 +1,9 @@
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
-from sparse_wf.api import JastrowArgs, EmbeddingArgs, EnvelopeArgs
+from sparse_wf.api import EmbeddingArgs, JastrowArgs, MoonEmbeddingArgs, EnvelopeArgs, NewEmbeddingArgs
 from sparse_wf.mcmc import make_mcmc
 import jax
 import jax.numpy as jnp
@@ -26,6 +27,7 @@ def build_atom_chain(rng, n_nuc, n_el_per_nuc, batch_size):
     mol = Mole(atom=[(int(Z_), R_) for R_, Z_ in zip(R, Z)]).build()
     return r, mol
 
+
 batch_size = 8
 n_determinants = 16
 mcmc_intersteps = 50
@@ -36,12 +38,30 @@ n_el = electrons.shape[-2]
 model = MoonLikeWaveFunction.create(
     mol,
     EmbeddingArgs(
-        cutoff=5.0, cutoff_1el=20.0, feature_dim=256, nuc_mlp_depth=4, pair_mlp_widths=(16, 8), pair_n_envelopes=16, low_rank_buffer=2,
-    ),
+        embedding="new",
+        new=NewEmbeddingArgs(
+            cutoff=2.0,
+            cutoff_1el=20.0,
+            feature_dim=128,
+            nuc_mlp_depth=2,
+            pair_mlp_widths=(16, 8),
+            pair_n_envelopes=32,
+            low_rank_buffer=2,
+            n_updates=2,
+        ),
+        moon=MoonEmbeddingArgs(
+            cutoff=2.0,
+            cutoff_1el=20.0,
+            feature_dim=128,
+            nuc_mlp_depth=2,
+            pair_mlp_widths=(16, 8),
+            pair_n_envelopes=32,
+            low_rank_buffer=2,
+        ),
+        ),
     JastrowArgs(e_e_cusps="psiformer", use_log_jastrow=True, use_mlp_jastrow=True, mlp_depth=2, mlp_width=64),
-    EnvelopeArgs(envelope="isotropic", isotropic_args=dict(n_envelopes=8), glu_args=None), # type: ignore
+    EnvelopeArgs(envelope="isotropic", isotropic_args=dict(n_envelopes=8), glu_args=None),  # type: ignore
     n_determinants,
-
 )
 params = model.init(rng_model, electrons[0])
 params = jtu.tree_map(lambda x: jnp.array(x, dtype), params)
@@ -53,10 +73,12 @@ get_logpsi = jax.jit(jax.vmap(model, in_axes=(None, 0, None)), static_argnums=2)
 mcmc_step, stepsize = make_mcmc(model, "single-electron", 0.2, mcmc_intersteps)
 mcmc_step = jax.jit(mcmc_step, static_argnums=3)
 
+
 def func_to_profile(params, electrons, static_args):
     # result = get_E_loc(params, electrons, static_args)
     result = mcmc_step(rng_mcmc, params, electrons, static_args, stepsize)[0]
     return result.block_until_ready()
+
 
 print("Running warmup passes for compilation")
 for i in range(3):

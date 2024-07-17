@@ -4,15 +4,16 @@ os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 os.environ["JAX_DEFAULT_DTYPE_BITS"] = "32"
 
 # ruff: noqa: E402
-from sparse_wf.api import LoggingArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs, MCMCArgs
+from collections import Counter
+from typing import Any, Sequence, cast
+
 import pyscf.gto
 import wonderwords
-from collections import Counter
-from typing import Any, cast, Sequence
 from seml import Experiment
 from seml.utils import flatten, merge_dicts
-from sparse_wf.train import main
+from sparse_wf.api import LoggingArgs, MCMCArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
 from sparse_wf.system import get_molecule
+from sparse_wf.train import main
 
 
 def get_run_name(mol: pyscf.gto.Mole, name_keys: Sequence[str] | None, config):

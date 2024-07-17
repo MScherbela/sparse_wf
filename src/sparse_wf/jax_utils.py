@@ -306,3 +306,9 @@ def get_from_main_process(data, has_device_axis=False):
     if not has_device_axis:
         data_on_main = jax.tree_util.tree_map(lambda x: x[0], data_on_main)
     return data_on_main
+
+
+def rng_sequence(key):
+    while True:
+        key, subkey = jax.random.split(key)
+        yield subkey

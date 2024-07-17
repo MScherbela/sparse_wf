@@ -1,0 +1,45 @@
+seml:
+  executable: train_with_seml.py
+  project_root_dir: ../../
+  output_dir: ~/slurm-output/
+
+slurm:
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:8
+      cpus-per-task: 16
+      mem: 64G
+      partition: mcml-dgx-a100-40x8
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:4
+      cpus-per-task: 16
+      mem: 64G
+      partition: mcml-hgx-a100-80x4
+
+fixed:
+  logging_args.wandb.project: "ngao_hchain"
+  molecule_args:
+    method: chain
+    chain_args:
+      element: H
+      distance: 1.8
+  batch_size: 2048
+  optimization:
+    max_batch_size: 8
+    steps: 100_000
+    energy_operator: sparse
+  mcmc_args:
+    proposal: single-electron
+
+grid:
+  molecule_args.chain_args.n:
+    type: choice
+    options:
+      - 10
+      - 20
+      - 40
+      - 80
+      - 160
+      - 320
+      - 640
