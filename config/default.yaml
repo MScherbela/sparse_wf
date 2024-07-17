@@ -47,7 +47,6 @@ model_args:
       width: 32
       depth: 2
 
-
 logging_args:
   smoothing: 5000
   checkpoint_every: 10_000
@@ -66,6 +65,7 @@ logging_args:
   comment: ""
 
 optimization:
+  energy_operator: sparse
   steps: 100_000
   burn_in: 500
   max_batch_size: 64

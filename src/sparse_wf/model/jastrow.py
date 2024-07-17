@@ -89,12 +89,9 @@ class Jastrow(nn.Module):
             logpsi += self.pairwise_cusps(electrons)
         if self.mlp:
             jastrows_before_sum = self._apply_mlp(embeddings)
-            jastrows = jnp.sum(jastrows_before_sum, axis=-2)  # sum over electrons
-            if self.use_mlp_jastrow:
-                logpsi += jastrows[0]
-            if self.use_log_jastrow:
-                sign *= jnp.sign(jastrows[1])
-                logpsi += jnp.log(jnp.abs(jastrows[1]))
+            J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum)
+            sign *= J_sign
+            logpsi += J_logpsi
         else:
             jastrows_before_sum = jnp.zeros(())
         if return_state:
@@ -119,18 +116,26 @@ class Jastrow(nn.Module):
         if self.mlp:
             jastrows_before_sum = self._apply_mlp(embeddings[changed_embeddings])
             jastrows_before_sum = state.at[changed_embeddings].set(jastrows_before_sum)
-            jastrows = jnp.sum(jastrows_before_sum, axis=-2)  # sum over electrons
-            if self.use_mlp_jastrow:
-                logpsi += jastrows[0]
-            if self.use_log_jastrow:
-                sign *= jnp.sign(jastrows[1])
-                logpsi += jnp.log(jnp.abs(jastrows[1]))
+            J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum)
+            sign *= J_sign
+            logpsi += J_logpsi
         else:
             jastrows_before_sum = jnp.zeros(())
         return (sign, logpsi), jastrows_before_sum
 
     def _apply_mlp(self, embeddings):
         return self.mlp(embeddings) * self.mlp_scale + jnp.array([0, self.log_bias])
+
+    def _mlp_to_logpsi(self, jastrows):
+        logpsi = jnp.zeros((), dtype=jastrows.dtype)
+        sign = jnp.ones((), dtype=jastrows.dtype)
+        if self.use_mlp_jastrow:
+            logpsi += jastrows[..., 0].sum()
+        if self.use_log_jastrow:
+            log_J = jastrows[..., 1].sum()
+            sign *= jnp.sign(log_J).prod()
+            logpsi += jnp.log(jnp.abs(log_J)).sum()
+        return sign, logpsi
 
     def _apply_pairwise_cusps(self, electrons):
         return self.pairwise_cusps(electrons)
@@ -157,13 +162,7 @@ class Jastrow(nn.Module):
 
             @fwd_lap
             def _get_logpsi(jastrows):
-                jastrows = jnp.sum(jastrows, axis=-2)  # sum over electrons
-                logpsi = zeros
-                if self.use_mlp_jastrow:
-                    logpsi += jastrows[0]
-                if self.use_log_jastrow:
-                    logpsi += jnp.log(jnp.abs(jastrows[1]))
-                return logpsi
+                return self._mlp_to_logpsi(jastrows)[1]
 
             logpsi = tree_add(logpsi, _get_logpsi(jastrows))
         return logpsi

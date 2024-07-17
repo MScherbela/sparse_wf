@@ -71,7 +71,16 @@ def make_trainer(
     clipping_args: ClippingArgs,
     max_batch_size: int,
     spin_operator: SpinOperator[P, S, SS],
+    energy_operator: str,
 ):
+    match energy_operator.lower():
+        case "dense":
+            energy_fn = wave_function.local_energy_dense
+        case "sparse":
+            energy_fn = wave_function.local_energy
+        case _:
+            raise ValueError(f"Unknown energy operator: {energy_operator}")
+
     def init(key: PRNGKeyArray, params: P, electrons: Electrons, init_width: Width):
         params = replicate(params)
         return TrainingState(
@@ -108,7 +117,7 @@ def make_trainer(
         key, subkey = jax.random.split(state.key)
         electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, stats["mcmc/pmove"])
-        energy = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
+        energy = batched_vmap(energy_fn, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
             state.params, electrons, static.model
         )
         energy_diff = local_energy_diff(energy, **clipping_args)
