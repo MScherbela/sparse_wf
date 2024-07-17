@@ -98,6 +98,7 @@ class StaticInputMoon(NamedTuple, Generic[T]):
     def round_with_padding(self, padding_factor, n_el, n_nuc):
         n_neighbours = NrOfNeighbours(
             ee=round_with_padding(self.n_neighbours.ee, padding_factor, n_el - 1),
+            ee_out=round_with_padding(self.n_neighbours.ee_out, padding_factor, n_el - 1),
             en=round_with_padding(self.n_neighbours.en, padding_factor, n_nuc),
             ne=round_with_padding(self.n_neighbours.ne, padding_factor, n_el),
             en_1el=round_with_padding(self.n_neighbours.en_1el, padding_factor, n_nuc),
@@ -415,9 +416,9 @@ def get_changed_embeddings(
         previous_electrons,
         nuclei[idx_changed_nuclei],
         electrons,
-        static.n_changes.out,
+        static.n_changes.out,  # TODO: one could bound this tighter
         cutoff,
-        idx_changed_h0,
+        changed_electrons,
     )
     idx_changed_out = affected_particles(
         previous_electrons[changed_electrons],
@@ -464,11 +465,13 @@ class MoonState(PyTreeNode):
 
 
 def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: NeighbourIndices, spins: Spins):
-    # [n_el  x n_neighbouring_electrons] - spin of each adjacent electron for each electron
+    # [n_el  x n_neighbouring_electrons] - spin of each adjacent electron for each electron (within 1*cutoff and 3*cutoff)
     spin_nb_ee = get_with_fill(spins, idx_nb.ee, 0.0)
+    spin_nb_ee_out = get_with_fill(spins, idx_nb.ee_out, 0.0)
 
-    # [n_el  x n_neighbouring_electrons x 3] - position of each adjacent electron for each electron
+    # [n_el  x n_neighbouring_electrons x 3] - position of each adjacent electron for each electron (within 1*cutoff and 3*cutoff)
     r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)
+    r_nb_ee_out = get_with_fill(electrons, idx_nb.ee_out, NO_NEIGHBOUR)
 
     # [n_nuc  x n_neighbouring_electrons] - spin of each adjacent electron for each nucleus
     spin_nb_ne = get_with_fill(spins, idx_nb.ne, 0.0)
@@ -479,8 +482,10 @@ def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: Neighbour
     # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron
     R_nb_en = get_with_fill(R, idx_nb.en, NO_NEIGHBOUR)
 
+    # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron (but with larger cutoff)
     R_nb_en_1el = get_with_fill(R, idx_nb.en_1el, NO_NEIGHBOUR)
-    return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el
+
+    return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el, r_nb_ee_out, spin_nb_ee_out
 
 
 class MoonEmbedding(PyTreeNode, Embedding[MoonEmbeddingParams, StaticInputMoon, MoonState]):
@@ -588,7 +593,11 @@ class MoonEmbedding(PyTreeNode, Embedding[MoonEmbeddingParams, StaticInputMoon, 
         is_affected_r = jnp.zeros(n_el, dtype=jnp.bool_).at[idx_changed].set(True)
         is_affected_h0 = is_affected_r | jnp.any((dist_ee < self.cutoff) & is_affected_r[None, :], axis=-1)
         is_affected_H = jnp.any((dist_ne < self.cutoff) & is_affected_h0[None, :], axis=-1)
-        is_affected_out = is_affected_h0 | jnp.any((dist_en < self.cutoff) & is_affected_H[None, :], axis=-1)
+        is_affected_out = (
+            is_affected_h0
+            | jnp.any((dist_en < self.cutoff) & is_affected_H[None, :], axis=-1)
+            | jnp.any((dist_ee < 3 * self.cutoff) & is_affected_r[None, :], axis=-1)
+        )
         n_changes = NrOfChanges(
             jnp.sum(is_affected_h0, dtype=jnp.int32),
             jnp.sum(is_affected_H, dtype=jnp.int32),
@@ -869,11 +878,6 @@ class MoonEmbedding(PyTreeNode, Embedding[MoonEmbeddingParams, StaticInputMoon, 
         H1_dn = normalize(H1_dn, params.scales["H1_dn"])
 
         # Update nuclei embeddings
-        # Compute gamma_en again, but with a different set of electrons
-        dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en[idx_changed.msg])
-        gamma_en_out = self._get_Gamma_en(
-            params.Gamma_en, electrons[idx_changed.msg], R_nb_en[idx_changed.msg], dyn_params
-        )  # type: ignore
         HL_up, HL_dn = self.nuc_mlp.apply(params.nuc_mlp, H1_up, H1_dn)
         HL_up, HL_dn = cast(tuple[jax.Array, jax.Array], (HL_up, HL_dn))
         HL_up = state.HL_up.at[idx_changed.nuclei].set(HL_up)
@@ -881,6 +885,12 @@ class MoonEmbedding(PyTreeNode, Embedding[MoonEmbeddingParams, StaticInputMoon, 
         HL_up_nb_en = get_with_fill(HL_up, idx_nb.en[idx_changed.msg], 0)
         HL_dn_nb_en = get_with_fill(HL_dn, idx_nb.en[idx_changed.msg], 0)
         HL_nb_en = jnp.where(self.spins[idx_changed.msg][..., None, None] > 0, HL_up_nb_en, HL_dn_nb_en)
+
+        # Compute gamma_en again, but with a different set of electrons
+        dyn_params = tree_idx(params.dynamic_params_en, idx_nb.en[idx_changed.msg])
+        gamma_en_out = self._get_Gamma_en(
+            params.Gamma_en, electrons[idx_changed.msg], R_nb_en[idx_changed.msg], dyn_params
+        )  # type: ignore
         msg = contract(HL_nb_en, gamma_en_out)
         msg = normalize(msg, params.scales["msg"])
         msg = state.msg.at[idx_changed.msg].set(msg)

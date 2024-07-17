@@ -1,5 +1,6 @@
 import functools
-from typing import Callable, NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional, Generic, TypeVar
+from sparse_wf.static_args import round_with_padding
 
 import flax.linen as nn
 import jax
@@ -10,7 +11,7 @@ from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer
 
 from sparse_wf.api import Charges, ElectronIdx, Electrons, Embedding, Int, Nuclei, Parameters
-from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap, pmap, rng_sequence
+from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap, rng_sequence
 from sparse_wf.model.graph_utils import (
     NO_NEIGHBOUR,
     Dependency,
@@ -18,7 +19,6 @@ from sparse_wf.model.graph_utils import (
     affected_particles,
     get_dependency_map,
     get_full_distance_matrices,
-    round_to_next_step,
 )
 from sparse_wf.model.moon import GatedLinearUnit
 from sparse_wf.model.utils import (
@@ -181,13 +181,24 @@ class EmbeddingState(NamedTuple):
     edg_params: DynamicFilterParams
 
 
-class NrOfNeighbours(NamedTuple):
-    ee: int
-    en: int
+T = TypeVar("T", bound=int | Int)
 
 
-class StaticInput(NamedTuple):
-    n_neighbours: NrOfNeighbours
+class NrOfNeighbours(NamedTuple, Generic[T]):
+    ee: T
+    en: T
+
+
+class StaticInputNewModel(NamedTuple, Generic[T]):
+    n_neighbours: NrOfNeighbours[T]
+
+    def round_with_padding(self, padding_factor, n_el, n_nuc):
+        return StaticInputNewModel(
+            NrOfNeighbours(
+                ee=round_with_padding(self.n_neighbours.ee, padding_factor, n_el - 1),
+                en=round_with_padding(self.n_neighbours.ee, padding_factor, n_nuc),
+            )
+        )
 
     def to_log_data(self):
         return {
@@ -207,24 +218,7 @@ class AppendingList(list):
         self.append(value)
 
 
-def _get_static(electrons: Array, R: Nuclei, cutoff: float, cutoff_1el: float):
-    n_el = electrons.shape[-2]
-    n_nuc = len(R)
-    dist_ee, dist_ne = get_full_distance_matrices(electrons, R)
-    n_ee = jnp.max(jnp.sum(dist_ee < cutoff, axis=-1))
-    n_en = jnp.max(jnp.sum(dist_ne.T < cutoff_1el, axis=-1))
-    n_neighbours = NrOfNeighbours(
-        ee=round_to_next_step(n_ee, 1.1, 1, n_el - 1),  # type: ignore
-        en=round_to_next_step(n_en, 1.1, 1, n_nuc),  # type: ignore
-    )
-    return n_neighbours
-
-
-get_static_pmapped = pmap(_get_static, in_axes=(0, None, None, None))
-get_static_jitted = jit(_get_static)
-
-
-class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInput, EmbeddingState]):
+class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInputNewModel, EmbeddingState]):
     # Molecule
     R: Nuclei
     Z: Charges
@@ -305,7 +299,7 @@ class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInput, Embedding
             nuc_embedding=h_nuc,
         )
 
-    def init(self, rng: Array, electrons: Array, static: StaticInput):
+    def init(self, rng: Array, electrons: Array, static: StaticInputNewModel):
         dtype = electrons.dtype
         rng_seq = iter(rng_sequence(rng))
         r_dummy = jnp.zeros([3], dtype)
@@ -343,7 +337,7 @@ class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInput, Embedding
         self,
         params: EmbeddingParams,
         electrons: Electrons,
-        static: StaticInput,
+        static: StaticInputNewModel,
         return_scales: bool = False,
         return_state: bool = False,
     ):
@@ -402,12 +396,13 @@ class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInput, Embedding
         params: EmbeddingParams,
         electrons: Electrons,
         changed_electrons: ElectronIdx,
-        static: StaticInput,
+        static: StaticInputNewModel,
         state: EmbeddingState,
     ):
         scale_seq = iter_list_with_pad(params.scales)
 
         # Changed out
+        # TODO: Better calculation of nr of affected
         max_affected = (static.n_neighbours.ee + 1 + self.low_rank_buffer) * len(changed_electrons)
         max_affected = min(max_affected, self.n_electrons)
         changed_out = affected_particles(
@@ -486,7 +481,7 @@ class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInput, Embedding
         self,
         params: EmbeddingParams,
         electrons: Array,
-        static: StaticInput,
+        static: StaticInputNewModel,
     ):
         scale_seq = iter_list_with_pad(params.scales)
         # Indexing
@@ -572,17 +567,11 @@ class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInput, Embedding
 
     def get_static_input(
         self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
-    ) -> StaticInput:
-        if electrons.ndim == 4:
-            # [device x local_batch x el x 3] => electrons are split across gpus;
-            n_neighbours = get_static_pmapped(electrons, self.R, self.cutoff, self.cutoff_1el)
-            # Data is synchronized across all devices, so we can just take the 0-th element
-            n_neighbours = [int(x[0]) for x in n_neighbours]
-        else:
-            n_neighbours = get_static_jitted(electrons, self.R, self.cutoff, self.cutoff_1el)
-            n_neighbours = [int(x) for x in n_neighbours]
-        n_neighbours = NrOfNeighbours(*n_neighbours)
-        return StaticInput(n_neighbours)
+    ) -> StaticInputNewModel[Int]:
+        dist_ee, dist_ne = get_full_distance_matrices(electrons, self.R)
+        n_ee = jnp.max(jnp.sum(dist_ee < self.cutoff, axis=-1, dtype=jnp.int32))
+        n_en = jnp.max(jnp.sum(dist_ne.T < self.cutoff_1el, axis=-1, dtype=jnp.int32))
+        return StaticInputNewModel(NrOfNeighbours(ee=n_ee, en=n_en))
 
 
 @jit(static_argnames=("n_neighbours", "cutoff", "cutoff_1el"))

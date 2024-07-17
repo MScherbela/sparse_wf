@@ -27,23 +27,6 @@ def get_full_distance_matrices(r: Electrons, R: Nuclei) -> tuple[DistanceMatrix,
     return dist_ee, dist_ne
 
 
-# TODO (ms, refac): de-duplicate this method
-def round_to_next_step(
-    n: int | Int,
-    padding_factor: float,
-    n_neighbours_min: int,
-    n_neighbours_max: int,
-) -> Int:
-    # jittable version of the following if statement:
-    # if padding_factor == 1.0:
-    pad_1_result = jnp.maximum(n, n_neighbours_min)
-    # else:
-    power_padded = jnp.log(n) / jnp.log(padding_factor)
-    pad_else_result = jnp.maximum(n_neighbours_min, padding_factor ** jnp.ceil(power_padded))
-    result = jnp.where(padding_factor == 1.0, pad_1_result, pad_else_result)
-    return jnp.round(jnp.minimum(result, n_neighbours_max)).astype(int)
-
-
 def get_with_fill(
     arr: Shaped[Array, "n_elements feature_dim"] | Shaped[np.ndarray, " n_elements feature_dim"],
     ind: Integer[Array, "*batch_dims n_neighbours"],
