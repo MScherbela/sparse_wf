@@ -7,8 +7,7 @@ import jax.tree_util as jtu
 import numpy as np
 from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer, Shaped
-
-from sparse_wf.api import Electrons, Int, Nuclei
+from sparse_wf.api import Electrons, Int, Nuclei, Dependant, Dependency, DependencyMap
 from sparse_wf.jax_utils import vectorize
 from sparse_wf.model.utils import slog_and_inverse
 
@@ -20,16 +19,29 @@ ElectronElectronEdges = Integer[Array, "n_electrons n_nb_ee"]
 ElectronNucleiEdges = Integer[Array, "n_electrons n_nb_en"]
 NucleiElectronEdges = Integer[Array, "n_nuclei n_nb_ne"]
 
-Dependant = Integer[Array, "n_dependants"]
-Dependency = Integer[Array, "n_deps"]
-DependencyMap = Integer[Array, "n_center n_neighbour n_deps"]
-
 
 @vectorize(signature="(n,d),(m,d)->(n,n),(m,n)")
 def get_full_distance_matrices(r: Electrons, R: Nuclei) -> tuple[DistanceMatrix, DistanceMatrix]:
     dist_ee = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
     dist_ne = jnp.linalg.norm(R[:, None, :] - r[None, :, :], axis=-1)
     return dist_ee, dist_ne
+
+
+# TODO (ms, refac): de-duplicate this method
+def round_to_next_step(
+    n: int | Int,
+    padding_factor: float,
+    n_neighbours_min: int,
+    n_neighbours_max: int,
+) -> Int:
+    # jittable version of the following if statement:
+    # if padding_factor == 1.0:
+    pad_1_result = jnp.maximum(n, n_neighbours_min)
+    # else:
+    power_padded = jnp.log(n) / jnp.log(padding_factor)
+    pad_else_result = jnp.maximum(n_neighbours_min, padding_factor ** jnp.ceil(power_padded))
+    result = jnp.where(padding_factor == 1.0, pad_1_result, pad_else_result)
+    return jnp.round(jnp.minimum(result, n_neighbours_max)).astype(int)
 
 
 def get_with_fill(
@@ -40,8 +52,12 @@ def get_with_fill(
     return jnp.asarray(arr).at[ind].get(mode="fill", fill_value=fill)
 
 
-def get_neighbour_features(h: FwdLaplArray, ind_neighbour: Integer[Array, "n_center n_neighbour"]) -> FwdLaplArray:
-    return jtu.tree_map(lambda x: x.at[..., ind_neighbour, :].get(mode="fill", fill_value=0.0), h)
+def get_neighbour_features(
+    h: FwdLaplArray,
+    ind_neighbour: Integer[Array, "n_center n_neighbour"],
+    fill_value: float = 0.0,
+) -> FwdLaplArray:
+    return jtu.tree_map(lambda x: x.at[..., ind_neighbour, :].get(mode="fill", fill_value=fill_value), h)
 
 
 # @functools.partial(jnp.vectorize, excluded=(3,), signature="(n_nb,deps_nb),(deps_center),(deps_frozen)->(deps_out)")
@@ -161,3 +177,17 @@ def densify_jacobian_by_zero_padding(h: FwdLaplArray, n_deps_out):
     n_deps_sparse = jac.shape[0]
     padding = jnp.zeros([n_deps_out - n_deps_sparse, *jac.shape[1:]], jac.dtype)
     return FwdLaplArray(x=h.x, jacobian=FwdJacobian(jnp.concatenate([jac, padding], axis=0)), laplacian=h.laplacian)
+
+
+def affected_particles(old_x, old_y, new_x, new_y, num_changes: int, cutoff: float, include_idx=None):
+    dist_old = jnp.linalg.norm(old_x[:, None] - old_y[None], axis=-1)  # shape: [x, y]
+    dist_new = jnp.linalg.norm(new_x[:, None] - new_y[None], axis=-1)
+    # we only care whether they were close or after the move, not which of these.
+    dist_shortest = jnp.minimum(dist_old, dist_new)
+    dist_shortest = jnp.min(dist_shortest, axis=0)  # shortest path to any particle, shape: [y]
+    if include_idx is not None:
+        dist_shortest = dist_shortest.at[include_idx].set(0.0)
+    # top k returns the k largest values and indices from an array, since we want the smallest distances we negate them
+    neg_dists, order = jax.lax.top_k(-dist_shortest, num_changes)
+    idx_affected = jnp.where(neg_dists > (-cutoff), order, NO_NEIGHBOUR)
+    return idx_affected
