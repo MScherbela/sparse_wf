@@ -184,6 +184,7 @@ class WidthScheduler(NamedTuple):
 ############################################################################
 class PreconditionerState(NamedTuple, Generic[P]):
     last_grad: P
+    damping: Float[Array, ""]
 
 
 class PreconditionerInit(Protocol[P]):

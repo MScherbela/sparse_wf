@@ -22,11 +22,20 @@ from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub
 P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
 
+def make_damping_scheduler(increase_factor=2.0, decay_factor=0.99, cond_max=1e7):
+    def adjust_damping(damping, cond_nr, is_nan):
+        return jnp.where(
+            is_nan, damping * increase_factor, jnp.where(cond_nr < cond_max, damping * decay_factor, damping)
+        )
+
+    return adjust_damping
+
+
 def make_identity_preconditioner(
     wave_function: ParameterizedWaveFunction[P, S, MS],
 ):
     def init(params: P) -> PreconditionerState[P]:
-        return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params))
+        return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params), damping=jnp.zeros([]))
 
     def precondition(
         params: P,
@@ -56,7 +65,9 @@ def make_cg_preconditioner(
     maxiter: int = 100,
 ):
     def init(params: P) -> PreconditionerState[P]:
-        return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params))
+        return PreconditionerState(
+            last_grad=jax.tree_map(jnp.zeros_like, params), damping=jnp.array(damping, jnp.float32)
+        )
 
     def precondition(
         params: P,
@@ -80,11 +91,11 @@ def make_cg_preconditioner(
         def Fisher_matmul(v: P):
             w = jvp(v)
             undamped = vjp(w)[0]
-            result = tree_add(undamped, tree_mul(v, damping))
+            result = tree_add(undamped, tree_mul(v, natgrad_state.damping))
             return psum(result)
 
         natgrad, _ = cg(A=Fisher_matmul, b=grad, x0=natgrad_state.last_grad, tol=0, atol=0, maxiter=maxiter)
-        return natgrad, PreconditionerState(last_grad=natgrad), {}
+        return natgrad, PreconditionerState(last_grad=natgrad, damping=natgrad_state.damping), {}
 
     return Preconditioner(init, precondition)
 
@@ -130,7 +141,11 @@ def make_dense_spring_preconditioner(
     use_float64: bool,
 ):
     def init(params: P) -> PreconditionerState[P]:
-        return PreconditionerState(last_grad=0 * jfu.ravel_pytree(params)[0].astype(jnp.float64))
+        return PreconditionerState(
+            last_grad=0 * jfu.ravel_pytree(params)[0].astype(jnp.float64), damping=jnp.array(damping, jnp.float32)
+        )
+
+    damping_scheduler = make_damping_scheduler()
 
     def precondition(
         params: P,
@@ -157,25 +172,32 @@ def make_dense_spring_preconditioner(
             jacobian = jacobian.astype(jnp.float64)
         jacobian -= pmean(jacobian.mean(0))
         T = get_jacjacT(jacobian)
-        T += damping * jnp.eye(N, dtype=T.dtype) + 1 / N
+        T += natgrad_state.damping * jnp.eye(N, dtype=T.dtype) + 1 / N
 
         last_grad = natgrad_state.last_grad
         decayed_last_grad = decay_factor * last_grad
-        decayed_last_grad += jfu.ravel_pytree(aux_grad)[0] / damping
+        decayed_last_grad += jfu.ravel_pytree(aux_grad)[0] / natgrad_state.damping
         cotangent = dE_dlogpsi.reshape(-1) * normalization
         cotangent -= jacobian @ decayed_last_grad
         cotangent = pgather(cotangent, axis=0, tiled=True)
-
-        aux_data = {}
-        aux_data["opt/log10_S_cond_nr"] = jnp.log10(jnp.linalg.cond(T))
 
         precond_cotangents = jnp.linalg.solve(T, cotangent)  # T^(-1)@contangent for all samples
         local_precond_cotangents = precond_cotangents.reshape(n_dev, -1)[pidx()]  # T^(-1)@cotangent for local samples
         local_natgrad = local_precond_cotangents @ jacobian
         natgrad = psum(local_natgrad)
         natgrad += decayed_last_grad
+
+        # Diagnose and adjust stability
+        aux_data = {}
+        cond_nr = jnp.linalg.cond(T)
+        aux_data["opt/log10_S_cond_nr"] = jnp.log10(cond_nr)
+        aux_data["opt/damping"] = natgrad_state.damping
+        is_nan = ~jnp.all(jnp.isfinite(natgrad))
+        damping = damping_scheduler(natgrad_state.damping, cond_nr, is_nan)
+        natgrad = jnp.where(is_nan, jnp.zeros_like(natgrad), natgrad)
+
         update = unravel(natgrad.astype(jnp.float32))
-        return update, PreconditionerState(last_grad=natgrad), aux_data
+        return update, PreconditionerState(last_grad=natgrad, damping=damping), aux_data
 
     return Preconditioner(init, precondition)
 
@@ -186,7 +208,9 @@ def make_spring_preconditioner(
     decay_factor: float = 0.99,
 ):
     def init(params: P) -> PreconditionerState[P]:
-        return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params))
+        return PreconditionerState(
+            last_grad=jax.tree_map(jnp.zeros_like, params), damping=jnp.array(damping, jnp.float32)
+        )
 
     def precondition(
         params: P,
@@ -244,17 +268,17 @@ def make_spring_preconditioner(
 
         last_grad = natgrad_state.last_grad
         decayed_last_grad = tree_mul(last_grad, decay_factor)
-        decayed_last_grad = tree_add(decayed_last_grad, tree_mul(aux_grad, 1 / damping))
+        decayed_last_grad = tree_add(decayed_last_grad, tree_mul(aux_grad, 1 / natgrad_state.damping))
         cotangent = dE_dlogpsi.reshape(-1) * normalization
         cotangent -= centered_jvp(decayed_last_grad).reshape(-1)
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
-        T = T + damping * jnp.eye(T.shape[-1], dtype=T.dtype) + 1 / N
+        T = T + natgrad_state.damping * jnp.eye(T.shape[-1], dtype=T.dtype) + 1 / N
 
         natgrad = centered_vjp(jnp.linalg.solve(T, cotangent).reshape(n_dev, -1)[pidx()])
         natgrad = tree_add(natgrad, decayed_last_grad)
         natgrad = jax.tree_util.tree_map(lambda x: jnp.astype(x, jnp.float32), natgrad)
-        return natgrad, PreconditionerState(last_grad=natgrad), {}
+        return natgrad, PreconditionerState(last_grad=natgrad, damping=natgrad_state.damping), {}
 
     return Preconditioner(init, precondition)
 
