@@ -50,7 +50,7 @@ disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 testpaths = [
     "tests"
 ]
- addopts="-n 10"
+addopts="-n 10"
 
 [project.scripts]
 sparse-wf-run = "sparse_wf.train_with_config:train_with_config"

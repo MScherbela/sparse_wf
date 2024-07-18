@@ -6,7 +6,7 @@ import numpy as np
 
 import wandb
 from sparse_wf.api import Logger, LoggingArgs
-from sparse_wf.jax_utils import only_on_main_process
+from sparse_wf.jax_utils import only_on_main_process, is_main_process
 
 
 class FileLogger(Logger):
@@ -59,6 +59,8 @@ class PythonLogger(Logger):
             self.logger.info(f"Opt step {data['opt/step']}: {data}")
         elif "pretrain/step" in data:
             self.logger.info(f"Pretrain step {data['pretrain/step']}: {data}")
+        elif "eval/step" in data:
+            self.logger.info(f"Eval step {data['eval/step']}: {data}")
         else:
             self.logger.info(str(data))
 
@@ -67,13 +69,27 @@ class PythonLogger(Logger):
         self.logger.info("Config: " + str(config))
 
 
+def flatten_dict(d: dict, parent_key: str = "", sep: str = ".") -> dict:
+    if hasattr(d, "_asdict"):  # e.g. NamedTuple
+        d = d._asdict()
+    items: list[tuple[str, Any]] = []
+    for k, v in d.items():
+        new_key = parent_key + sep + k if parent_key else k
+        if isinstance(v, dict) or hasattr(v, "_asdict"):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+
 class MultiLogger(Logger):
-    METRICS_TO_SMOOTH = ["opt/E"]
+    METRICS_TO_SMOOTH = ["opt/E", "eval/E"]
 
     def __init__(self, logging_args: LoggingArgs) -> None:
         self.loggers: list[Logger] = []
         self.smoothing_history: dict[str, np.ndarray] = {}
         self.smoothing_length = logging_args["smoothing"]
+        self.checkpoint_every = logging_args["checkpoint_every"]
         self.args = logging_args
 
         # TODO: fix this for seml
@@ -91,9 +107,10 @@ class MultiLogger(Logger):
     # TODO: This enforces that the run directory always ends with the name of the run and does not support setting the cwd as run_directory
     @property
     def run_directory(self):
-        if self.args.get("collection", None):
-            return os.path.join(self.args["out_directory"], self.args["collection"], self.args["name"])
-        return os.path.join(self.args["out_directory"], self.args["name"])
+        return self.args["out_directory"]  # TODO: is this seml-compatible?
+        # if self.args.get("collection", None):
+        #     return os.path.join(self.args["out_directory"], self.args["collection"], self.args["name"])
+        # return os.path.join(self.args["out_directory"], self.args["name"])
 
     def smoothen_data(self, data: dict) -> dict:
         # This implementation is a bit ugly, but does the job for now
@@ -117,6 +134,7 @@ class MultiLogger(Logger):
         return data
 
     def log(self, data: dict) -> None:
+        data = flatten_dict(data)
         data = self.smoothen_data(data)
         for logger in self.loggers:
             logger.log(data)
@@ -129,3 +147,12 @@ class MultiLogger(Logger):
     def store_blob(self, data: bytes, file_name: str):
         with open(os.path.join(self.run_directory, file_name), "wb") as f:
             f.write(data)
+
+    def store_checkpoint(self, step, state, prefix=""):
+        if (step == 0) or (step % self.checkpoint_every):
+            return
+        state = state.serialize()
+        if not is_main_process():
+            return
+        fname = f"{prefix}chkpt{step:06d}.msgpk"
+        self.store_blob(state, fname)

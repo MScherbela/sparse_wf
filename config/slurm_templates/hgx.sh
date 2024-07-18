@@ -8,7 +8,7 @@
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
 #SBATCH --gres=gpu:{n_gpus}
-#SBATCH --mem=100000
+#SBATCH --mem={n_gpus*100_000}
 
 source /opt/anaconda3/etc/profile.d/conda.sh
 conda activate sparse_wf

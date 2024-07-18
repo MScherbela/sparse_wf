@@ -19,6 +19,7 @@ from sparse_wf.api import (
     TrainingState,
     Width,
     WidthScheduler,
+    StaticInput,
 )
 from sparse_wf.jax_utils import pgather, pmap, pmean, replicate
 from sparse_wf.tree_utils import tree_dot
@@ -94,36 +95,44 @@ def make_trainer(
             spin_state=replicate(spin_operator.init_state()),
         )
 
-    @pmap(static_broadcasted_argnums=1)
-    def sampling_step(state: TrainingState[P, SS], static: S):
+    @pmap(static_broadcasted_argnums=(1, 2))
+    def sampling_step(state: TrainingState[P, SS], static: StaticInput[S], compute_energy: bool):
         key, subkey = jax.random.split(state.key)
-        electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
-        width_state = width_scheduler.update(state.width_state, pmove)
+        electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
+        width_state = width_scheduler.update(state.width_state, stats["mcmc/pmove"])
         state = state.replace(key=key, electrons=electrons, width_state=width_state)
-        aux_data = {"mcmc/pmove": pmove, "mcmc/stepsize": state.width_state.width}
+        aux_data = {"mcmc/stepsize": state.width_state.width} | stats
+        if compute_energy:
+            E_loc = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
+                state.params, electrons, static.model
+            )
+            E_mean = pmean(E_loc.mean())
+            E_std = pmean(((E_loc - E_mean) ** 2).mean()) ** 0.5
+            aux_data["eval/E"] = E_mean
+            aux_data["eval/E_std"] = E_std
         return state, aux_data
 
     @pmap(static_broadcasted_argnums=1)
-    def step(state: TrainingState[P, SS], static: S):
+    def step(state: TrainingState[P, SS], static: StaticInput[S]):
         key, subkey = jax.random.split(state.key)
-        electrons, pmove = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
-        width_state = width_scheduler.update(state.width_state, pmove)
+        electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
+        width_state = width_scheduler.update(state.width_state, stats["mcmc/pmove"])
         energy = batched_vmap(energy_fn, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
-            state.params, electrons, static
+            state.params, electrons, static.model
         )
         energy_diff = local_energy_diff(energy, **clipping_args)
 
         E_mean = pmean(energy.mean())
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
-        aux_data = {"opt/E": E_mean, "opt/E_std": E_std, "mcmc/pmove": pmove, "mcmc/stepsize": state.width_state.width}
+        aux_data = {"opt/E": E_mean, "opt/E_std": E_std, "mcmc/stepsize": state.width_state.width} | stats
 
-        spin_op_value, spin_grad, spin_state = spin_operator(state.params, electrons, static, state.spin_state)
+        spin_op_value, spin_grad, spin_state = spin_operator(state.params, electrons, static.model, state.spin_state)
         aux_data["opt/S"] = spin_op_value
 
         natgrad, precond_state, preconditioner_aux = preconditioner.precondition(
             state.params,
             electrons,
-            static,
+            static.model,
             energy_diff,
             spin_grad,
             state.opt_state.natgrad,

@@ -1,6 +1,5 @@
 import functools
-from typing import Generic, Literal, NamedTuple, TypeVar, cast, overload
-
+from typing import Literal, NamedTuple, cast, overload, Optional, Generic, TypeVar
 import einops
 import flax.linen as nn
 import jax
@@ -94,8 +93,9 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
     def init(self, rng: PRNGKeyArray, electrons: Electrons) -> Parameters:  # type: ignore
         rngs = jax.random.split(rng, 7)
         dummy_embeddings = jnp.zeros([electrons.shape[-2], self.embedding.feature_dim])
+        static = jtu.tree_map(int, self.get_static_input(electrons))
         params = MoonLikeParams(
-            embedding=self.embedding.init(rngs[0], electrons, self.get_static_input(electrons)),
+            embedding=self.embedding.init(rngs[0], electrons, static),
             to_orbitals=self.to_orbitals.init(rngs[1], dummy_embeddings),
             envelope=self.envelope.init(rngs[2], jnp.zeros([self.n_nuclei, 3])),
             jastrow=self.jastrow.init(rngs[3], electrons, dummy_embeddings),
@@ -258,8 +258,10 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
     def __call__(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LogAmplitude:
         return self.signed(params, electrons, static)[1]
 
-    def get_static_input(self, electrons: Electrons) -> S:
-        return self.embedding.get_static_input(electrons)
+    def get_static_input(
+        self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+    ) -> S:
+        return self.embedding.get_static_input(electrons, electrons_new, idx_changed)
 
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)

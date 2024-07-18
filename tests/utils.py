@@ -13,12 +13,12 @@ def build_atom_chain(n_nuc, Z):
     return mol
 
 
-def build_model(mol):
+def build_model(mol, embedding="moon"):
     return MoonLikeWaveFunction.create(
         mol,
         n_determinants=2,
         embedding=EmbeddingArgs(
-            embedding="new",
+            embedding=embedding,
             new=NewEmbeddingArgs(
                 cutoff=2.0,
                 cutoff_1el=20.0,

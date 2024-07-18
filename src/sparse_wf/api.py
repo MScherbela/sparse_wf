@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar, overload
 import jax
+import jax.tree_util as jtu
 import numpy as np
 import optax
 from flax import struct
@@ -9,6 +10,7 @@ from flax.serialization import to_bytes, from_bytes
 from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree
 from pyscf.scf.hf import SCF
 from typing import Literal
+import logging
 
 AnyArray = Array | list | np.ndarray
 Int = Integer[Array, ""]
@@ -117,7 +119,9 @@ class Embedding(Protocol[P2, S, ES]):
         return_state: bool = False,
     ): ...
     def init(self, key: PRNGKeyArray, electrons: Electrons, static: S) -> P2: ...
-    def get_static_input(self, electrons: Electrons) -> S: ...
+    def get_static_input(
+        self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+    ) -> S: ...
     def low_rank_update(
         self, params: P2, electrons: Electrons, changed_electrons: ElectronIdx, static: S, state: ES
     ) -> tuple[ElectronEmb, ElectronIdx, ES]: ...
@@ -128,7 +132,9 @@ class ParameterizedWaveFunction(Protocol[P, S, MS]):
     n_up: int
 
     def init(self, key: PRNGKeyArray, electrons: Electrons) -> P: ...
-    def get_static_input(self, electrons: Electrons) -> S: ...
+    def get_static_input(
+        self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+    ) -> S: ...
     def orbitals(self, params: P, electrons: Electrons, static: S) -> SlaterMatrices: ...
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices: ...
     def local_energy(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
@@ -151,7 +157,7 @@ class ClosedLogLikelihood(Protocol):
 class MCStep(Protocol[P_contra, S_contra]):
     def __call__(
         self, key: PRNGKeyArray, params: P_contra, electrons: Electrons, static: S_contra, width: Width
-    ) -> tuple[Electrons, PMove]: ...
+    ) -> tuple[Electrons, dict]: ...
 
 
 class WidthSchedulerState(NamedTuple):
@@ -236,17 +242,28 @@ class TrainingState(Generic[P, SS], struct.PyTreeNode):  # the order of inherita
         def gather_electrons(electrons):
             return pgather(electrons, axis=0, tiled=True)
 
-        result = instance(self)  # only return a single copy of parameters, opt_state, etc.
-        # include electrons from all devices
-        result = result.replace(electrons=gather_electrons(self.electrons)[0])
+        result = self.replace(electrons=gather_electrons(self.electrons))  # include electrons from all devices
+        result = instance(result)  # only return a single copy of parameters, opt_state, etc.
         return to_bytes(result)
 
-    def deserialize(self, data: bytes):
+    def deserialize(self, data: bytes, batch_size=None):
         from sparse_wf.jax_utils import replicate
 
         state_with_all_electrons = from_bytes(self, data)
         # Distribute electrons to devices
         electrons = state_with_all_electrons.electrons
+        if batch_size is not None:
+            loaded_batch_size = electrons.shape[0]
+            if batch_size < loaded_batch_size:
+                logging.warning(
+                    f"Batch size {batch_size} is smaller than the original batch size {loaded_batch_size}. Cropping."
+                )
+                electrons = electrons[:batch_size]
+            elif batch_size > loaded_batch_size:
+                logging.warning(
+                    f"Batch size {batch_size} is larger than the original batch size {loaded_batch_size}. Using loaded batch-size."
+                )
+
         electrons = electrons.reshape(jax.process_count(), jax.local_device_count(), -1, *electrons.shape[1:])
         electrons = electrons[jax.process_index()]
         # We have to create new keys for all devices
@@ -268,9 +285,7 @@ class VMCStepFn(Protocol[P, S_contra, SS]):
 
 class SamplingStepFn(Protocol[P, S_contra, SS]):
     def __call__(
-        self,
-        state: TrainingState[P, SS],
-        static: S_contra,
+        self, state: TrainingState[P, SS], static: S_contra, compute_energy: bool
     ) -> tuple[TrainingState[P, SS], AuxData]: ...
 
 
@@ -458,6 +473,7 @@ class PythonLoggingArgs(TypedDict):
 
 class LoggingArgs(TypedDict):
     smoothing: int
+    checkpoint_every: int
     wandb: WandBArgs
     file: FileLoggingArgs
     python: PythonLoggingArgs
@@ -510,13 +526,36 @@ class PretrainingArgs(TypedDict):
     sample_from: Literal["hf", "wf"]
 
 
-MCMC_proposal_type = Literal["all-electron", "single-electron"]
+class EvaluationArgs(TypedDict):
+    steps: int
+    compute_energy: bool
+
+
+MCMC_proposal_type = Literal["all-electron", "single-electron", "cluster-update"]
+
+
+class MCMCProposalArg(TypedDict):
+    init_width: int
+
+
+class MCMCAllElectronArgs(MCMCProposalArg):
+    steps: int
+
+
+class MCMCSingleElectronArgs(MCMCProposalArg):
+    sweeps: int
+
+
+class MCMCClusterUpdateArgs(MCMCProposalArg):
+    sweeps: int
+    cluster_radius: float
 
 
 class MCMCArgs(TypedDict):
     proposal: MCMC_proposal_type
-    steps: int
-    init_width: float
+    all_electron_args: MCMCAllElectronArgs
+    single_electron_args: MCMCSingleElectronArgs
+    cluster_update_args: MCMCClusterUpdateArgs
 
 
 class MoleculeDatabaseArgs(TypedDict):
@@ -544,6 +583,16 @@ class MoleculeArgs(TypedDict):
     basis: str
 
 
-class StaticInput(NamedTuple):
-    n_neighbours: dict
-    n_deps: dict
+class MCMCStaticArgs(NamedTuple):
+    max_cluster_size: int
+
+
+class StaticInput(NamedTuple, Generic[S]):
+    model: S
+    mcmc: MCMCStaticArgs
+
+    def to_log_data(self):
+        return {"mcmc/max_cluster_size": self.mcmc.max_cluster_size, **self.model.to_log_data()}
+
+    def to_int(self) -> "StaticInput[int]":
+        return jtu.tree_map(int, self)

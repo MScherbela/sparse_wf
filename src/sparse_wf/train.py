@@ -9,11 +9,21 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-
-from sparse_wf.api import AuxData, LoggingArgs, MCMCArgs, ModelArgs, MoleculeArgs, OptimizationArgs, PretrainingArgs
-from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, get_from_main_process, pmap, replicate
+from sparse_wf.api import (
+    AuxData,
+    LoggingArgs,
+    ModelArgs,
+    MoleculeArgs,
+    OptimizationArgs,
+    PretrainingArgs,
+    EvaluationArgs,
+    MCMCArgs,
+    StaticInput,
+)
+from sparse_wf.static_args import StaticScheduler
+from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, pmax, get_from_main_process
 from sparse_wf.loggers import MultiLogger
-from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
+from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler, MCMCStaticArgs
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 
 # from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
@@ -56,15 +66,19 @@ def main(
     model_args: ModelArgs,
     optimization: OptimizationArgs,
     pretraining: PretrainingArgs,
+    evaluation: EvaluationArgs,
     batch_size: int,
     mcmc_args: MCMCArgs,
     seed: int,
     logging_args: LoggingArgs,
+    load_checkpoint: str,
     metadata: Optional[dict[str, Any]] = None,
 ):
     config = locals()
 
     mol = get_molecule(molecule_args)
+    R = np.array(mol.atom_coords())
+    n_el = sum(mol.nelec)
 
     loggers = MultiLogger(logging_args)
     loggers.log_config(config)
@@ -96,8 +110,9 @@ def main(
     # We want to initialize differently per process so we use the proc_key here
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
-    mcmc_step, mcmc_state = make_mcmc(wf, **mcmc_args)
+    mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
+    static_scheduler = StaticScheduler(n_el, len(R))
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
@@ -121,12 +136,15 @@ def main(
     )
     # The state will only be fed into pmapped functions, i.e., we need a per device key
     state = trainer.init(device_keys, params, electrons, mcmc_state)
+    if load_checkpoint:
+        with open(load_checkpoint, "rb") as f:
+            state = state.deserialize(f.read(), batch_size)
     assert_identical_copies(state.params)
 
     hf_orbitals_fn = make_hf_orbitals(mol)
     match pretraining["sample_from"].lower():
         case "hf":
-            pretraining_mcmc_step = make_mcmc(make_hf_logpsi(hf_orbitals_fn), **mcmc_args)[0]
+            pretraining_mcmc_step = make_mcmc(make_hf_logpsi(hf_orbitals_fn), R, n_el, mcmc_args)[0]
         case "wf":
             pretraining_mcmc_step = mcmc_step
         case _:
@@ -136,12 +154,14 @@ def main(
         wf, pretraining_mcmc_step, mcmc_width_scheduler, hf_orbitals_fn, make_optimizer(**pretraining["optimizer_args"])
     )
     state = pretrainer.init(state)
+    model_static = pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons)
+    static = static_scheduler(StaticInput(model_static, MCMCStaticArgs(1)))
 
     logging.info("Pretraining")
     for step in range(pretraining["steps"]):
-        static = wf.get_static_input(state.electrons)
         state, aux_data = pretrainer.step(state, static)
-        log_data = to_log_data(aux_data) | static.to_log_data()
+        static = static_scheduler(aux_data["static/max"])  # type: ignore
+        log_data = to_log_data(aux_data)
         log_data["pretrain/step"] = step
         loggers.log(log_data)
         if np.isnan(log_data["pretrain/loss"]):
@@ -152,22 +172,36 @@ def main(
 
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
-        static = wf.get_static_input(state.electrons)
-        state, aux_data = trainer.sampling_step(state, static)
-        log_data = to_log_data(aux_data) | static.to_log_data()
+        state, aux_data = trainer.sampling_step(state, static, False)
+        static = static_scheduler(aux_data["static/max"])  # type: ignore
+        log_data = to_log_data(aux_data)
         loggers.log(log_data)
 
     logging.info("Training")
     for opt_step in range(optimization["steps"]):
-        static = wf.get_static_input(state.electrons)
         t0 = time.perf_counter()
         state, _, aux_data = trainer.step(state, static)
-        log_data = to_log_data(aux_data) | static.to_log_data()
+        static = static_scheduler(aux_data["static/max"])  # type: ignore
+        log_data = to_log_data(aux_data)
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0
         log_data["opt/step"] = opt_step
         loggers.log(log_data)
+        loggers.store_checkpoint(opt_step, state, "opt")
         if isnan(log_data):
             raise ValueError("NaN")
+
     assert_identical_copies(state.params)
     loggers.store_blob(state.serialize(), "chkpt_final.msgpk")
+
+    logging.info("Evaluation")
+    for eval_step in range(evaluation["steps"]):
+        t0 = time.perf_counter()
+        state, aux_data = trainer.sampling_step(state, static, evaluation["compute_energy"])
+        static = static_scheduler(aux_data["static/max"])  # type: ignore
+        log_data = to_log_data(aux_data)
+        t1 = time.perf_counter()
+        log_data["eval/t_step"] = t1 - t0
+        log_data["eval/step"] = eval_step
+        loggers.log(log_data)
+        loggers.store_checkpoint(eval_step, state, "eval")

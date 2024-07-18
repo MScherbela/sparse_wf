@@ -1,5 +1,5 @@
 import functools
-from typing import NamedTuple, TypeAlias
+from typing import TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -7,9 +7,8 @@ import jax.tree_util as jtu
 import numpy as np
 from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer, Shaped
-
-from sparse_wf.api import Electrons, Int, Nuclei, Spins, Dependant, Dependency, DependencyMap
-from sparse_wf.jax_utils import jit, pmax_if_pmap, vectorize
+from sparse_wf.api import Electrons, Int, Nuclei, Dependant, Dependency, DependencyMap
+from sparse_wf.jax_utils import vectorize
 from sparse_wf.model.utils import slog_and_inverse
 
 NO_NEIGHBOUR = 1_000_000
@@ -21,90 +20,11 @@ ElectronNucleiEdges = Integer[Array, "n_electrons n_nb_en"]
 NucleiElectronEdges = Integer[Array, "n_nuclei n_nb_ne"]
 
 
-class NrOfNeighbours(NamedTuple):
-    ee: int
-    ee_out: int
-    en: int
-    ne: int
-    en_1el: int
-
-
-class NeighbourIndices(NamedTuple):
-    ee: ElectronElectronEdges
-    en: ElectronNucleiEdges
-    ne: NucleiElectronEdges
-    ee_out: ElectronElectronEdges
-    en_1el: ElectronNucleiEdges
-
-
 @vectorize(signature="(n,d),(m,d)->(n,n),(m,n)")
 def get_full_distance_matrices(r: Electrons, R: Nuclei) -> tuple[DistanceMatrix, DistanceMatrix]:
     dist_ee = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
     dist_ne = jnp.linalg.norm(R[:, None, :] - r[None, :, :], axis=-1)
     return dist_ee, dist_ne
-
-
-def round_to_next_step(
-    n: int | Int,
-    padding_factor: float,
-    n_neighbours_min: int,
-    n_neighbours_max: int,
-) -> Int:
-    # jittable version of the following if statement:
-    # if padding_factor == 1.0:
-    pad_1_result = jnp.maximum(n, n_neighbours_min)
-    # else:
-    power_padded = jnp.log(n) / jnp.log(padding_factor)
-    pad_else_result = jnp.maximum(n_neighbours_min, padding_factor ** jnp.ceil(power_padded))
-    result = jnp.where(padding_factor == 1.0, pad_1_result, pad_else_result)
-    return jnp.round(jnp.minimum(result, n_neighbours_max)).astype(int)
-
-
-def get_nr_of_neighbours(
-    dist_ee: DistanceMatrix,
-    dist_ne: DistanceMatrix,
-    cutoff: float,
-    cutoff_1el: float,
-):
-    n_el = dist_ee.shape[-1]
-    dist_ee += jnp.diag(jnp.ones(n_el, dist_ee.dtype) * jnp.inf)
-    n_ee = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff, axis=-1)))
-    n_ee_out = pmax_if_pmap(jnp.max(jnp.sum(dist_ee < cutoff * 3, axis=-1)))
-    n_ne = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-1)))
-    n_en = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff, axis=-2)))
-    n_en_1el = pmax_if_pmap(jnp.max(jnp.sum(dist_ne < cutoff_1el, axis=-2)))
-    return n_ee, n_ee_out, n_en, n_ne, n_en_1el
-
-
-@jit(static_argnames=("n_neighbours", "cutoff", "cutoff_1el"))
-def get_neighbour_indices(
-    r: Electrons, R: Nuclei, n_neighbours: NrOfNeighbours, cutoff: float, cutoff_1el: float
-) -> NeighbourIndices:
-    dist_ee, dist_ne = get_full_distance_matrices(r, R)
-
-    def _get_ind_neighbour(dist, max_n_neighbours: int, cutoff, exclude_diagonal=False):
-        if exclude_diagonal:
-            n_particles = dist.shape[-1]
-            dist += jnp.diag(jnp.inf * jnp.ones(n_particles, dist.dtype))
-        in_cutoff = dist < cutoff
-
-        # TODO: dynamically assert that n_neighbours <= max_n_neighbours
-        n_neighbours = jnp.max(jnp.sum(in_cutoff, axis=-1))  # noqa: F841
-
-        @jax.vmap
-        def _get_ind(in_cutoff_):
-            indices = jnp.nonzero(in_cutoff_, size=max_n_neighbours, fill_value=NO_NEIGHBOUR)[0]
-            return jnp.unique(indices, size=max_n_neighbours, fill_value=NO_NEIGHBOUR)
-
-        return _get_ind(in_cutoff)
-
-    return NeighbourIndices(
-        ee=_get_ind_neighbour(dist_ee, n_neighbours.ee, cutoff, exclude_diagonal=True),
-        ne=_get_ind_neighbour(dist_ne, n_neighbours.ne, cutoff),
-        en=_get_ind_neighbour(dist_ne.T, n_neighbours.en, cutoff),
-        ee_out=_get_ind_neighbour(dist_ee, n_neighbours.ee_out, cutoff * 3, exclude_diagonal=True),
-        en_1el=_get_ind_neighbour(dist_ne.T, n_neighbours.en_1el, cutoff_1el),
-    )
 
 
 def get_with_fill(
@@ -242,40 +162,15 @@ def densify_jacobian_by_zero_padding(h: FwdLaplArray, n_deps_out):
     return FwdLaplArray(x=h.x, jacobian=FwdJacobian(jnp.concatenate([jac, padding], axis=0)), laplacian=h.laplacian)
 
 
-def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: NeighbourIndices, spins: Spins):
-    # [n_el  x n_neighbouring_electrons] - spin of each adjacent electron for each electron
-    spin_nb_ee = get_with_fill(spins, idx_nb.ee, 0.0)
-
-    # [n_el  x n_neighbouring_electrons x 3] - position of each adjacent electron for each electron
-    r_nb_ee = get_with_fill(electrons, idx_nb.ee, NO_NEIGHBOUR)
-
-    # [n_nuc  x n_neighbouring_electrons] - spin of each adjacent electron for each nucleus
-    spin_nb_ne = get_with_fill(spins, idx_nb.ne, 0.0)
-
-    # [n_nuc x n_neighbouring_electrons x 3] - position of each adjacent electron for each nuclei
-    r_nb_ne = get_with_fill(electrons, idx_nb.ne, NO_NEIGHBOUR)
-
-    # [n_el  x n_neighbouring_nuclei    x 3] - position of each adjacent nuclei for each electron
-    R_nb_en = get_with_fill(R, idx_nb.en, NO_NEIGHBOUR)
-
-    R_nb_en_1el = get_with_fill(R, idx_nb.en_1el, NO_NEIGHBOUR)
-
-    # Out connection
-    r_nb_ee_out = get_with_fill(electrons, idx_nb.ee_out, NO_NEIGHBOUR)
-    spin_nb_ee_out = get_with_fill(spins, idx_nb.ee_out, 0.0)
-    return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el, r_nb_ee_out, spin_nb_ee_out
-
-
-# Finding affected electrons
-def affected_particles(old_x, old_y, new_x, new_y, num_changes, cutoff, include=None):
-    dist_old = jnp.linalg.norm(old_x[:, None] - old_y[None], axis=-1)
+def affected_particles(old_x, old_y, new_x, new_y, num_changes: int, cutoff: float, include_idx=None):
+    dist_old = jnp.linalg.norm(old_x[:, None] - old_y[None], axis=-1)  # shape: [x, y]
     dist_new = jnp.linalg.norm(new_x[:, None] - new_y[None], axis=-1)
     # we only care whether they were close or after the move, not which of these.
     dist_shortest = jnp.minimum(dist_old, dist_new)
-    dist_shortest = jnp.min(dist_shortest, axis=0)  # shortest path to any particle
+    dist_shortest = jnp.min(dist_shortest, axis=0)  # shortest path to any particle, shape: [y]
+    if include_idx is not None:
+        dist_shortest = dist_shortest.at[include_idx].set(0.0)
     # top k returns the k largest values and indices from an array, since we want the smallest distances we negate them
     neg_dists, order = jax.lax.top_k(-dist_shortest, num_changes)
-    affected = jnp.where(neg_dists > (-cutoff), order, NO_NEIGHBOUR)
-    if include is None:
-        return affected
-    return jnp.unique(jnp.concatenate([affected, include]), size=num_changes, fill_value=NO_NEIGHBOUR)
+    idx_affected = jnp.where(neg_dists > (-cutoff), order, NO_NEIGHBOUR)
+    return idx_affected

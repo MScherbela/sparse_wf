@@ -59,6 +59,7 @@ model_args:
 
 logging_args:
   smoothing: 5000
+  checkpoint_every: 10_000
   wandb:
     use: true
     entity: tum_daml_nicholas
@@ -135,9 +136,23 @@ pretraining:
         args: []
         kwargs: {}
 
+load_checkpoint: ""
+
+evaluation:
+  steps: 0
+  compute_energy: True
+
 batch_size: 512
 
 mcmc_args:
   proposal: "all-electron"
-  steps: 20
-  init_width: 0.1
+  all_electron_args:
+    steps: 20
+    init_width: 0.1
+  single_electron_args:
+    sweeps: 1
+    init_width: 0.5
+  cluster_update_args:
+    sweeps: 1
+    init_width: 0.2
+    cluster_radius: 2.0
