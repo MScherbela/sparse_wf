@@ -27,6 +27,7 @@ class FwdLapTuple(NamedTuple):
 
     def get_jac_sqr(self):
         jac_sqr = jnp.zeros_like(self.x)
+        #.at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
         jac_sqr = jac_sqr.at[self.idx_ctr].add(jnp.sum(self.jac**2, axis=1), mode="drop")
         return jac_sqr
 
@@ -37,6 +38,9 @@ class FwdLapTuple(NamedTuple):
         J_dense[self.idx_dep, :, self.idx_ctr, :] = self.jac
         J_dense = J_dense.reshape([n_el * 3, n_el, feature_dim])
         return J_dense
+
+    def __add__(self, other):
+        return FwdLapTuple(self.x + other.x, self.jac + other.jac, self.lap + other.lap, self.idx_ctr, self.idx_dep)
 
 
 class Linear(PyTreeNode):
@@ -183,7 +187,7 @@ def contract(Gamma, h, idx_ctr, idx_nb):
     return h_out
 
 
-def get_with_fill(x, idx):
+def get(x, idx):
     return x.at[idx].get(mode="fill", fill_value=0.0)
 
 
@@ -195,7 +199,7 @@ def contract_with_fwd_lap(Gamma, h, idx_ctr, idx_nb):
     J_h = h.jacobian.data  # [n_el, 3, feature_dim]
 
     h_out = jnp.zeros([n_el, feature_dim], dtype=h.dtype)
-    h_out = h_out.at[idx_ctr].add(Gamma.x * h.x[idx_nb], mode="drop")
+    h_out = h_out.at[idx_ctr].add(Gamma.x * get(h.x, idx_nb), mode="drop")
 
     J_out = jnp.zeros([n_el + n_pairs, 3, feature_dim], dtype=h.dtype)
     J_out_self = J_Gamma[:, 0, :, :] * h.x.at[idx_nb, None, :].get(mode="fill", fill_value=0.0)
@@ -204,7 +208,17 @@ def contract_with_fwd_lap(Gamma, h, idx_ctr, idx_nb):
     J_out_nb += Gamma.x[:, None, :] * J_h.at[idx_nb, :, :].get(mode="fill", fill_value=0.0)
     J_out = J_out.at[n_el:, :, :].add(J_out_nb, mode="drop")
 
-    return (h_out, J_out)
+    lap_out = jnp.zeros_like(h_out)
+    lap_out = lap_out.at[idx_ctr].add(
+        Gamma.x * get(h.laplacian, idx_nb) + Gamma.laplacian * get(h.x, idx_nb), mode="drop"
+    )
+    #.at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
+    lap_out = lap_out.at[idx_ctr].add(2 * jnp.sum(J_Gamma[:, 1, :, :] * get(J_h, idx_nb), axis=1), mode="drop")
+
+    idx_ctr = jnp.concatenate([jnp.arange(n_el), idx_ctr])
+    idx_dep = jnp.concatenate([jnp.arange(n_el), idx_nb])
+
+    return FwdLapTuple(h_out, J_out, lap_out, idx_ctr, idx_dep)
 
 
 def build_dense_jacobian(J, indices):
@@ -254,22 +268,6 @@ class Embedding(PyTreeNode):
         n_pairs = jnp.sum(dist < self.cutoff) - n_el
         return StaticArgs(n_pairs)
 
-    # def apply_dense(self, params, r, static: StaticArgs[int]):
-    #     n_el = r.shape[0]
-    #     dist = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
-    #     mask = (dist < self.cutoff) & (~np.eye(n_el, dtype=bool))
-    #     mask = mask.astype(jnp.float32)
-
-    #     h0_fn = functools.partial(self.elec_init.apply, params.elec_init)
-    #     edge_fn = functools.partial(self.edge.apply, params.edge)
-
-    #     h0 = jax.vmap(h0_fn)(r)
-    #     Gamma = jax.vmap(jax.vmap(edge_fn, in_axes=(None, 0)), in_axes=(0, None))(r, r)
-    #     Gamma = jtu.tree_map(lambda g: g * mask[:, :, None], Gamma)
-
-    #     msg = jnp.einsum("jf,ijf->if", h0[1], Gamma[0])
-    #     return Gamma[0]
-
     def apply(self, params, r, static: StaticArgs[int]):
         n_el = r.shape[0]
         idx_ct, idx_nb = get_pair_indices(r, self.cutoff, static.n_pairs)
@@ -277,38 +275,40 @@ class Embedding(PyTreeNode):
         h0 = self.elec_init.apply(params.elec_init, r)
         Gamma = jax.vmap(lambda i, j: self.edge.apply(params.edge, r[i], r[j]))(idx_ct, idx_nb)
 
-        msg = contract(Gamma[0], h0[1], idx_ct, idx_nb)
-        h_out = self.updates[0].apply(params.updates[0], msg)
-        # h = h0[0]
-        # for l, (h_nb, g) in enumerate(zip(h0[1:], Gamma)):
-        #     msg = contract(g, h_nb, idx_ct, idx_nb)
-        # h = self.updates[l].apply(params.updates[l], h, msg)
+        h = h0[0]
+        for l, (h_nb, g) in enumerate(zip(h0[1:], Gamma)):
+            msg = contract(g, h_nb, idx_ct, idx_nb)
+            h = self.updates[l].apply(params.updates[l], h + msg)
 
-        return h_out
+        return h
 
     def apply_with_fwd_lap(self, params, r, static: StaticArgs[int]):
         n_el = r.shape[0]
         idx_ct, idx_nb = get_pair_indices(r, self.cutoff, static.n_pairs)
+
+        idx_jac_ctr = jnp.concatenate([jnp.arange(n_el), idx_ct])
+        idx_jac_dep = jnp.concatenate([jnp.arange(n_el), idx_nb])
 
         h0_fn = functools.partial(self.elec_init.apply, params.elec_init)
         edge_fn = functools.partial(self.edge.apply, params.edge)
 
         h0 = jax.vmap(fwd_lap(h0_fn))(r)
         Gamma = jax.vmap(fwd_lap(edge_fn))(r[idx_ct], r[idx_nb])
-        msg, msg_jac = contract_with_fwd_lap(Gamma[0], h0[1], idx_ct, idx_nb)
-        msg = FwdLapTuple(
-            msg,
-            msg_jac,
-            jnp.zeros_like(msg),
-            jnp.concatenate([jnp.arange(n_el), idx_ct]),
-            jnp.concatenate([jnp.arange(n_el), idx_nb]),
+        jac_h0_padded = jnp.concatenate(
+            [h0[0].jacobian.data.reshape([n_el, 3, self.feature_dim]), jnp.zeros([static.n_pairs, 3, self.feature_dim])]
         )
-        h_out = self.updates[0].apply_with_fwd_lap(params.updates[0], msg)
-        # h = h0[0]
-        # for l, (h_nb, g) in enumerate(zip(h0[1:], Gamma)):
-        #     msg = contract_with_fwd_lap(g, h_nb, idx_ct, idx_nb)
+        h = FwdLapTuple(
+            h0[0].x,
+            jac_h0_padded,
+            h0[0].laplacian,
+            idx_jac_ctr,
+            idx_jac_dep,
+        )
+        for l, (h_nb, g) in enumerate(zip(h0[1:], Gamma)):
+            msg = contract_with_fwd_lap(g, h_nb, idx_ct, idx_nb)
+            h = self.updates[l].apply_with_fwd_lap(params.updates[l], h + msg)
 
-        return h_out
+        return h
 
 
 def is_close(a, b, msg=""):
@@ -321,7 +321,7 @@ def is_close(a, b, msg=""):
 if __name__ == "__main__":
     n_el = 10
     rng_params, rng_r = jax.random.split(jax.random.PRNGKey(0))
-    emb = Embedding.create(feature_dim=32, n_layers=1, cutoff=3.0)
+    emb = Embedding.create(feature_dim=32, n_layers=3, cutoff=3.0)
     params = emb.init(rng_params)
     r = jax.random.normal(rng_r, [n_el, 3]) * 3.0
     static = emb.get_static_args(r).to_static()
@@ -337,4 +337,5 @@ if __name__ == "__main__":
 
     is_close(h_folx.x, h_sparse.x, "h_folx.x != h_sparse.x")
     is_close(h_folx.jacobian.data, h_sparse.dense_jac(), "h_folx.jac != h_sparse.jac")
+    is_close(h_folx.laplacian, h_sparse.lap, "h_folx.lap != h_sparse.lap")
     # # h = emb.apply(params, r, static)
