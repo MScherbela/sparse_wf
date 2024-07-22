@@ -3,6 +3,7 @@ import os
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+os.environ["JAX_ENABLE_X64"]="1"
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.struct import PyTreeNode
@@ -14,8 +15,18 @@ import numpy as np
 from typing import NamedTuple, Generic, TypeVar
 from sparse_wf.jax_utils import fwd_lap
 import functools
-from folx.api import FwdLaplArray
+from folx.api import FwdLaplArray, FwdJacobian
 import jax.tree_util as jtu
+
+T = TypeVar("T", bound=int | Int)
+
+
+class StaticArgs(NamedTuple, Generic[T]):
+    n_pairs: T
+    n_triplets: T
+
+    def to_static(self):
+        return StaticArgs(int(jnp.max(self.n_pairs)), int(jnp.max(self.n_triplets)))
 
 
 class FwdLapTuple(NamedTuple):
@@ -27,7 +38,7 @@ class FwdLapTuple(NamedTuple):
 
     def get_jac_sqr(self):
         jac_sqr = jnp.zeros_like(self.x)
-        #.at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
+        # .at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
         jac_sqr = jac_sqr.at[self.idx_ctr].add(jnp.sum(self.jac**2, axis=1), mode="drop")
         return jac_sqr
 
@@ -116,6 +127,37 @@ class MLP(PyTreeNode):
         return params
 
 
+def slogdet_with_fwd_lap(A: FwdLapTuple, triplet_indices):
+    n_el = A.x.shape[-1]
+    n_pairs = len(A.idx_ctr) - n_el
+
+    pairidx_ct = A.idx_ctr[n_el:]
+    pairidx_nb = A.idx_dep[n_el:]
+
+    tripidx_i = np.concatenate([np.arange(n_el), pairidx_ct, pairidx_nb, triplet_indices[0]])
+    tripidx_k = np.concatenate([np.arange(n_el), pairidx_nb, pairidx_ct, triplet_indices[1]])
+    tripidx_n = np.concatenate([np.arange(n_el), pairidx_nb, pairidx_nb, triplet_indices[2]])
+    tripidx_in, tripidx_kn = get_pair_indices_from_triplets((pairidx_ct, pairidx_nb), triplet_indices, n_el)
+    tripidx_in = np.concatenate([np.arange(n_el), np.arange(n_pairs) + n_el, pairidx_nb, tripidx_in + n_el])
+    tripidx_kn = np.concatenate([np.arange(n_el), pairidx_nb, np.arange(n_pairs) + n_el, tripidx_kn + n_el])
+
+    A_inv = jnp.linalg.inv(A.x)
+    M = A.jac @ A_inv
+
+    sign, logdet = jnp.linalg.slogdet(A.x)
+    jac_logdet = jnp.zeros([n_el, 3], dtype=A.x.dtype)
+    jac_logdet = jac_logdet.at[A.idx_dep, :].add(
+        M.at[np.arange(n_pairs + n_el), :, A.idx_ctr].get(mode="fill", fill_value=0.0), mode="drop"
+    )
+
+    lap_logdet = jnp.einsum("ij,ji", A.lap, A_inv)
+    lap_logdet -= jnp.sum(
+        M.at[tripidx_in, :, tripidx_k].get(mode="fill", fill_value=0.0)
+        * M.at[tripidx_kn, :, tripidx_i].get(mode="fill", fill_value=0.0)
+    )
+    return sign, FwdLaplArray(logdet, FwdJacobian(jac_logdet.reshape([n_el * 3])), lap_logdet)
+
+
 class ElecInit(nn.Module):
     feature_dim: int
     n_out: int
@@ -160,16 +202,7 @@ class EmbeddingParams(NamedTuple):
     elec_init: Parameters
     edge: Parameters
     updates: Parameters
-
-
-T = TypeVar("T", bound=int | Int)
-
-
-class StaticArgs(NamedTuple, Generic[T]):
-    n_pairs: T
-
-    def to_static(self):
-        return StaticArgs(int(jnp.max(self.n_pairs)))
+    orbitals: Parameters
 
 
 def get_pair_indices(r, cutoff, n_pairs_max: int):
@@ -177,6 +210,21 @@ def get_pair_indices(r, cutoff, n_pairs_max: int):
     dist = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
     dist = dist.at[jnp.arange(n_el), jnp.arange(n_el)].set(jnp.inf)
     return jnp.where(dist < cutoff, size=n_pairs_max, fill_value=NO_NEIGHBOUR)
+
+
+def get_distinct_triplet_indices(r, cutoff, n_triplets_max: int):
+    dist = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
+    dist = dist.at[jnp.arange(n_el), jnp.arange(n_el)].set(jnp.inf)
+    in_cutoff = dist < cutoff
+    is_triplet = in_cutoff[:, None, :] & in_cutoff[None, :, :]
+    return jnp.where(is_triplet, size=n_triplets_max, fill_value=NO_NEIGHBOUR)
+
+
+def get_pair_indices_from_triplets(pair_indices, triplet_indices, n_el):
+    pair_search_keys = pair_indices[0] * n_el + pair_indices[1]
+    pair_in = jnp.searchsorted(pair_search_keys, triplet_indices[0] * n_el + triplet_indices[2])
+    pair_kn = jnp.searchsorted(pair_search_keys, triplet_indices[1] * n_el + triplet_indices[2])
+    return pair_in, pair_kn
 
 
 def contract(Gamma, h, idx_ctr, idx_nb):
@@ -212,7 +260,7 @@ def contract_with_fwd_lap(Gamma, h, idx_ctr, idx_nb):
     lap_out = lap_out.at[idx_ctr].add(
         Gamma.x * get(h.laplacian, idx_nb) + Gamma.laplacian * get(h.x, idx_nb), mode="drop"
     )
-    #.at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
+    # .at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
     lap_out = lap_out.at[idx_ctr].add(2 * jnp.sum(J_Gamma[:, 1, :, :] * get(J_h, idx_nb), axis=1), mode="drop")
 
     idx_ctr = jnp.concatenate([jnp.arange(n_el), idx_ctr])
@@ -242,9 +290,10 @@ class Embedding(PyTreeNode):
     elec_init: ElecInit
     edge: PairWiseFunction
     updates: list[MLP]
+    orbitals: Linear
 
     @classmethod
-    def create(cls, feature_dim, n_layers, cutoff):
+    def create(cls, n_el, feature_dim, n_layers, cutoff):
         return cls(
             feature_dim,
             n_layers,
@@ -252,24 +301,28 @@ class Embedding(PyTreeNode):
             elec_init=ElecInit(feature_dim, n_layers + 1),
             edge=PairWiseFunction(cutoff, feature_dim, n_layers),
             updates=[MLP(feature_dim, 2) for _ in range(n_layers)],
+            orbitals=Linear(n_el),
         )
 
     def init(self, rng):
-        rngs = jax.random.split(rng, 2 + self.n_layers)
+        rngs = jax.random.split(rng, 3 + self.n_layers)
         return EmbeddingParams(
             self.elec_init.init(rngs[0], np.zeros(3)),
             self.edge.init(rngs[1], np.zeros(3), np.zeros(3)),
-            [u.init(key, np.zeros(self.feature_dim)) for u, key in zip(self.updates, rngs[2:])],
+            [u.init(key, np.zeros(self.feature_dim)) for u, key in zip(self.updates, rngs[2:-1])],
+            self.orbitals.init(rngs[-1], np.zeros(self.feature_dim)),
         )
 
     def get_static_args(self, r) -> StaticArgs[Int]:
         n_el = r.shape[0]
         dist = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
-        n_pairs = jnp.sum(dist < self.cutoff) - n_el
-        return StaticArgs(n_pairs)
+        dist = dist.at[jnp.arange(n_el), jnp.arange(n_el)].set(jnp.inf)
+        n_pairs = jnp.sum(dist < self.cutoff)
+        in_cutoff = dist < self.cutoff
+        n_triplets = jnp.sum(in_cutoff[:, None, :] & in_cutoff[None, :, :])
+        return StaticArgs(n_pairs, n_triplets)
 
     def apply(self, params, r, static: StaticArgs[int]):
-        n_el = r.shape[0]
         idx_ct, idx_nb = get_pair_indices(r, self.cutoff, static.n_pairs)
 
         h0 = self.elec_init.apply(params.elec_init, r)
@@ -280,7 +333,9 @@ class Embedding(PyTreeNode):
             msg = contract(g, h_nb, idx_ct, idx_nb)
             h = self.updates[l].apply(params.updates[l], h + msg)
 
-        return h
+        orbitals = self.orbitals.apply(params.orbitals, h)
+        sign, logdet = jnp.linalg.slogdet(orbitals)
+        return logdet
 
     def apply_with_fwd_lap(self, params, r, static: StaticArgs[int]):
         n_el = r.shape[0]
@@ -308,12 +363,16 @@ class Embedding(PyTreeNode):
             msg = contract_with_fwd_lap(g, h_nb, idx_ct, idx_nb)
             h = self.updates[l].apply_with_fwd_lap(params.updates[l], h + msg)
 
-        return h
+        orbitals = self.orbitals.apply_with_fwd_lap(params.orbitals, h)
+        triplet_indices = get_distinct_triplet_indices(r, self.cutoff, static.n_triplets)
+        sign, logdet = slogdet_with_fwd_lap(orbitals, triplet_indices)
+        return logdet
 
 
 def is_close(a, b, msg=""):
+    tol = 1e-6 if a.dtype == jnp.float32 else 1e-12
     try:
-        np.testing.assert_allclose(a, b, err_msg=msg, rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(a, b, err_msg=msg, rtol=tol, atol=tol)
     except AssertionError as e:
         print(e)
 
@@ -321,21 +380,28 @@ def is_close(a, b, msg=""):
 if __name__ == "__main__":
     n_el = 10
     rng_params, rng_r = jax.random.split(jax.random.PRNGKey(0))
-    emb = Embedding.create(feature_dim=32, n_layers=3, cutoff=3.0)
+    emb = Embedding.create(n_el, feature_dim=32, n_layers=3, cutoff=3.0)
     params = emb.init(rng_params)
-    r = jax.random.normal(rng_r, [n_el, 3]) * 3.0
+    r = jax.random.normal(rng_r, [n_el, 3]) * 2.0
     static = emb.get_static_args(r).to_static()
     print(static)
 
-    h_folx = fwd_lap(emb.apply, argnums=1)(params, r, static)
-    h_sparse = emb.apply_with_fwd_lap(params, r, static)
+    # h_folx = fwd_lap(emb.apply, argnums=1)(params, r, static)
+    # h_sparse = emb.apply_with_fwd_lap(params, r, static)
+    # is_close(h_folx.x, h_sparse.x, "h_folx.x != h_sparse.x")
+    # is_close(h_folx.jacobian.data, h_sparse.dense_jac(), "h_folx.jac != h_sparse.jac")
+    # is_close(h_folx.laplacian, h_sparse.lap, "h_folx.lap != h_sparse.lap")
+
+    logdet_folx = fwd_lap(emb.apply, argnums=1)(params, r, static)
+    logdet_sparse = emb.apply_with_fwd_lap(params, r, static)
+    is_close(logdet_folx.x, logdet_sparse.x, "logdet_folx.x != logdet_sparse.x")
+    is_close(logdet_folx.jacobian.data, logdet_sparse.jacobian.data, "logdet_folx.jac != logdet_sparse.jac")
+    is_close(logdet_folx.laplacian, logdet_sparse.laplacian, "logdet_folx.lap != logdet_sparse.lap")
 
     # h_dense = emb.apply_dense(params, r, static)
     # h = emb.apply(params, r, static)
     # is_close(h_dense, h, "h_dense != h")
     # is_close(h_folx.x, h, "h_folx.x != h")
 
-    is_close(h_folx.x, h_sparse.x, "h_folx.x != h_sparse.x")
-    is_close(h_folx.jacobian.data, h_sparse.dense_jac(), "h_folx.jac != h_sparse.jac")
-    is_close(h_folx.laplacian, h_sparse.lap, "h_folx.lap != h_sparse.lap")
+
     # # h = emb.apply(params, r, static)
