@@ -3,7 +3,7 @@ import os
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
-os.environ["JAX_ENABLE_X64"]="1"
+os.environ["JAX_ENABLE_X64"] = "1"
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.struct import PyTreeNode
@@ -158,6 +158,22 @@ def slogdet_with_fwd_lap(A: FwdLapTuple, triplet_indices):
     return sign, FwdLaplArray(logdet, FwdJacobian(jac_logdet.reshape([n_el * 3])), lap_logdet)
 
 
+def multiply_with_1el_fn(a: FwdLapTuple, b: FwdLaplArray):
+    n_el = a.x.shape[0]
+    idx_ctr = a.idx_ctr[n_el:]
+
+    out = a.x * b.x
+    jac_out = jnp.zeros_like(a.jac)
+    jac_out = jac_out.at[:n_el, :, :].add(
+        a.x[:, None, :] * b.jacobian.data + b.x[:, None, :] * a.jac[:n_el], mode="drop"
+    )
+    jac_out = jac_out.at[n_el:, :, :].add(
+        b.x.at[idx_ctr, None, :].get(mode="fill", fill_value=0.0) * a.jac[n_el:], mode="drop"
+    )
+    lap_out = a.lap * b.x + b.laplacian * a.x + 2 * jnp.sum(a.jac[:n_el] * b.jacobian.data, axis=1)
+    return FwdLapTuple(out, jac_out, lap_out, a.idx_ctr, a.idx_dep)
+
+
 class ElecInit(nn.Module):
     feature_dim: int
     n_out: int
@@ -280,6 +296,11 @@ def build_dense_jacobian(J, indices):
     return J_dense
 
 
+def envelope(r, n_orbitals):
+    sigma = np.linspace(1.0, 2.0, n_orbitals)
+    return jnp.exp(-jnp.linalg.norm(r) / sigma)
+
+
 class Embedding(PyTreeNode):
     # Hyperparams
     feature_dim: int
@@ -323,6 +344,7 @@ class Embedding(PyTreeNode):
         return StaticArgs(n_pairs, n_triplets)
 
     def apply(self, params, r, static: StaticArgs[int]):
+        n_el = r.shape[-2]
         idx_ct, idx_nb = get_pair_indices(r, self.cutoff, static.n_pairs)
 
         h0 = self.elec_init.apply(params.elec_init, r)
@@ -334,6 +356,8 @@ class Embedding(PyTreeNode):
             h = self.updates[l].apply(params.updates[l], h + msg)
 
         orbitals = self.orbitals.apply(params.orbitals, h)
+        env = jax.vmap(envelope, in_axes=(0, None))(r, n_el)
+        orbitals *= env
         sign, logdet = jnp.linalg.slogdet(orbitals)
         return logdet
 
@@ -364,6 +388,8 @@ class Embedding(PyTreeNode):
             h = self.updates[l].apply_with_fwd_lap(params.updates[l], h + msg)
 
         orbitals = self.orbitals.apply_with_fwd_lap(params.orbitals, h)
+        env = jax.vmap(fwd_lap(lambda r_: envelope(r_, n_el)))(r)
+        orbitals = multiply_with_1el_fn(orbitals, env)
         triplet_indices = get_distinct_triplet_indices(r, self.cutoff, static.n_triplets)
         sign, logdet = slogdet_with_fwd_lap(orbitals, triplet_indices)
         return logdet
@@ -402,6 +428,5 @@ if __name__ == "__main__":
     # h = emb.apply(params, r, static)
     # is_close(h_dense, h, "h_dense != h")
     # is_close(h_folx.x, h, "h_folx.x != h")
-
 
     # # h = emb.apply(params, r, static)
