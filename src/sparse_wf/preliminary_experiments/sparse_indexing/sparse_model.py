@@ -22,11 +22,14 @@ T = TypeVar("T", bound=int | Int)
 
 
 class StaticArgs(NamedTuple, Generic[T]):
-    n_pairs: T
+    n_pairs_same: T
+    n_pairs_diff: T
     n_triplets: T
 
     def to_static(self):
-        return StaticArgs(int(jnp.max(self.n_pairs)), int(jnp.max(self.n_triplets)))
+        return StaticArgs(
+            int(jnp.max(self.n_pairs_same)), int(jnp.max(self.n_pairs_diff)), int(jnp.max(self.n_triplets))
+        )
 
 
 class FwdLapTuple(NamedTuple):
@@ -134,12 +137,12 @@ def slogdet_with_fwd_lap(A: FwdLapTuple, triplet_indices):
     pairidx_ct = A.idx_ctr[n_el:]
     pairidx_nb = A.idx_dep[n_el:]
 
-    tripidx_i = np.concatenate([np.arange(n_el), pairidx_ct, pairidx_nb, triplet_indices[0]])
-    tripidx_k = np.concatenate([np.arange(n_el), pairidx_nb, pairidx_ct, triplet_indices[1]])
-    tripidx_n = np.concatenate([np.arange(n_el), pairidx_nb, pairidx_nb, triplet_indices[2]])
+    tripidx_i = jnp.concatenate([np.arange(n_el), pairidx_ct, pairidx_nb, triplet_indices[0]])
+    tripidx_k = jnp.concatenate([np.arange(n_el), pairidx_nb, pairidx_ct, triplet_indices[1]])
+    tripidx_n = jnp.concatenate([np.arange(n_el), pairidx_nb, pairidx_nb, triplet_indices[2]])
     tripidx_in, tripidx_kn = get_pair_indices_from_triplets((pairidx_ct, pairidx_nb), triplet_indices, n_el)
-    tripidx_in = np.concatenate([np.arange(n_el), np.arange(n_pairs) + n_el, pairidx_nb, tripidx_in + n_el])
-    tripidx_kn = np.concatenate([np.arange(n_el), pairidx_nb, np.arange(n_pairs) + n_el, tripidx_kn + n_el])
+    tripidx_in = jnp.concatenate([np.arange(n_el), np.arange(n_pairs) + n_el, pairidx_nb, tripidx_in + n_el])
+    tripidx_kn = jnp.concatenate([np.arange(n_el), pairidx_nb, np.arange(n_pairs) + n_el, tripidx_kn + n_el])
 
     A_inv = jnp.linalg.inv(A.x)
     M = A.jac @ A_inv
@@ -216,16 +219,30 @@ class ElectronUpdate(nn.Module):
 
 class EmbeddingParams(NamedTuple):
     elec_init: Parameters
-    edge: Parameters
+    edge_same: Parameters
+    edge_diff: Parameters
     updates: Parameters
     orbitals: Parameters
 
 
-def get_pair_indices(r, cutoff, n_pairs_max: int):
+def get_pair_indices(r, n_up, cutoff, n_pairs_same: int, n_pairs_diff: int):
     n_el = r.shape[0]
+    n_dn = n_el - n_up
+    spin = np.concatenate([np.zeros(n_up, bool), np.ones(n_dn, bool)])
     dist = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
     dist = dist.at[jnp.arange(n_el), jnp.arange(n_el)].set(jnp.inf)
-    return jnp.where(dist < cutoff, size=n_pairs_max, fill_value=NO_NEIGHBOUR)
+    in_cutoff = dist < cutoff
+    is_same_spin = spin[:, None] == spin[None, :]
+
+    pair_indices_same = jnp.where(in_cutoff & is_same_spin, size=n_pairs_same, fill_value=NO_NEIGHBOUR)
+    pair_indices_diff = jnp.where(in_cutoff & ~is_same_spin, size=n_pairs_diff, fill_value=NO_NEIGHBOUR)
+    idx_ct, idx_nb = jnp.where(in_cutoff, size=n_pairs_same + n_pairs_diff, fill_value=NO_NEIGHBOUR)
+    jac_indices = (jnp.concatenate([np.arange(n_el), idx_ct]), jnp.concatenate([np.arange(n_el), idx_nb]))
+
+    search_key = idx_ct * n_el + idx_nb
+    jac_idx_same = jnp.searchsorted(search_key, pair_indices_same[0] * n_el + pair_indices_same[1]) + n_el
+    jac_idx_diff = jnp.searchsorted(search_key, pair_indices_diff[0] * n_el + pair_indices_diff[1]) + n_el
+    return (*pair_indices_same, jac_idx_same), (*pair_indices_diff, jac_idx_diff), jac_indices
 
 
 def get_distinct_triplet_indices(r, cutoff, n_triplets_max: int):
@@ -256,21 +273,21 @@ def get(x, idx):
 
 
 # TODO: all indexing with .at[].get(mode="fill", fill_value=0.0)
-def contract_with_fwd_lap(Gamma, h, idx_ctr, idx_nb):
-    n_pairs, feature_dim = Gamma.shape
+def contract_with_fwd_lap(Gamma, h, idx_ctr, idx_nb, idx_jac, n_pairs_out):
+    feature_dim = Gamma.shape[-1]
     n_el = h.shape[0]
-    J_Gamma = Gamma.jacobian.data.reshape([n_pairs, 2, 3, feature_dim])  # [n_pairs, self/neighbour, xyz, feature_dim]
+    J_Gamma = Gamma.jacobian.data.reshape([-1, 2, 3, feature_dim])  # [n_pairs, self/neighbour, xyz, feature_dim]
     J_h = h.jacobian.data  # [n_el, 3, feature_dim]
 
     h_out = jnp.zeros([n_el, feature_dim], dtype=h.dtype)
     h_out = h_out.at[idx_ctr].add(Gamma.x * get(h.x, idx_nb), mode="drop")
 
-    J_out = jnp.zeros([n_el + n_pairs, 3, feature_dim], dtype=h.dtype)
+    J_out = jnp.zeros([n_el + n_pairs_out, 3, feature_dim], dtype=h.dtype)
     J_out_self = J_Gamma[:, 0, :, :] * h.x.at[idx_nb, None, :].get(mode="fill", fill_value=0.0)
     J_out = J_out.at[idx_ctr, :, :].add(J_out_self, mode="drop")
     J_out_nb = J_Gamma[:, 1, :, :] * h.x.at[idx_nb, None, :].get(mode="fill", fill_value=0.0)
     J_out_nb += Gamma.x[:, None, :] * J_h.at[idx_nb, :, :].get(mode="fill", fill_value=0.0)
-    J_out = J_out.at[n_el:, :, :].add(J_out_nb, mode="drop")
+    J_out = J_out.at[idx_jac, :, :].add(J_out_nb, mode="drop")
 
     lap_out = jnp.zeros_like(h_out)
     lap_out = lap_out.at[idx_ctr].add(
@@ -302,6 +319,10 @@ def envelope(r, n_orbitals):
 
 
 class Embedding(PyTreeNode):
+    # Molecule
+    n_el: int
+    n_up: int
+
     # Hyperparams
     feature_dim: int
     n_layers: int
@@ -309,51 +330,67 @@ class Embedding(PyTreeNode):
 
     # Submodules
     elec_init: ElecInit
-    edge: PairWiseFunction
+    edge_same: PairWiseFunction
+    edge_diff: PairWiseFunction
     updates: list[MLP]
     orbitals: Linear
 
+    @property
+    def n_dn(self):
+        return self.n_el - self.n_up
+
     @classmethod
-    def create(cls, n_el, feature_dim, n_layers, cutoff):
+    def create(cls, n_el, n_up, feature_dim, n_layers, cutoff):
         return cls(
+            n_el,
+            n_up,
             feature_dim,
             n_layers,
             cutoff,
             elec_init=ElecInit(feature_dim, n_layers + 1),
-            edge=PairWiseFunction(cutoff, feature_dim, n_layers),
+            edge_same=PairWiseFunction(cutoff, feature_dim, n_layers),
+            edge_diff=PairWiseFunction(cutoff, feature_dim, n_layers),
             updates=[MLP(feature_dim, 2) for _ in range(n_layers)],
             orbitals=Linear(n_el),
         )
 
     def init(self, rng):
-        rngs = jax.random.split(rng, 3 + self.n_layers)
+        rngs = jax.random.split(rng, 4 + self.n_layers)
         return EmbeddingParams(
             self.elec_init.init(rngs[0], np.zeros(3)),
-            self.edge.init(rngs[1], np.zeros(3), np.zeros(3)),
-            [u.init(key, np.zeros(self.feature_dim)) for u, key in zip(self.updates, rngs[2:-1])],
+            self.edge_same.init(rngs[1], np.zeros(3), np.zeros(3)),
+            self.edge_diff.init(rngs[2], np.zeros(3), np.zeros(3)),
+            [u.init(key, np.zeros(self.feature_dim)) for u, key in zip(self.updates, rngs[3:-1])],
             self.orbitals.init(rngs[-1], np.zeros(self.feature_dim)),
         )
 
     def get_static_args(self, r) -> StaticArgs[Int]:
-        n_el = r.shape[0]
+        spin = np.concatenate([np.zeros(self.n_up, bool), np.ones(self.n_dn, bool)])
         dist = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
         dist = dist.at[jnp.arange(n_el), jnp.arange(n_el)].set(jnp.inf)
-        n_pairs = jnp.sum(dist < self.cutoff)
         in_cutoff = dist < self.cutoff
+        is_same_spin = spin[:, None] == spin[None, :]
+
+        n_pairs_same = jnp.sum(in_cutoff & is_same_spin)
+        n_pairs_diff = jnp.sum(in_cutoff & ~is_same_spin)
         n_triplets = jnp.sum(in_cutoff[:, None, :] & in_cutoff[None, :, :])
-        return StaticArgs(n_pairs, n_triplets)
+        return StaticArgs(n_pairs_same, n_pairs_diff, n_triplets)
 
     def apply(self, params, r, static: StaticArgs[int]):
         n_el = r.shape[-2]
-        idx_ct, idx_nb = get_pair_indices(r, self.cutoff, static.n_pairs)
+        (idx_ct_same, idx_nb_same, _), (idx_ct_diff, idx_nb_diff, _), _ = get_pair_indices(
+            r, self.n_up, self.cutoff, static.n_pairs_same, static.n_pairs_diff
+        )
 
         h0 = self.elec_init.apply(params.elec_init, r)
-        Gamma = jax.vmap(lambda i, j: self.edge.apply(params.edge, r[i], r[j]))(idx_ct, idx_nb)
+        Gamma_same = jax.vmap(lambda i, j: self.edge_same.apply(params.edge_same, r[i], r[j]))(idx_ct_same, idx_nb_same)
+        Gamma_diff = jax.vmap(lambda i, j: self.edge_diff.apply(params.edge_diff, r[i], r[j]))(idx_ct_diff, idx_nb_diff)
 
         h = h0[0]
-        for l, (h_nb, g) in enumerate(zip(h0[1:], Gamma)):
-            msg = contract(g, h_nb, idx_ct, idx_nb)
-            h = self.updates[l].apply(params.updates[l], h + msg)
+        for l, (h_nb, g_same, g_diff) in enumerate(zip(h0[1:], Gamma_same, Gamma_diff)):
+            msg_same = contract(g_same, h_nb, idx_ct_same, idx_nb_same)
+            msg_diff = contract(g_diff, h_nb, idx_ct_diff, idx_nb_diff)
+            h = self.updates[l].apply(params.updates[l], h + msg_same + msg_diff)
 
         orbitals = self.orbitals.apply(params.orbitals, h)
         env = jax.vmap(envelope, in_axes=(0, None))(r, n_el)
@@ -363,18 +400,22 @@ class Embedding(PyTreeNode):
 
     def apply_with_fwd_lap(self, params, r, static: StaticArgs[int]):
         n_el = r.shape[0]
-        idx_ct, idx_nb = get_pair_indices(r, self.cutoff, static.n_pairs)
-
-        idx_jac_ctr = jnp.concatenate([jnp.arange(n_el), idx_ct])
-        idx_jac_dep = jnp.concatenate([jnp.arange(n_el), idx_nb])
+        (
+            (idx_ct_same, idx_nb_same, idx_jac_same),
+            (idx_ct_diff, idx_nb_diff, idx_jac_diff),
+            (idx_jac_ctr, idx_jac_dep),
+        ) = get_pair_indices(r, self.n_up, self.cutoff, static.n_pairs_same, static.n_pairs_diff)
+        n_pairs = static.n_pairs_same + static.n_pairs_diff
 
         h0_fn = functools.partial(self.elec_init.apply, params.elec_init)
-        edge_fn = functools.partial(self.edge.apply, params.edge)
+        edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same)
+        edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff)
 
         h0 = jax.vmap(fwd_lap(h0_fn))(r)
-        Gamma = jax.vmap(fwd_lap(edge_fn))(r[idx_ct], r[idx_nb])
+        Gamma_same = jax.vmap(fwd_lap(edge_fn_same))(r[idx_ct_same], r[idx_nb_same])
+        Gamma_diff = jax.vmap(fwd_lap(edge_fn_diff))(r[idx_ct_diff], r[idx_nb_diff])
         jac_h0_padded = jnp.concatenate(
-            [h0[0].jacobian.data.reshape([n_el, 3, self.feature_dim]), jnp.zeros([static.n_pairs, 3, self.feature_dim])]
+            [h0[0].jacobian.data.reshape([n_el, 3, self.feature_dim]), jnp.zeros([n_pairs, 3, self.feature_dim])]
         )
         h = FwdLapTuple(
             h0[0].x,
@@ -383,9 +424,10 @@ class Embedding(PyTreeNode):
             idx_jac_ctr,
             idx_jac_dep,
         )
-        for l, (h_nb, g) in enumerate(zip(h0[1:], Gamma)):
-            msg = contract_with_fwd_lap(g, h_nb, idx_ct, idx_nb)
-            h = self.updates[l].apply_with_fwd_lap(params.updates[l], h + msg)
+        for l, (h_nb, g_same, g_diff) in enumerate(zip(h0[1:], Gamma_same, Gamma_diff)):
+            msg_same = contract_with_fwd_lap(g_same, h_nb, idx_ct_same, idx_nb_same, idx_jac_same, n_pairs)
+            msg_diff = contract_with_fwd_lap(g_diff, h_nb, idx_ct_diff, idx_nb_diff, idx_jac_diff, n_pairs)
+            h = self.updates[l].apply_with_fwd_lap(params.updates[l], h + msg_same + msg_diff)
 
         orbitals = self.orbitals.apply_with_fwd_lap(params.orbitals, h)
         env = jax.vmap(fwd_lap(lambda r_: envelope(r_, n_el)))(r)
@@ -404,9 +446,10 @@ def is_close(a, b, msg=""):
 
 
 if __name__ == "__main__":
-    n_el = 10
+    n_el = 20
+    n_up = n_el // 2
     rng_params, rng_r = jax.random.split(jax.random.PRNGKey(0))
-    emb = Embedding.create(n_el, feature_dim=32, n_layers=3, cutoff=3.0)
+    emb = Embedding.create(n_el, n_up, feature_dim=32, n_layers=3, cutoff=3.0)
     params = emb.init(rng_params)
     r = jax.random.normal(rng_r, [n_el, 3]) * 2.0
     static = emb.get_static_args(r).to_static()
