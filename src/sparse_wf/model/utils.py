@@ -212,32 +212,84 @@ def signed_logpsi_from_orbitals(orbitals: SlaterMatrices, return_state: bool = F
     return (signpsi, logpsi)
 
 
-def signed_log_psi_from_orbitals_low_rank(orbitals: SlaterMatrices, changed_electrons: ElectronIdx, state: LogPsiState):
+def woodburry_update(
+    sign: jax.Array,
+    log_det: jax.Array,
+    A: jax.Array,
+    A_inv: jax.Array,
+    new_A: jax.Array,
+    changed: ElectronIdx,
+):
+    # orb is K x N x N (current step orbitals)
+    # A is K x N x N (previous orbitals)
+    # A_inv is K x N x N (previous inverse)
+    # s_psi, log_psi are K (previous slogdet)
+
     # Here we apply the matrix determinant lemma to compute low rank updates on the slogdet
     # det(A + UV^T) = det(A) * det(I + V^T A^-1 U) where A is the original matrix, U and V are the low rank updates
     # Since we update n-rows, U will a matrix of n x k basis vectors and V will be a matrix of k x n coefficients
     # To update the inverses, we use the Woodburry matrix identity
     # (A + UV^T)^-1 = A^-1 - A^-1 U (I + V^T A^-1 U)^-1 V^T A^-1
-    k = len(changed_electrons)
+    dtype = A.dtype
+    k = changed.shape[0]
+    V = new_A.at[:, changed].get(mode="fill", fill_value=0) - A.at[:, changed].get(mode="fill", fill_value=0)
+    Ainv_U = A_inv.at[..., changed].get(mode="fill", fill_value=0)
+    V_Ainv_U = V @ Ainv_U
+    (s_delta, log_delta), inv_delta = slog_and_inverse(jnp.eye(k, dtype=dtype) + V_Ainv_U)
+    # update slog det
+    s_psi, log_psi = sign * s_delta, log_det + log_delta
+    # update inverse - the optimal contraction would be first do the outer contractions, then the inner.
+    new_inv = A_inv - jnp.einsum("...ab,...bc,...cd,...de->...ae", Ainv_U, inv_delta, V, A_inv)
+    return (s_psi, log_psi), new_inv
+
+
+def sherman_morrison_update(
+    sign: jax.Array,
+    log_det: jax.Array,
+    A: jax.Array,
+    A_inv: jax.Array,
+    new_A: jax.Array,
+    changed: ElectronIdx,
+):
+    # Compared to the Woodburry update, the Sherman-Morrison update is theoretically O(N^2 k) instead of O(N^2k + k^3).
+    # However, we must do the k steps sequentially while they can be parallized in the Woodburry update.
+
+    def single_update(state, i):
+        sign, log_det, A_inv = state
+        v = new_A.at[..., i, :].get(mode="fill", fill_value=0) - A.at[..., i, :].get(mode="fill", fill_value=0)
+        A_inv_u = A_inv.at[..., i].get(mode="fill", fill_value=0)
+        v_A_inv = jnp.einsum("...a,...ab->...b", v, A_inv)
+        numerator = jnp.einsum("...a,...b->...ab", A_inv_u, v_A_inv)
+        denominator = 1 + jnp.einsum("...a,...a->...", v, A_inv_u)
+        A_inv = A_inv - numerator / denominator[..., None, None]
+
+        new_sign, new_log = jnp.sign(denominator), jnp.log(jnp.abs(denominator))
+        sign = sign * new_sign
+        log_det = log_det + new_log
+        return (sign, log_det, A_inv), None
+
+    sign, log_det, new_inv = jax.lax.scan(single_update, (sign, log_det, A_inv), changed)[0]
+    return (sign, log_det), new_inv
+
+
+def signed_log_psi_from_orbitals_low_rank(
+    orbitals: SlaterMatrices,
+    changed_electrons: ElectronIdx,
+    state: LogPsiState,
+    update_method: str = "woodburry",
+):
     dtype = orbitals[0].dtype
     slogdets = []
     inverses = []
     for A, A_inv, orb, (s_psi, log_psi) in zip(state.matrices, state.inverses, orbitals, state.slogdets):
-        # orb is K x N x N (current step orbitals)
-        # A is K x N x N (previous orbitals)
-        # A_inv is K x N x N (previous inverse)
-        # s_psi, log_psi are K (previous slogdet)
-        V = orb.at[:, changed_electrons].get(mode="fill", fill_value=0) - A.at[:, changed_electrons].get(
-            mode="fill", fill_value=0
-        )
-        Ainv_U = A_inv.at[..., changed_electrons].get(mode="fill", fill_value=0)
-        V_Ainv_U = V @ Ainv_U
-        (s_delta, log_delta), inv_delta = slog_and_inverse(jnp.eye(k, dtype=dtype) + V_Ainv_U)
-        # update slog det
-        s_psi, log_psi = s_psi * s_delta, log_psi + log_delta
+        match update_method.lower():
+            case "woodburry":
+                (s_psi, log_psi), new_inv = woodburry_update(s_psi, log_psi, A, A_inv, orb, changed_electrons)
+            case "sherman-morrison":
+                (s_psi, log_psi), new_inv = sherman_morrison_update(s_psi, log_psi, A, A_inv, orb, changed_electrons)
+            case _:
+                raise ValueError(f"Unknown update method {update_method}")
         slogdets.append((s_psi, log_psi))
-        # update inverse - the optimal contraction would be first do the outer contractions, then the inner.
-        new_inv = A_inv - jnp.einsum("...ab,...bc,...cd,...de->...ae", Ainv_U, inv_delta, V, A_inv)
         inverses.append(new_inv)
     # For block-diagonal determinants, orbitals is a tuple of length 2. The following line is a fancy way to write
     # logdet, sign = logdet_up + logdet_dn, sign_up * sign_dn
