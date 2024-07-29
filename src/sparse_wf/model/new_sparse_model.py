@@ -2,21 +2,26 @@
 import os
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
-os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
-os.environ["JAX_ENABLE_X64"] = "1"
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.struct import PyTreeNode
 from sparse_wf.api import Parameters, Int
-from sparse_wf.model.utils import cutoff_function
+from sparse_wf.model.utils import (
+    cutoff_function,
+    GatedLinearUnit,
+    get_diff_features,
+    PairwiseFilter,
+    DynamicFilterParams,
+)
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
 import jax
 import numpy as np
-from typing import NamedTuple, Generic, TypeVar
-from sparse_wf.jax_utils import fwd_lap
+from typing import NamedTuple, Generic, TypeVar, Callable
+from sparse_wf.jax_utils import fwd_lap, nn_vmap
 import functools
 from folx.api import FwdLaplArray, FwdJacobian
 import jax.tree_util as jtu
+from jaxtyping import Float, Array
 
 T = TypeVar("T", bound=int | Int)
 
@@ -36,16 +41,16 @@ class NodeWithFwdLap(NamedTuple):
     # The jacobian is layed out as follows:
     # The first n_el entries correspond to the jacobian of the node with itself, ie. idx_dep = idx_ctr
     # The next n_pairs entries correspond to the jacobian of the node with its neighbours, i.e. idx_dep != idx_ctr
-    x: jax.Array       # [n_el x feature_dim]
-    jac: jax.Array     # [n_el + n_pairs x 3 x feature_dim]
-    lap: jax.Array     # [n_el x feature_dim]
-    idx_ctr: jax.Array # [n_el + n_pairs]
-    idx_dep: jax.Array # [n_el + n_pairs]
+    x: jax.Array  # [n_el x feature_dim]
+    jac: jax.Array  # [n_el + n_pairs x 3 x feature_dim]
+    lap: jax.Array  # [n_el x feature_dim]
+    idx_ctr: jax.Array  # [n_el + n_pairs]
+    idx_dep: jax.Array  # [n_el + n_pairs]
 
     def get_jac_sqr(self):
         jac_sqr = jnp.zeros_like(self.x)
         # .at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
-        jac_sqr = jac_sqr.at[self.idx_ctr].add(jnp.sum(self.jac**2, axis=1), mode="drop")
+        jac_sqr = jac_sqr.at[self.idx_ctr].add(jnp.sum(self.jac**2, axis=1))
         return jac_sqr
 
     def dense_jac(self):
@@ -97,7 +102,7 @@ class ElementWise(PyTreeNode):
         y = [jnp.vectorize(f, signature="()->()")(x.x) for f in [self.fn, grad_fn, hess_fn]]
         return NodeWithFwdLap(
             y[0],
-            x.jac * y[1].at[x.idx_ctr, None].get(mode="fill", fill_value=0.0),
+            x.jac * get(y[1], (x.idx_ctr, None)),
             x.lap * y[1] + x.get_jac_sqr() * y[2],
             x.idx_ctr,
             x.idx_dep,
@@ -160,14 +165,11 @@ def slogdet_with_fwd_lap(A: NodeWithFwdLap, triplet_indices):
 
     sign, logdet = jnp.linalg.slogdet(A.x)
     jac_logdet = jnp.zeros([n_el, 3], dtype=A.x.dtype)
-    jac_logdet = jac_logdet.at[A.idx_dep, :].add(
-        M.at[np.arange(n_pairs + n_el), :, A.idx_ctr].get(mode="fill", fill_value=0.0), mode="drop"
-    )
+    jac_logdet = jac_logdet.at[A.idx_dep, :].add(get(M, (np.arange(n_pairs + n_el), slice(None), A.idx_ctr)))
 
     lap_logdet = jnp.einsum("ij,ji", A.lap, A_inv)
     lap_logdet -= jnp.sum(
-        M.at[tripidx_in, :, tripidx_k].get(mode="fill", fill_value=0.0)
-        * M.at[tripidx_kn, :, tripidx_i].get(mode="fill", fill_value=0.0)
+        get(M, (tripidx_in, slice(None), tripidx_k)) * get(M, (tripidx_kn, slice(None), tripidx_i)),
     )
     return sign, FwdLaplArray(logdet, FwdJacobian(jac_logdet.reshape([n_el * 3])), lap_logdet)
 
@@ -178,29 +180,65 @@ def multiply_with_1el_fn(a: NodeWithFwdLap, b: FwdLaplArray):
 
     out = a.x * b.x
     jac_out = jnp.zeros_like(a.jac)
-    jac_out = jac_out.at[:n_el, :, :].add(
-        a.x[:, None, :] * b.jacobian.data + b.x[:, None, :] * a.jac[:n_el], mode="drop"
-    )
-    jac_out = jac_out.at[n_el:, :, :].add(
-        b.x.at[idx_ctr, None, :].get(mode="fill", fill_value=0.0) * a.jac[n_el:], mode="drop"
-    )
+    jac_out = jac_out.at[:n_el, :, :].add(a.x[:, None, :] * b.jacobian.data + b.x[:, None, :] * a.jac[:n_el])
+    jac_out = jac_out.at[n_el:, :, :].add(get(b.x, (idx_ctr, None)) * a.jac[n_el:])
     lap_out = a.lap * b.x + b.laplacian * a.x + 2 * jnp.sum(a.jac[:n_el] * b.jacobian.data, axis=1)
     return NodeWithFwdLap(out, jac_out, lap_out, a.idx_ctr, a.idx_dep)
 
 
-class ElecInit(nn.Module):
+class NucleusDependentParams(NamedTuple):
+    filter: DynamicFilterParams
+    nuc_embedding: jax.Array | None
+
+
+class EdgeFeatures(nn.Module):
+    cutoff: float
+    filter_dims: tuple[int, int]
     feature_dim: int
-    n_updates: int
+    n_envelopes: int
+    return_edge_embedding: bool = True
 
     @nn.compact
-    def __call__(self, r):
-        n_out = 1 + 2 * self.n_updates
-        h0 = nn.Dense(
-            features=self.feature_dim * n_out,
-        )(r)
-        h0 = nn.silu(h0)
-        h0 = jnp.split(h0, n_out, axis=-1)
-        return h0[0], h0[1:1 + self.n_updates], h0[1 + self.n_updates:]
+    def __call__(
+        self,
+        r_center: Float[Array, "dim=3"],
+        r_neighbour: Float[Array, "dim=3"],
+        dynamic_params: NucleusDependentParams,
+    ):
+        features = get_diff_features(r_center, r_neighbour)
+        beta = PairwiseFilter(self.cutoff, self.filter_dims[1])(features, dynamic_params.filter)
+        gamma = nn.Dense(self.feature_dim, use_bias=False)(beta)
+        scaled_features = features / features[..., :1] * jnp.log1p(features[..., :1])
+        edge_embedding = nn.Dense(self.feature_dim, use_bias=False)(scaled_features) + dynamic_params.nuc_embedding
+        return gamma, edge_embedding
+
+
+class ElecInit(nn.Module):
+    cutoff: float
+    filter_dims: tuple[int, int]
+    feature_dim: int
+    n_envelopes: int
+    n_updates: int
+    activation: Callable = nn.silu
+
+    @nn.compact
+    def __call__(
+        self,
+        r: Float[Array, " dim=3"],
+        R_nb: Float[Array, "n_neighbours dim=3"],
+        dynamic_params: NucleusDependentParams,
+    ):
+        n_out = self.n_updates * 2 + 1
+        edge_feat = EdgeFeatures(self.cutoff, self.filter_dims, self.feature_dim, self.n_envelopes)
+        features, Gamma = nn_vmap(edge_feat, in_axes=(None, 0, 0))(r, R_nb, dynamic_params)  # vmap over nuclei
+        h_init = jnp.einsum("...Jd,...Jd->...d", features, Gamma)
+        h_init = nn.LayerNorm()(h_init)
+        h_init = GatedLinearUnit(self.feature_dim)(h_init)
+        h_init = self.activation(nn.Dense(self.feature_dim)(h_init))
+        # let's parallize this will by having all operations in one go
+        h_out = jnp.split(nn.Dense(self.feature_dim * n_out)(h_init), n_out, -1)
+        h_init, h_nb_same, h_nb_diff = h_out[0], h_out[1 : 1 + self.n_updates], h_out[1 + self.n_updates :]
+        return h_init, h_nb_same, h_nb_diff
 
 
 class PairWiseFunction(nn.Module):
@@ -277,70 +315,43 @@ def get_pair_indices_from_triplets(pair_indices, triplet_indices, n_el):
     return pair_in, pair_kn
 
 
-# def contract(Gamma, edge, idx_ctr, n_nodes):
-#     feature_dim = Gamma.shape[-1]
-#     h_out = jnp.zeros([n_nodes, feature_dim], dtype=Gamma.dtype)
-#     h_out = h_out.at[idx_ctr, :].add(Gamma * edge)
-#     return h_out
-
-def contract(h_residual, h, Gamma, edges, idx_ctr, idx_nb):
-    pair_msg = Gamma * nn.silu(edges + get(h, idx_ctr) + get(h, idx_nb))
-    h_out = h_residual.at[idx_ctr].add(pair_msg)
+def contract(Gamma, h, idx_ctr, idx_nb):
+    feature_dim = Gamma.shape[-1]
+    n_el = h.shape[0]
+    h_out = jnp.zeros([n_el, feature_dim], dtype=h.dtype)
+    h_out = h_out.at[idx_ctr, :].add(Gamma * h[idx_nb, :])
     return h_out
-
-def contract_with_fwd_lap(h_residual: NodeWithFwdLap, h: FwdLaplArray, Gamma: FwdLaplArray, edges: FwdLaplArray, idx_ctr, idx_nb, idx_jac, n_pairs_out):
-    n_el, feature_dim = h.x.shape
-
-    # Compute the message for each pair of nodes using folx
-    @fwd_lap
-    def multiply(G, e, h_ct, h_nb):
-        return G * nn.silu(e + h_ct + h_nb)
-
-    padding = jnp.zeros([n_el, 3, feature_dim], dtype=h.x.dtype)
-    h_center = FwdLaplArray(h.x, FwdJacobian(jnp.concatenate([h.jacobian.data, padding])), h.laplacian)
-    h_neighb = FwdLaplArray(h.x, FwdJacobian(jnp.concatenate([padding, h.jacobian.data])), h.laplacian)
-    pair_msg = jax.vmap(lambda G, e, i, j: multiply(G, e, get(h_center.x, i), get(h_neighb.x, j)))(Gamma, edges, idx_ctr, idx_nb) # vmap over pairs
-
-    # Aggregate the messages to each center node
-    h_out = h_residual.x.at[idx_ctr].add(pair_msg.x)
-    lap_out = h_residual.lap.at[idx_ctr].add(pair_msg.laplacian)
-    J_out= h_residual.jac.at[idx_ctr].add(pair_msg.jacobian.data[:, :3]) # dmsg/dx_ctr
-    J_out = J_out.at[idx_jac].add(pair_msg.jacobian.data[:, 3:]) # dmsg/dx_nb
-    return NodeWithFwdLap(h_out, J_out, lap_out, idx_ctr, idx_nb)
 
 
 def get(x, idx):
     return x.at[idx].get(mode="fill", fill_value=0.0)
 
 
-# # TODO: all indexing with .at[].get(mode="fill", fill_value=0.0)
-# def contract_with_fwd_lap(Gamma, h, idx_ctr, idx_nb, idx_jac, n_pairs_out):
-#     feature_dim = Gamma.shape[-1]
-#     n_el = h.shape[0]
-#     J_Gamma = Gamma.jacobian.data.reshape([-1, 2, 3, feature_dim])  # [n_pairs, self/neighbour, xyz, feature_dim]
-#     J_h = h.jacobian.data  # [n_el, 3, feature_dim]
+def contract_with_fwd_lap(Gamma, h, idx_ctr, idx_nb, idx_jac, n_pairs_out):
+    feature_dim = Gamma.shape[-1]
+    n_el = h.shape[0]
+    J_Gamma = Gamma.jacobian.data.reshape([-1, 2, 3, feature_dim])  # [n_pairs, self/neighbour, xyz, feature_dim]
+    J_h = h.jacobian.data  # [n_el, 3, feature_dim]
 
-#     h_out = jnp.zeros([n_el, feature_dim], dtype=h.dtype)
-#     h_out = h_out.at[idx_ctr].add(Gamma.x * get(h.x, idx_nb), mode="drop")
+    h_out = jnp.zeros([n_el, feature_dim], dtype=h.dtype)
+    h_out = h_out.at[idx_ctr].add(Gamma.x * get(h.x, idx_nb))
 
-#     J_out = jnp.zeros([n_el + n_pairs_out, 3, feature_dim], dtype=h.dtype)
-#     J_out_self = J_Gamma[:, 0, :, :] * h.x.at[idx_nb, None, :].get(mode="fill", fill_value=0.0)
-#     J_out = J_out.at[idx_ctr, :, :].add(J_out_self, mode="drop")
-#     J_out_nb = J_Gamma[:, 1, :, :] * h.x.at[idx_nb, None, :].get(mode="fill", fill_value=0.0)
-#     J_out_nb += Gamma.x[:, None, :] * J_h.at[idx_nb, :, :].get(mode="fill", fill_value=0.0)
-#     J_out = J_out.at[idx_jac, :, :].add(J_out_nb, mode="drop")
+    J_out = jnp.zeros([n_el + n_pairs_out, 3, feature_dim], dtype=h.dtype)
+    J_out_self = J_Gamma[:, 0, :, :] * get(h.x, (idx_nb, None))
+    J_out = J_out.at[idx_ctr, :, :].add(J_out_self)
+    J_out_nb = J_Gamma[:, 1, :, :] * get(h.x, h.x, (idx_nb, None))
+    J_out_nb += Gamma.x[:, None, :] * get(J_h, idx_nb)
+    J_out = J_out.at[idx_jac, :, :].add(J_out_nb)
 
-#     lap_out = jnp.zeros_like(h_out)
-#     lap_out = lap_out.at[idx_ctr].add(
-#         Gamma.x * get(h.laplacian, idx_nb) + Gamma.laplacian * get(h.x, idx_nb), mode="drop"
-#     )
-#     # .at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
-#     lap_out = lap_out.at[idx_ctr].add(2 * jnp.sum(J_Gamma[:, 1, :, :] * get(J_h, idx_nb), axis=1), mode="drop")
+    lap_out = jnp.zeros_like(h_out)
+    lap_out = lap_out.at[idx_ctr].add(Gamma.x * get(h.laplacian, idx_nb) + Gamma.laplacian * get(h.x, idx_nb))
+    # .at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
+    lap_out = lap_out.at[idx_ctr].add(2 * jnp.sum(J_Gamma[:, 1, :, :] * get(J_h, idx_nb), axis=1))
 
-#     idx_ctr = jnp.concatenate([jnp.arange(n_el), idx_ctr])
-#     idx_dep = jnp.concatenate([jnp.arange(n_el), idx_nb])
+    idx_ctr = jnp.concatenate([jnp.arange(n_el), idx_ctr])
+    idx_dep = jnp.concatenate([jnp.arange(n_el), idx_nb])
 
-#     return NodeWithFwdLap(h_out, J_out, lap_out, idx_ctr, idx_dep)
+    return NodeWithFwdLap(h_out, J_out, lap_out, idx_ctr, idx_dep)
 
 
 def build_dense_jacobian(J, indices):
@@ -388,7 +399,7 @@ class Embedding(PyTreeNode):
             feature_dim,
             n_layers,
             cutoff,
-            elec_init=ElecInit(feature_dim, n_layers),
+            elec_init=ElecInit(feature_dim, n_layers + 1),
             edge_same=PairWiseFunction(cutoff, feature_dim, n_layers),
             edge_diff=PairWiseFunction(cutoff, feature_dim, n_layers),
             updates=[MLP(feature_dim, 2) for _ in range(n_layers)],
@@ -417,67 +428,65 @@ class Embedding(PyTreeNode):
         n_triplets = jnp.sum(in_cutoff[:, None, :] & in_cutoff[None, :, :])
         return StaticArgs(n_pairs_same, n_pairs_diff, n_triplets)
 
-    def apply(self, params, electrons, static: StaticArgs[int]):
-        n_el = electrons.shape[-2]
+    def apply(self, params, r, static: StaticArgs[int]):
+        n_el = r.shape[-2]
         (idx_ct_same, idx_nb_same, _), (idx_ct_diff, idx_nb_diff, _), _ = get_pair_indices(
-            electrons, self.n_up, self.cutoff, static.n_pairs_same, static.n_pairs_diff
+            r, self.n_up, self.cutoff, static.n_pairs_same, static.n_pairs_diff
         )
 
-        h0, h_nb_same, h_nb_diff = jax.vmap(lambda r: self.elec_init.apply(params.elec_init, r))(electrons)
-        Gamma_same, edge_same = jax.vmap(lambda i, j: self.edge_same.apply(params.edge_same, r[i], r[j]))(idx_ct_same, idx_nb_same)
-        Gamma_diff, edge_diff = jax.vmap(lambda i, j: self.edge_diff.apply(params.edge_diff, r[i], r[j]))(idx_ct_diff, idx_nb_diff)
+        h0, h_nb_same, h_nb_diff = self.elec_init.apply(params.elec_init, r)
+        Gamma_same = jax.vmap(lambda i, j: self.edge_same.apply(params.edge_same, r[i], r[j]))(idx_ct_same, idx_nb_same)
+        Gamma_diff = jax.vmap(lambda i, j: self.edge_diff.apply(params.edge_diff, r[i], r[j]))(idx_ct_diff, idx_nb_diff)
 
         h = h0
         for h_same, h_diff, g_same, g_diff, e_same, e_diff, update_module, update_params in zip(
-            h_nb_same, h_nb_diff, Gamma_same, Gamma_diff, edge_same, edge_diff, self.updates, params.updates
+            h_nb_same, h_nb_diff, Gamma_same, Gamma_diff, self.updates, params.updates
         ):
-            h = contract(h, h_same, g_same, e_same, idx_ct_same, idx_nb_same)
-            h = contract(h, h_diff, g_diff, e_diff, idx_ct_diff, idx_nb_diff)
+            msg_same = contract(g_same, h_same, idx_ct_same, idx_nb_same)
+            msg_diff = contract(g_diff, h_diff, idx_ct_diff, idx_nb_diff)
             h = update_module.apply(update_params, h + msg_same + msg_diff)
 
         orbitals = self.orbitals.apply(params.orbitals, h)
-        env = jax.vmap(envelope, in_axes=(0, None))(electrons, n_el)
+        env = jax.vmap(envelope, in_axes=(0, None))(r, n_el)
         orbitals *= env
         sign, logdet = jnp.linalg.slogdet(orbitals)
         return logdet
 
-    def apply_with_fwd_lap(self, params, electrons, static: StaticArgs[int]):
+    def apply_with_fwd_lap(self, params, r, static: StaticArgs[int]):
         n_el = r.shape[0]
         (
             (idx_ct_same, idx_nb_same, idx_jac_same),
             (idx_ct_diff, idx_nb_diff, idx_jac_diff),
             (idx_jac_ctr, idx_jac_dep),
-        ) = get_pair_indices(electrons, self.n_up, self.cutoff, static.n_pairs_same, static.n_pairs_diff)
+        ) = get_pair_indices(r, self.n_up, self.cutoff, static.n_pairs_same, static.n_pairs_diff)
         n_pairs = static.n_pairs_same + static.n_pairs_diff
 
         h0_fn = functools.partial(self.elec_init.apply, params.elec_init)
         edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same)
         edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff)
 
-        h0, h_nb_same, h_nb_diff = jax.vmap(fwd_lap(h0_fn))(electrons)
-        Gamma_same, edge_same = jax.vmap(fwd_lap(edge_fn_same))(electrons[idx_ct_same], electrons[idx_nb_same])
-        Gamma_diff, edge_diff = jax.vmap(fwd_lap(edge_fn_diff))(electrons[idx_ct_diff], electrons[idx_nb_diff])
+        h0 = jax.vmap(fwd_lap(h0_fn))(r)
+        Gamma_same = jax.vmap(fwd_lap(edge_fn_same))(r[idx_ct_same], r[idx_nb_same])
+        Gamma_diff = jax.vmap(fwd_lap(edge_fn_diff))(r[idx_ct_diff], r[idx_nb_diff])
         jac_h0_padded = jnp.concatenate(
-            [h0.jacobian.data.reshape([n_el, 3, self.feature_dim]), jnp.zeros([n_pairs, 3, self.feature_dim])]
+            [h0[0].jacobian.data.reshape([n_el, 3, self.feature_dim]), jnp.zeros([n_pairs, 3, self.feature_dim])]
         )
         h = NodeWithFwdLap(
-            h0.x,
+            h0[0].x,
             jac_h0_padded,
-            h0.laplacian,
+            h0[0].laplacian,
             idx_jac_ctr,
             idx_jac_dep,
         )
-        for h_same, h_diff, g_same, g_diff, e_same, e_diff, update_module, update_params in zip(
-            h_nb_same, h_nb_diff, Gamma_same, Gamma_diff, edge_same, edge_diff, self.updates, params.updates
-        ):
-            msg_same = contract_with_fwd_lap(h_same, g_same, e_same, idx_ct_same, idx_nb_same)
-            msg_diff = contract_with_fwd_lap(h_diff, g_diff, e_diff, idx_ct_diff, idx_nb_diff)
-            h = update_module.apply(update_params, h + msg_same + msg_diff)
+        for l, (h_nb, g_same, g_diff) in enumerate(zip(h0[1:], Gamma_same, Gamma_diff)):
+            msg_same = contract_with_fwd_lap(g_same, h_nb, idx_ct_same, idx_nb_same, idx_jac_same, n_pairs)
+            msg_diff = contract_with_fwd_lap(g_diff, h_nb, idx_ct_diff, idx_nb_diff, idx_jac_diff, n_pairs)
+            h = self.updates[l].apply_with_fwd_lap(params.updates[l], h + msg_same + msg_diff)
 
         orbitals = self.orbitals.apply_with_fwd_lap(params.orbitals, h)
-        env = jax.vmap(fwd_lap(lambda r: envelope(r, n_el)))(electrons)
+        env = jax.vmap(fwd_lap(lambda r_: envelope(r_, n_el)))(r)
         orbitals = multiply_with_1el_fn(orbitals, env)
-        triplet_indices = get_distinct_triplet_indices(electrons, self.cutoff, static.n_triplets)
+        triplet_indices = get_distinct_triplet_indices(r, self.cutoff, static.n_triplets)
         sign, logdet = slogdet_with_fwd_lap(orbitals, triplet_indices)
         return logdet
 
