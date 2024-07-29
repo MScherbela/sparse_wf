@@ -20,7 +20,6 @@ from typing import NamedTuple, Generic, TypeVar, Callable
 from sparse_wf.jax_utils import fwd_lap, nn_vmap
 import functools
 from folx.api import FwdLaplArray, FwdJacobian
-import jax.tree_util as jtu
 from jaxtyping import Float, Array
 
 T = TypeVar("T", bound=int | Int)
@@ -42,10 +41,12 @@ class NodeWithFwdLap(NamedTuple):
     # The first n_el entries correspond to the jacobian of the node with itself, ie. idx_dep = idx_ctr
     # The next n_pairs entries correspond to the jacobian of the node with its neighbours, i.e. idx_dep != idx_ctr
     x: jax.Array  # [n_el x feature_dim]
-    jac: jax.Array  # [n_el + n_pairs x 3 x feature_dim]
+
+    jac: jax.Array  # [(n_el + n_pairs) x 3 x feature_dim]
+    idx_center: jax.Array  # [n_el + n_pairs]
+    idx_dependency: jax.Array  # [n_el + n_pairs]
+
     lap: jax.Array  # [n_el x feature_dim]
-    idx_ctr: jax.Array  # [n_el + n_pairs]
-    idx_dep: jax.Array  # [n_el + n_pairs]
 
     def get_jac_sqr(self):
         jac_sqr = jnp.zeros_like(self.x)
