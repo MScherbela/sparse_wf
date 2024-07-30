@@ -43,7 +43,7 @@ grid:
   model_args.embedding.new.cutoff:
     type: choice
     options:
-      - 0
+      - 1
       - 3
       - 6
       - 9
