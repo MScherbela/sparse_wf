@@ -26,5 +26,7 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [jax, numpy, flax, jaxtyping, wandb]
+        files: src/sparse_wf/.*\.py
+        exclude: src/sparse_wf/preliminary_experiments/.*
         pass_filenames: false
-        args: ['.']
+        args: ["."]
