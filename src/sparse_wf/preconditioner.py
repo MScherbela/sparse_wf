@@ -128,7 +128,7 @@ def get_jacjacT(local_jac, param_block_size=32768):
         T += psum(jac_T.T @ jac_T)
         return T, None
 
-    T, _ = jax.lax.scan(scan_func, jnp.zeros([n_samples, n_samples]), local_jac_T)
+    T, _ = jax.lax.scan(scan_func, jnp.zeros([n_samples, n_samples], dtype=local_jac_T.dtype), local_jac_T)
     T = (T + T.T) / 2  # Not required, but potentially better numerics
     return T
 
