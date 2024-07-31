@@ -43,10 +43,12 @@ class StaticArgs(NamedTuple, Generic[T]):
         )
 
     def round_with_padding(self, padding_factor, n_el, n_nuc):
+        # TODO: allow arbitrary number of spin-up
+        n_up = n_el // 2
         return StaticArgs(
-            round_with_padding(self.n_pairs_same, padding_factor, n_el * (n_el - 1)),
-            round_with_padding(self.n_pairs_diff, padding_factor, n_el * (n_el - 1)),
-            round_with_padding(self.n_triplets, padding_factor, n_el * (n_el - 1) * (n_el - 1)),
+            round_with_padding(self.n_pairs_same, padding_factor, n_up * (n_up - 1)),
+            round_with_padding(self.n_pairs_diff, padding_factor, n_up * n_up),
+            round_with_padding(self.n_triplets, padding_factor, n_el * (n_el - 1) ** 2),
             round_with_padding(self.n_neighbours_en, padding_factor, n_nuc),
         )
 
