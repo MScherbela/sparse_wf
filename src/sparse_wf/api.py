@@ -386,7 +386,7 @@ class MoonEmbeddingArgs(TypedDict):
 
 
 class EmbeddingArgs(TypedDict):
-    embedding: Literal["moon", "new"]
+    embedding: Literal["moon", "new", "new_sparse"]
     moon: MoonEmbeddingArgs
     new: NewEmbeddingArgs
 

@@ -164,7 +164,7 @@ class MoonElecEmb(nn.Module):
         # TODO: Computing the pairwise terms outside in another module would be more efficient since don't have to carry the full jacobian.
         features_ee = jax.vmap(get_diff_features, in_axes=(None, 0))(r, r_nb)
         spin_mask = s == s_nb
-        beta = PairwiseFilter(self.cutoff, self.filter_dims[1], name="beta_ee")
+        beta = PairwiseFilter(self.cutoff, self.filter_dims, name="beta_ee")
         dynamic_params_ee = DynamicFilterParams(
             scales=self.param("ee_scales", scale_initializer, self.cutoff, (self.n_envelopes,)),
             kernel=self.param(
@@ -212,7 +212,7 @@ class MoonEdgeFeatures(nn.Module):
         dynamic_params: NucleusDependentParams,
     ):
         features = get_diff_features(r_center, r_neighbour)
-        beta = PairwiseFilter(self.cutoff, self.filter_dims[1])(features, dynamic_params.filter)
+        beta = PairwiseFilter(self.cutoff, self.filter_dims)(features, dynamic_params.filter)
         gamma = nn.Dense(self.feature_dim, use_bias=False)(beta)
         if not self.return_edge_embedding:
             return gamma
@@ -286,7 +286,7 @@ class MoonElecOut(nn.Module):
         # TODO: One should probably pull this out of here to make the computation efficient and only require 6-dimensional jacobians
         features_ee = jax.vmap(get_diff_features, in_axes=(None, 0))(r, r_nb)
         spin_mask = s == s_nb
-        beta = PairwiseFilter(self.cutoff, self.filter_dims[1], name="beta_ee")
+        beta = PairwiseFilter(self.cutoff, self.filter_dims, name="beta_ee")
         dynamic_params_ee = DynamicFilterParams(
             scales=self.param("ee_scales", scale_initializer, self.cutoff, (self.n_envelopes,)),
             kernel=self.param(

@@ -75,7 +75,9 @@ def mcmc_steps_all_electron(
 
     local_batch_size = electrons.shape[0]
     logprob = jax.vmap(log_prob_fn)(electrons)
-    actual_static = StaticInput(model=logpsi_fn.get_static_input(electrons), mcmc=MCMCStaticArgs(max_cluster_size=0))
+    actual_static = StaticInput(
+        model=jax.vmap(logpsi_fn.get_static_input)(electrons), mcmc=MCMCStaticArgs(max_cluster_size=0)
+    )
     x0 = (
         jax.random.split(key, local_batch_size),
         electrons,

@@ -29,6 +29,8 @@ from sparse_wf.model.utils import (
     lecun_normal,
     normalize,
     scale_initializer,
+    iter_list_with_pad,
+    AppendingList,
 )
 
 
@@ -52,7 +54,7 @@ class EdgeFeatures(nn.Module):
         dynamic_params: NucleusDependentParams,
     ):
         features = get_diff_features(r_center, r_neighbour)
-        beta = PairwiseFilter(self.cutoff, self.filter_dims[1])(features, dynamic_params.filter)
+        beta = PairwiseFilter(self.cutoff, self.filter_dims)(features, dynamic_params.filter)
         gamma = nn.Dense(self.feature_dim, use_bias=False)(beta)
         scaled_features = features / features[..., :1] * jnp.log1p(features[..., :1])
         edge_embedding = nn.Dense(self.feature_dim, use_bias=False)(scaled_features) + dynamic_params.nuc_embedding
@@ -122,7 +124,7 @@ class ElecElecEdges(nn.Module):
     ):
         spin_mask = s == s_nb
         features_ee = get_diff_features(r, r_nb)
-        beta = PairwiseFilter(self.cutoff, self.filter_dims[1], name="beta_ee")
+        beta = PairwiseFilter(self.cutoff, self.filter_dims, name="beta_ee")
         beta_ee = beta(features_ee, dynamic_params_ee)
         dense = nn.Dense(self.feature_dim * self.n_updates * 2, use_bias=False)
         gamma_ee_same, gamma_ee_diff = jnp.split(dense(beta_ee), 2, -1)
@@ -205,17 +207,6 @@ class StaticInputNewModel(NamedTuple, Generic[T]):
             "static/n_nb_ee": self.n_neighbours.ee,
             "static/n_nb_en": self.n_neighbours.en,
         }
-
-
-def iter_list_with_pad(lst, pad=None):
-    yield from lst
-    while True:
-        yield pad
-
-
-class AppendingList(list):
-    def __setattr__(self, name, value):
-        self.append(value)
 
 
 class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInputNewModel, EmbeddingState]):

@@ -1,6 +1,9 @@
 # %%
 import os
 
+from sparse_wf.model.sparse_fwd_lap import MLP, Linear, NodeWithFwdLap, get_pair_indices, multiply_with_1el_fn, slogdet_with_fwd_lap
+from sparse_wf.model.sparse_fwd_lap import get
+
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 os.environ["JAX_ENABLE_X64"] = "1"
@@ -16,7 +19,6 @@ from typing import NamedTuple, Generic, TypeVar
 from sparse_wf.jax_utils import fwd_lap
 import functools
 from folx.api import FwdLaplArray, FwdJacobian
-import jax.tree_util as jtu
 
 T = TypeVar("T", bound=int | Int)
 
@@ -30,162 +32,6 @@ class StaticArgs(NamedTuple, Generic[T]):
         return StaticArgs(
             int(jnp.max(self.n_pairs_same)), int(jnp.max(self.n_pairs_diff)), int(jnp.max(self.n_triplets))
         )
-
-
-class NodeWithFwdLap(NamedTuple):
-    # The jacobian is layed out as follows:
-    # The first n_el entries correspond to the jacobian of the node with itself, ie. idx_dep = idx_ctr
-    # The next n_pairs entries correspond to the jacobian of the node with its neighbours, i.e. idx_dep != idx_ctr
-    x: jax.Array       # [n_el x feature_dim]
-    jac: jax.Array     # [n_el + n_pairs x 3 x feature_dim]
-    lap: jax.Array     # [n_el x feature_dim]
-    idx_ctr: jax.Array # [n_el + n_pairs]
-    idx_dep: jax.Array # [n_el + n_pairs]
-
-    def get_jac_sqr(self):
-        jac_sqr = jnp.zeros_like(self.x)
-        # .at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
-        jac_sqr = jac_sqr.at[self.idx_ctr].add(jnp.sum(self.jac**2, axis=1), mode="drop")
-        return jac_sqr
-
-    def dense_jac(self):
-        n_el = np.max(self.idx_ctr) + 1
-        feature_dim = self.jac.shape[-1]
-        J_dense = np.zeros((n_el, 3, n_el, feature_dim))  # [dep, xyz, i, feature_dim]
-        J_dense[self.idx_dep, :, self.idx_ctr, :] = self.jac
-        J_dense = J_dense.reshape([n_el * 3, n_el, feature_dim])
-        return J_dense
-
-    def __add__(self, other):
-        return NodeWithFwdLap(self.x + other.x, self.jac + other.jac, self.lap + other.lap, self.idx_ctr, self.idx_dep)
-
-
-class Linear(PyTreeNode):
-    features: int
-    use_bias: bool = True
-
-    def apply(self, params, x):
-        y = x @ params["kernel"]
-        if self.use_bias:
-            y += params["bias"]
-        return y
-
-    def apply_with_fwd_lap(self, params, x: NodeWithFwdLap):
-        y = x.x @ params["kernel"]
-        if self.use_bias:
-            y += params["bias"]
-        jac = x.jac @ params["kernel"]
-        lap = x.lap @ params["kernel"]
-        return NodeWithFwdLap(y, jac, lap, x.idx_ctr, x.idx_dep)
-
-    def init(self, rng, x):
-        return dict(
-            kernel=jax.nn.initializers.lecun_normal(dtype=jnp.float32)(rng, (x.shape[-1], self.features)),
-            bias=jnp.zeros((self.features,), dtype=jnp.float32),
-        )
-
-
-class ElementWise(PyTreeNode):
-    fn: callable
-
-    def apply(self, x):
-        return self.fn(x)
-
-    def apply_with_fwd_lap(self, x: NodeWithFwdLap):
-        grad_fn = jax.grad(self.fn)
-        hess_fn = jax.grad(grad_fn)
-        y = [jnp.vectorize(f, signature="()->()")(x.x) for f in [self.fn, grad_fn, hess_fn]]
-        return NodeWithFwdLap(
-            y[0],
-            x.jac * y[1].at[x.idx_ctr, None].get(mode="fill", fill_value=0.0),
-            x.lap * y[1] + x.get_jac_sqr() * y[2],
-            x.idx_ctr,
-            x.idx_dep,
-        )
-
-
-class MLP(PyTreeNode):
-    width: int
-    depth: int
-    activate_final: bool = False
-    activation: callable = nn.silu
-
-    def apply(self, params, x):
-        for i, p in enumerate(params):
-            x = Linear(self.width).apply(p, x)
-            if i < len(params) - 1 or self.activate_final:
-                x = ElementWise(self.activation).apply(x)
-        return x
-
-    def apply_with_fwd_lap(self, params, x: NodeWithFwdLap):
-        for i, p in enumerate(params):
-            x = Linear(self.width).apply_with_fwd_lap(p, x)
-            if i < len(params) - 1 or self.activate_final:
-                x = ElementWise(self.activation).apply_with_fwd_lap(x)
-        return x
-
-    def init(self, rng, x):
-        params = []
-        for _ in range(self.depth):
-            rng, key = jax.random.split(rng)
-            params.append(Linear(self.width).init(key, x))
-            x = np.zeros_like(x, shape=(self.width,))
-        return params
-
-
-def slogdet_with_fwd_lap(A: NodeWithFwdLap, triplet_indices):
-    # Build all triplets of indices i,k,n where i and k are both neighbours of n.
-    # This is required for the tr(JHJ.T) term in the laplacian of the logdet.
-    # Triplets are aranged in the following order:
-    # 1) n_el entries where i=k=n
-    # 2) n_pair entries where k=n, i!=n
-    # 3) n_pair entries where i=n, k!=n
-    # 4) n_triplet entries where i,k,n are all distinct
-
-    n_el = A.x.shape[-1]
-    n_pairs = len(A.idx_ctr) - n_el
-
-    pairidx_ct = A.idx_ctr[n_el:]
-    pairidx_nb = A.idx_dep[n_el:]
-
-    tripidx_i = jnp.concatenate([np.arange(n_el), pairidx_ct, pairidx_nb, triplet_indices[0]])
-    tripidx_k = jnp.concatenate([np.arange(n_el), pairidx_nb, pairidx_ct, triplet_indices[1]])
-    tripidx_n = jnp.concatenate([np.arange(n_el), pairidx_nb, pairidx_nb, triplet_indices[2]])
-    tripidx_in, tripidx_kn = get_pair_indices_from_triplets((pairidx_ct, pairidx_nb), triplet_indices, n_el)
-    tripidx_in = jnp.concatenate([np.arange(n_el), np.arange(n_pairs) + n_el, pairidx_nb, tripidx_in + n_el])
-    tripidx_kn = jnp.concatenate([np.arange(n_el), pairidx_nb, np.arange(n_pairs) + n_el, tripidx_kn + n_el])
-
-    A_inv = jnp.linalg.inv(A.x)
-    M = A.jac @ A_inv
-
-    sign, logdet = jnp.linalg.slogdet(A.x)
-    jac_logdet = jnp.zeros([n_el, 3], dtype=A.x.dtype)
-    jac_logdet = jac_logdet.at[A.idx_dep, :].add(
-        M.at[np.arange(n_pairs + n_el), :, A.idx_ctr].get(mode="fill", fill_value=0.0), mode="drop"
-    )
-
-    lap_logdet = jnp.einsum("ij,ji", A.lap, A_inv)
-    lap_logdet -= jnp.sum(
-        M.at[tripidx_in, :, tripidx_k].get(mode="fill", fill_value=0.0)
-        * M.at[tripidx_kn, :, tripidx_i].get(mode="fill", fill_value=0.0)
-    )
-    return sign, FwdLaplArray(logdet, FwdJacobian(jac_logdet.reshape([n_el * 3])), lap_logdet)
-
-
-def multiply_with_1el_fn(a: NodeWithFwdLap, b: FwdLaplArray):
-    n_el = a.x.shape[0]
-    idx_ctr = a.idx_ctr[n_el:]
-
-    out = a.x * b.x
-    jac_out = jnp.zeros_like(a.jac)
-    jac_out = jac_out.at[:n_el, :, :].add(
-        a.x[:, None, :] * b.jacobian.data + b.x[:, None, :] * a.jac[:n_el], mode="drop"
-    )
-    jac_out = jac_out.at[n_el:, :, :].add(
-        b.x.at[idx_ctr, None, :].get(mode="fill", fill_value=0.0) * a.jac[n_el:], mode="drop"
-    )
-    lap_out = a.lap * b.x + b.laplacian * a.x + 2 * jnp.sum(a.jac[:n_el] * b.jacobian.data, axis=1)
-    return NodeWithFwdLap(out, jac_out, lap_out, a.idx_ctr, a.idx_dep)
 
 
 class ElecInit(nn.Module):
@@ -224,16 +70,6 @@ class PairWiseFunction(nn.Module):
         return jnp.split(Gamma, self.n_out, axis=-1), jnp.split(edge_features, self.n_out, axis=-1)
 
 
-class ElectronUpdate(nn.Module):
-    @nn.compact
-    def __call__(self, h, msg):
-        feature_dim = h.shape[-1]
-        msg = nn.Dense(feature_dim)(msg)
-        msg = nn.silu(msg)
-        msg = nn.Dense(feature_dim)(msg)
-        return nn.silu(msg + h) + h
-
-
 class EmbeddingParams(NamedTuple):
     elec_init: Parameters
     edge_same: Parameters
@@ -242,47 +78,18 @@ class EmbeddingParams(NamedTuple):
     orbitals: Parameters
 
 
-def get_pair_indices(r, n_up, cutoff, n_pairs_same: int, n_pairs_diff: int):
-    n_el = r.shape[0]
-    n_dn = n_el - n_up
-    spin = np.concatenate([np.zeros(n_up, bool), np.ones(n_dn, bool)])
-    dist = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
-    dist = dist.at[jnp.arange(n_el), jnp.arange(n_el)].set(jnp.inf)
-    in_cutoff = dist < cutoff
-    is_same_spin = spin[:, None] == spin[None, :]
-
-    pair_indices_same = jnp.where(in_cutoff & is_same_spin, size=n_pairs_same, fill_value=NO_NEIGHBOUR)
-    pair_indices_diff = jnp.where(in_cutoff & ~is_same_spin, size=n_pairs_diff, fill_value=NO_NEIGHBOUR)
-    idx_ct, idx_nb = jnp.where(in_cutoff, size=n_pairs_same + n_pairs_diff, fill_value=NO_NEIGHBOUR)
-    jac_indices = (jnp.concatenate([np.arange(n_el), idx_ct]), jnp.concatenate([np.arange(n_el), idx_nb]))
-
-    search_key = idx_ct * n_el + idx_nb
-    jac_idx_same = jnp.searchsorted(search_key, pair_indices_same[0] * n_el + pair_indices_same[1]) + n_el
-    jac_idx_diff = jnp.searchsorted(search_key, pair_indices_diff[0] * n_el + pair_indices_diff[1]) + n_el
-    return (*pair_indices_same, jac_idx_same), (*pair_indices_diff, jac_idx_diff), jac_indices
-
-
-def get_distinct_triplet_indices(r, cutoff, n_triplets_max: int):
-    dist = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
-    dist = dist.at[jnp.arange(n_el), jnp.arange(n_el)].set(jnp.inf)
-    in_cutoff = dist < cutoff
-    is_triplet = in_cutoff[:, None, :] & in_cutoff[None, :, :]
-    return jnp.where(is_triplet, size=n_triplets_max, fill_value=NO_NEIGHBOUR)
-
-
-def get_pair_indices_from_triplets(pair_indices, triplet_indices, n_el):
-    pair_search_keys = pair_indices[0] * n_el + pair_indices[1]
-    pair_in = jnp.searchsorted(pair_search_keys, triplet_indices[0] * n_el + triplet_indices[2])
-    pair_kn = jnp.searchsorted(pair_search_keys, triplet_indices[1] * n_el + triplet_indices[2])
-    return pair_in, pair_kn
-
-
 def contract(h_residual, h, Gamma, edges, idx_ctr, idx_nb):
+    """
+    Compute out[i] = h_residual[i] + sum_j Gamma[i,j] * silu(edges[i,j] + h[i] + h[j])
+    """
     pair_msg = Gamma * nn.silu(edges + get(h, idx_ctr) + get(h, idx_nb))
     h_out = h_residual.at[idx_ctr].add(pair_msg)
     return h_out
 
 def contract_with_fwd_lap(h_residual: NodeWithFwdLap, h: FwdLaplArray, Gamma: FwdLaplArray, edges: FwdLaplArray, idx_ctr, idx_nb, idx_jac, n_pairs_out):
+    """
+    Compute out[i] = h_residual[i] + sum_j Gamma[i,j] * silu(edges[i,j] + h[i] + h[j])
+    """
     n_el, feature_dim = h.x.shape
     padding = jnp.zeros([n_el, 3, feature_dim], dtype=h.x.dtype)
     h_center = FwdLaplArray(h.x, FwdJacobian(jnp.concatenate([h.jacobian.data, padding], axis=1)), h.laplacian)
@@ -300,13 +107,6 @@ def contract_with_fwd_lap(h_residual: NodeWithFwdLap, h: FwdLaplArray, Gamma: Fw
     J_out = h_residual.jac.at[idx_ctr].add(msg_pair.jacobian.data[:, :3]) # dmsg/dx_ctr
     J_out = J_out.at[idx_jac].add(msg_pair.jacobian.data[:, 3:]) # dmsg/dx_nb
     return NodeWithFwdLap(h_out, J_out, lap_out, h_residual.idx_ctr, h_residual.idx_dep)
-
-
-def get(x, idx):
-    if isinstance(x, jax.Array):
-        return x.at[idx].get(mode="fill", fill_value=0.0)
-    else:
-        return jtu.tree_map(lambda y: y.at[idx].get(mode="fill", fill_value=0.0), x)
 
 
 def build_dense_jacobian(J, indices):
@@ -400,7 +200,6 @@ class Embedding(PyTreeNode):
             h = contract(h, h_same, g_same, e_same, idx_ct_same, idx_nb_same)
             h = contract(h, h_diff, g_diff, e_diff, idx_ct_diff, idx_nb_diff)
             h = update_module.apply(update_params, h)
-        return h
 
         orbitals = self.orbitals.apply(params.orbitals, h)
         env = jax.vmap(envelope, in_axes=(0, None))(electrons, n_el)
@@ -440,7 +239,6 @@ class Embedding(PyTreeNode):
             h = contract_with_fwd_lap(h, h_same, g_same, e_same, idx_ct_same, idx_nb_same, idx_jac_same, n_pairs)
             h = contract_with_fwd_lap(h, h_diff, g_diff, e_diff, idx_ct_diff, idx_nb_diff, idx_jac_diff, n_pairs)
             h = update_module.apply_with_fwd_lap(update_params, h)
-        return h
 
         orbitals = self.orbitals.apply_with_fwd_lap(params.orbitals, h)
         env = jax.vmap(fwd_lap(lambda r: envelope(r, n_el)))(electrons)
@@ -468,18 +266,17 @@ if __name__ == "__main__":
     static = emb.get_static_args(r).to_static()
     print(static)
 
-    h_folx = fwd_lap(emb.apply, argnums=1)(params, r, static)
-    h_sparse = emb.apply_with_fwd_lap(params, r, static)
-    is_close(h_folx.x, h_sparse.x, "h_folx.x != h_sparse.x")
-    is_close(h_folx.jacobian.data, h_sparse.dense_jac(), "h_folx.jac != h_sparse.jac")
-    is_close(h_folx.laplacian, h_sparse.lap, "h_folx.lap != h_sparse.lap")
-    print("Done")
+    # h_folx = fwd_lap(emb.apply, argnums=1)(params, r, static)
+    # h_sparse = emb.apply_with_fwd_lap(params, r, static)
+    # is_close(h_folx.x, h_sparse.x, "h_folx.x != h_sparse.x")
+    # is_close(h_folx.jacobian.data, h_sparse.dense_jac(), "h_folx.jac != h_sparse.jac")
+    # is_close(h_folx.laplacian, h_sparse.lap, "h_folx.lap != h_sparse.lap")
 
-    # logdet_folx = fwd_lap(emb.apply, argnums=1)(params, r, static)
-    # logdet_sparse = emb.apply_with_fwd_lap(params, r, static)
-    # is_close(logdet_folx.x, logdet_sparse.x, "logdet_folx.x != logdet_sparse.x")
-    # is_close(logdet_folx.jacobian.data, logdet_sparse.jacobian.data, "logdet_folx.jac != logdet_sparse.jac")
-    # is_close(logdet_folx.laplacian, logdet_sparse.laplacian, "logdet_folx.lap != logdet_sparse.lap")
+    logdet_folx = fwd_lap(emb.apply, argnums=1)(params, r, static)
+    logdet_sparse = emb.apply_with_fwd_lap(params, r, static)
+    is_close(logdet_folx.x, logdet_sparse.x, "logdet_folx.x != logdet_sparse.x")
+    is_close(logdet_folx.jacobian.data, logdet_sparse.jacobian.data, "logdet_folx.jac != logdet_sparse.jac")
+    is_close(logdet_folx.laplacian, logdet_sparse.laplacian, "logdet_folx.lap != logdet_sparse.lap")
 
     # h_dense = emb.apply_dense(params, r, static)
     # h = emb.apply(params, r, static)
@@ -487,3 +284,5 @@ if __name__ == "__main__":
     # is_close(h_folx.x, h, "h_folx.x != h")
 
     # # h = emb.apply(params, r, static)
+    print("Done")
+

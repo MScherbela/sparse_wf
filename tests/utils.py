@@ -41,8 +41,8 @@ def build_model(mol, embedding="moon"):
         ),
         jastrow=JastrowArgs(
             e_e_cusps="psiformer",
-            use_log_jastrow=True,
-            use_mlp_jastrow=True,
+            use_log_jastrow=False,
+            use_mlp_jastrow=False,
             mlp_depth=2,
             mlp_width=64,
         ),

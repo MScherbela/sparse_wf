@@ -33,8 +33,17 @@ from sparse_wf.hamiltonian import make_local_energy, potential_energy
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.model.envelopes import EfficientIsotropicEnvelopes, GLUEnvelopes, Envelope
 from sparse_wf.model.new_model import NewEmbedding
+from sparse_wf.model.new_sparse_model import NewSparseEmbedding
 from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.graph_utils import slogdet_with_sparse_fwd_lap, zeropad_jacobian
+from sparse_wf.model.sparse_fwd_lap import (
+    NodeWithFwdLap,
+    Linear,
+    multiply_with_1el_fn,
+    sparse_slogdet_with_fwd_lap,
+    get_distinct_triplet_indices,
+    to_slater_matrices,
+)
 from sparse_wf.model.jastrow import Jastrow, JastrowState
 from sparse_wf.model.moon import MoonEmbedding
 from sparse_wf.model.utils import (
@@ -81,10 +90,12 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
     n_determinants: int
 
     # Submodules
-    to_orbitals: nn.Dense
+    to_orbitals: nn.Dense | Linear
     envelope: Envelope
     embedding: Embedding[T, S, ES]
     jastrow: Jastrow
+
+    _sparse_jacobian: bool = False
 
     @property
     def n_nuclei(self):
@@ -123,28 +134,39 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         else:
             raise ValueError(f"Unknown envelope type {envelopes['+envelope']}")
 
+        to_orbitals: Linear | nn.Dense = nn.Dense(
+            n_determinants * mol.nelectron,
+            name="to_orbitals",
+            bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
+        )
+        _sparse_jacobian = False
         emb_mod: MoonEmbedding | NewEmbedding
         match embedding["embedding"].lower():
             case "moon":
                 emb_mod = MoonEmbedding.create(R, Z, n_electrons, n_up, **embedding["moon"])
             case "new":
                 emb_mod = NewEmbedding.create(R, Z, n_electrons, n_up, **embedding["new"])
+            case "new_sparse":
+                emb_mod = NewSparseEmbedding.create(R, Z, n_electrons, n_up, **embedding["new"])
+                to_orbitals = Linear(
+                    n_determinants * mol.nelectron,
+                    bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
+                )
+                _sparse_jacobian = True
             case _:
                 raise ValueError(f"Unknown embedding type {embedding['embedding']}")
+
         return cls(
             R=R,
             Z=Z,
             n_electrons=mol.nelectron,
             n_up=n_up,
             n_determinants=n_determinants,
-            to_orbitals=nn.Dense(
-                n_determinants * mol.nelectron,
-                name="to_orbitals",
-                bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
-            ),
+            to_orbitals=to_orbitals,
             envelope=env,  # type: ignore
             embedding=emb_mod,  # type: ignore
             jastrow=Jastrow(n_up, **jastrow),
+            _sparse_jacobian=_sparse_jacobian,
         )
 
     @overload
@@ -202,7 +224,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         orbitals = einops.rearrange(raw_orbitals, "el (det orb) -> det el orb", det=self.n_determinants)  # type: ignore
         return (swap_bottom_blocks(orbitals, self.n_up),), OrbitalState(envelopes, raw_orbitals)
 
-    def _orbitals_with_fwd_lap(
+    def _orbitals_with_fwd_lap_folx(
         self, params: MoonLikeParams[T], electrons: Electrons, embeddings: ElectronEmb
     ) -> tuple[FwdLaplArray]:
         # vmap over electrons
@@ -223,9 +245,18 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         orbitals = jtu.tree_map(lambda o: swap_bottom_blocks(o, self.n_up), orbitals)
         return orbitals
 
-    def _logpsi_with_fwd_lap(self, params: MoonLikeParams[T], electrons: Electrons, static: S):
+    def _orbitals_with_fwd_lap_sparse(
+        self, params: MoonLikeParams[T], electrons: Electrons, embeddings: NodeWithFwdLap
+    ):
+        envelopes = jax.vmap(fwd_lap(lambda r: self.envelope.apply(params.envelope, r - self.R)))(electrons)
+        orbitals = self.to_orbitals.apply_with_fwd_lap(params.to_orbitals, embeddings)
+        orbitals = multiply_with_1el_fn(orbitals, envelopes)
+        phi, jac_phi, lap_phi = to_slater_matrices(orbitals, self.n_electrons, self.n_up)
+        return NodeWithFwdLap(phi, jac_phi, lap_phi, orbitals.idx_ctr, orbitals.idx_dep)
+
+    def _logpsi_with_fwd_lap_folx(self, params: MoonLikeParams[T], electrons: Electrons, static: S):
         embeddings, dependencies = self.embedding.apply_with_fwd_lap(params.embedding, electrons, static)
-        orbitals = self._orbitals_with_fwd_lap(params, electrons, embeddings)
+        orbitals = self._orbitals_with_fwd_lap_folx(params, electrons, embeddings)
 
         # vmap over determinants
         signs, logdets = jax.vmap(lambda o: slogdet_with_sparse_fwd_lap(o, dependencies), in_axes=-3, out_axes=-1)(
@@ -233,6 +264,23 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         )
         logpsi = fwd_lap(lambda logdets_: jax.nn.logsumexp(logdets_, b=signs, return_sign=True)[0])(logdets)
         logpsi_jastrow = self.jastrow.apply_with_fwd_lap(params.jastrow, electrons, embeddings, dependencies)
+        logpsi = tree_add(logpsi, logpsi_jastrow)
+        return logpsi
+
+    def _logpsi_with_fwd_lap_sparse(self, params: MoonLikeParams[T], electrons: Electrons, static: S):
+        embeddings = cast(NodeWithFwdLap, self.embedding.apply_with_fwd_lap(params.embedding, electrons, static))
+        orbitals = self._orbitals_with_fwd_lap_sparse(params, electrons, embeddings)
+
+        triplet_indices = get_distinct_triplet_indices(electrons, self.embedding.cutoff, static.n_triplets)  # type: ignore
+        signs, logdets = jax.vmap(
+            lambda x, J, lap: sparse_slogdet_with_fwd_lap(
+                NodeWithFwdLap(x, J, lap, orbitals.idx_ctr, orbitals.idx_dep), triplet_indices
+            ),
+            in_axes=0,
+            out_axes=-1,
+        )(orbitals.x, orbitals.jac, orbitals.lap)  # vmap over determinants
+        logpsi = fwd_lap(lambda logdets_: jax.nn.logsumexp(logdets_, b=signs, return_sign=True)[0])(logdets)
+        logpsi_jastrow = self.jastrow.apply_with_fwd_lap(params.jastrow, electrons, embeddings, None)
         logpsi = tree_add(logpsi, logpsi_jastrow)
         return logpsi
 
@@ -252,7 +300,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
 
     def orbitals_with_fwd_lap(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> FwdLaplArray:
         embeddings, dependencies = self.embedding.apply_with_fwd_lap(params.embedding, electrons, static)
-        orbitals = self._orbitals_with_fwd_lap(params, electrons, embeddings)
+        orbitals = self._orbitals_with_fwd_lap_folx(params, electrons, embeddings)
         return orbitals, dependencies
 
     def __call__(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LogAmplitude:
@@ -267,7 +315,10 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
     def local_energy(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LocalEnergy:
-        logpsi = self._logpsi_with_fwd_lap(params, electrons, static)
+        if self._sparse_jacobian:
+            logpsi = self._logpsi_with_fwd_lap_sparse(params, electrons, static)
+        else:
+            logpsi = self._logpsi_with_fwd_lap_folx(params, electrons, static)
         kinetic_energy = -0.5 * (logpsi.laplacian.sum() + jnp.vdot(logpsi.jacobian.data, logpsi.jacobian.data))
         potential = potential_energy(electrons, self.R, self.Z)
         return kinetic_energy + potential
