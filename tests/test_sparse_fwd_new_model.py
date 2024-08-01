@@ -41,7 +41,9 @@ def setup_inputs(dtype):
     electrons = init_electrons(rng_r, mol, batch_size=1)[0]
     params = model.init(rng_params, electrons)
     model, params, electrons = jtu.tree_map(lambda x: change_float_dtype(x, dtype), (model, params, electrons))
-    static_args = to_static(model.get_static_input(electrons))
+    static = model.get_static_input(electrons)
+    static = jtu.tree_map(lambda x: 1.2 * x, static)
+    static_args = to_static(static)
     return model, electrons, params, static_args
 
 

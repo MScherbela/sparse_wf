@@ -28,10 +28,10 @@ class NodeWithFwdLap(PyTreeNode):
         return jac_sqr
 
     def dense_jac(self):
-        n_el = np.max(self.idx_ctr) + 1
+        n_el = self.x.shape[0]
         feature_dims = self.x.shape[1:]
-        J_dense = np.zeros((n_el, 3, n_el, *feature_dims))  # [dep, xyz, i, feature_dim]
-        J_dense[self.idx_dep, :, self.idx_ctr, ...] = self.jac
+        J_dense = jnp.zeros((n_el, 3, n_el, *feature_dims))  # [dep, xyz, i, feature_dim]
+        J_dense = J_dense.at[self.idx_dep, :, self.idx_ctr, ...].set(self.jac, mode="drop")
         J_dense = J_dense.reshape([n_el * 3, n_el, *feature_dims])
         return J_dense
 

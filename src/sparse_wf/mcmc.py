@@ -26,7 +26,7 @@ from sparse_wf.api import (
     MCMCStaticArgs,
     StaticInput,
 )
-from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap, psum_if_pmap
+from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
 from sparse_wf.tree_utils import tree_add, tree_maximum, tree_zeros_like
 
@@ -71,7 +71,7 @@ def mcmc_steps_all_electron(
         new_electrons = jnp.where(accept, new_electrons, electrons)
         new_log_prob = jnp.where(accept, new_log_prob, log_prob)
         num_accept += accept.astype(jnp.int32)
-        return key, electrons, log_prob, static_mean, static_max, num_accept
+        return key, new_electrons, new_log_prob, static_mean, static_max, num_accept
 
     local_batch_size = electrons.shape[0]
     logprob = jax.vmap(log_prob_fn)(electrons)
@@ -88,7 +88,7 @@ def mcmc_steps_all_electron(
     )
     _, electrons, _, static_mean, static_max, num_accept = lax.fori_loop(0, steps, step_fn, x0)
     summary_stats = {
-        "mcmc/pmove": psum_if_pmap(jnp.mean(num_accept) / steps),
+        "mcmc/pmove": pmean_if_pmap(jnp.mean(num_accept) / steps),
         "static/mean": jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
         "static/max": jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
     }
@@ -237,7 +237,7 @@ def make_mcmc(
 
 def make_width_scheduler(
     window_size: int = 20,
-    target_pmove: float = 0.234,
+    target_pmove: float = 0.5,
     error: float = 0.025,
     width_multiplier: float = 1.1,
 ) -> WidthScheduler:
