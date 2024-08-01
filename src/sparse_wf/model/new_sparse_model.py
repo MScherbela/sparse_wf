@@ -45,9 +45,10 @@ class StaticArgs(NamedTuple, Generic[T]):
     def round_with_padding(self, padding_factor, n_el, n_nuc):
         # TODO: allow arbitrary number of spin-up
         n_up = n_el // 2
+        n_dn = n_el - n_up
         return StaticArgs(
-            round_with_padding(self.n_pairs_same, padding_factor, n_up * (n_up - 1)),
-            round_with_padding(self.n_pairs_diff, padding_factor, n_up * n_up),
+            round_with_padding(self.n_pairs_same, padding_factor, n_up * (n_up - 1) + n_dn * (n_dn - 1)),
+            round_with_padding(self.n_pairs_diff, padding_factor, 2 * n_up * n_up),
             round_with_padding(self.n_triplets, padding_factor, n_el * (n_el - 1) ** 2),
             round_with_padding(self.n_neighbours_en, padding_factor, n_nuc),
         )
@@ -67,7 +68,7 @@ def contract_with_fwd_lap(
     idx_ctr,
     idx_nb,
     idx_jac,
-):
+) -> NodeWithFwdLap:
     n_el, feature_dim = h.x.shape
     padding = jnp.zeros([n_el, 3, feature_dim], dtype=h.x.dtype)
     h_center = FwdLaplArray(h.x, FwdJacobian(jnp.concatenate([h.jacobian.data, padding], axis=1)), h.laplacian)
@@ -356,21 +357,16 @@ class NewSparseEmbedding(PyTreeNode):
         )(electrons)
 
         h0_fn = functools.partial(self.elec_init.apply, params.elec_init)
+        edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same)
+        edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff)
+
         h0, h_nb_same, h_nb_diff = jax.vmap(h0_fn)(electrons, R_nb_en, nuc_params_en)  # type: ignore
-        Gamma_same, edge_same = jax.vmap(
-            lambda i, j: self.edge_same.apply(
-                params.edge_same,
-                get(electrons, i, 0.0),
-                get(electrons, j, 1e6),
-            )
-        )(idx_ct_same, idx_nb_same)
-        Gamma_diff, edge_diff = jax.vmap(
-            lambda i, j: self.edge_diff.apply(
-                params.edge_diff,
-                get(electrons, i, 0.0),
-                get(electrons, j, 1e6),
-            )
-        )(idx_ct_diff, idx_nb_diff)
+        Gamma_same, edge_same = jax.vmap(edge_fn_same)(
+            get(electrons, idx_ct_same, 0.0), get(electrons, idx_nb_same, 1e6)
+        )
+        Gamma_diff, edge_diff = jax.vmap(edge_fn_diff)(
+            get(electrons, idx_ct_diff, 0.0), get(electrons, idx_nb_diff, 1e6)
+        )
 
         h = h0
         for h_same, h_diff, g_same, g_diff, e_same, e_diff, update_module, update_params in zip(
@@ -387,7 +383,7 @@ class NewSparseEmbedding(PyTreeNode):
         return h
 
     def apply_with_fwd_lap(self, params: EmbeddingParams, electrons: Electrons, static: StaticArgs[int]):
-        scale_seq = iter_list_with_pad(params.scales)
+        scale_seq = iter(params.scales)
         (
             (idx_ct_same, idx_nb_same, idx_jac_same),
             (idx_ct_diff, idx_nb_diff, idx_jac_diff),
@@ -427,8 +423,8 @@ class NewSparseEmbedding(PyTreeNode):
         ):
             h = contract_with_fwd_lap(h, h_same, g_same, e_same, idx_ct_same, idx_nb_same, idx_jac_same)
             h = contract_with_fwd_lap(h, h_diff, g_diff, e_diff, idx_ct_diff, idx_nb_diff, idx_jac_diff)
-            h = h * next(scale_seq)
+            h = h * next(scale_seq)  # type: ignore
             h = update_module.apply_with_fwd_lap(update_params, h)
-            h = h * next(scale_seq)
+            h = h * next(scale_seq)  # type: ignore
 
         return h

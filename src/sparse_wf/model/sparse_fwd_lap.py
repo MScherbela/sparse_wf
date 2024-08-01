@@ -41,7 +41,7 @@ class NodeWithFwdLap(PyTreeNode):
     def __add__(self, other):
         return NodeWithFwdLap(self.x + other.x, self.jac + other.jac, self.lap + other.lap, self.idx_ctr, self.idx_dep)
 
-    def __mul__(self, scalar: float):
+    def __mul__(self, scalar: float) -> "NodeWithFwdLap":
         return NodeWithFwdLap(self.x * scalar, self.jac * scalar, self.lap * scalar, self.idx_ctr, self.idx_dep)
 
     @property
@@ -171,14 +171,14 @@ class MLP(PyTreeNode):
     def apply(self, params, x):
         for i, p in enumerate(params):
             x = Linear(self.width).apply(p, x)
-            if i < len(params) - 1 or self.activate_final:
+            if (i < (len(params) - 1)) or self.activate_final:
                 x = ElementWise(self.activation).apply(x)
         return x
 
     def apply_with_fwd_lap(self, params, x: NodeWithFwdLap):
         for i, p in enumerate(params):
             x = Linear(self.width).apply_with_fwd_lap(p, x)
-            if i < len(params) - 1 or self.activate_final:
+            if (i < (len(params) - 1)) or self.activate_final:
                 x = ElementWise(self.activation).apply_with_fwd_lap(x)
         return x
 
