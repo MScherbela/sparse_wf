@@ -4,7 +4,6 @@ import os
 import socket
 
 from sparse_wf.model.utils import get_relative_tolerance
-from sparse_wf.static_args import to_static
 from utils import build_atom_chain, build_model, change_float_dtype
 
 # ruff: noqa: E402 # Allow setting environment variables before importing jax
@@ -35,7 +34,10 @@ jax_config.update("jax_default_matmul_precision", "highest")
 def setup_inputs(dtype):
     rng = jax.random.PRNGKey(0)
     rng_r, rng_params = jax.random.split(rng)
-    mol = build_atom_chain(10, 2)
+    n_nuc = 10
+    Z = 2
+    n_el = Z * n_nuc
+    mol = build_atom_chain(n_nuc, Z)
     model = build_model(mol, "new_sparse")
     model = jtu.tree_map(lambda x: change_float_dtype(x, dtype), model)
     electrons = init_electrons(rng_r, mol, batch_size=1)[0]
@@ -43,7 +45,7 @@ def setup_inputs(dtype):
     model, params, electrons = jtu.tree_map(lambda x: change_float_dtype(x, dtype), (model, params, electrons))
     static = model.get_static_input(electrons)
     static = jtu.tree_map(lambda x: 1.2 * x, static)
-    static_args = to_static(static)
+    static_args = static.round_with_padding(1.1, n_el, n_nuc).to_static()
     return model, electrons, params, static_args
 
 

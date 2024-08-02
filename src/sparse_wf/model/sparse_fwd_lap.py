@@ -98,6 +98,7 @@ def get_pair_indices(r, n_up, cutoff, n_pairs_same: int, n_pairs_diff: int):
 
 
 def get_distinct_triplet_indices(r, cutoff, n_triplets_max: int):
+    """Return three index-arrays, corresponding to the dependants i,k and the dependency n."""
     n_el = r.shape[0]
     dist = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
     dist = dist.at[jnp.arange(n_el), jnp.arange(n_el)].set(jnp.inf)
@@ -198,7 +199,7 @@ def sparse_slogdet_with_fwd_lap(A: NodeWithFwdLap, triplet_indices):
     # 1) n_el entries where i=k=n
     # 2) n_pair entries where k=n, i!=n
     # 3) n_pair entries where i=n, k!=n
-    # 4) n_triplet entries where i,k,n are all distinct
+    # 4) n_triplet entries where i!=n and k!=n (i==k | i!=k)
 
     n_el = A.x.shape[-1]
     n_pairs = len(A.idx_ctr) - n_el

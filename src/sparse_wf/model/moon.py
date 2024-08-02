@@ -95,7 +95,7 @@ class StaticInputMoon(NamedTuple, Generic[T]):
             "static/n_deps_hout": self.n_deps.h_el_out,
         }
 
-    def round_with_padding(self, padding_factor, n_el, n_nuc):
+    def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
         n_neighbours = NrOfNeighbours(
             ee=round_with_padding(self.n_neighbours.ee, padding_factor, n_el - 1),
             ee_out=round_with_padding(self.n_neighbours.ee_out, padding_factor, n_el - 1),

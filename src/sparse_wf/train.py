@@ -78,7 +78,8 @@ def main(
 
     mol = get_molecule(molecule_args)
     R = np.array(mol.atom_coords())
-    n_el = sum(mol.nelec)
+    n_up, n_dn = mol.nelec
+    n_el = n_up + n_dn
 
     loggers = MultiLogger(logging_args)
     loggers.log_config(config)
@@ -112,7 +113,7 @@ def main(
     electrons = init_electrons(subkey, mol, batch_size)
     mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
-    static_scheduler = StaticScheduler(n_el, len(R))
+    static_scheduler = StaticScheduler(n_el, n_up, len(R))
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
