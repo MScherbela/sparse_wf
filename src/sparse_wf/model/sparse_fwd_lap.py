@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
 from sparse_wf.model.utils import slog_and_inverse
 
@@ -35,11 +35,31 @@ class NodeWithFwdLap(PyTreeNode):
         J_dense = J_dense.reshape([n_el * 3, n_el, *feature_dims])
         return J_dense
 
+    def sum_over_nodes(self) -> FwdLaplArray:
+        n_el = self.x.shape[0]
+        feature_dims = self.x.shape[1:]
+        x = jnp.sum(self.x, axis=0)
+        lap = jnp.sum(self.lap, axis=0)
+        jac = jnp.zeros_like(self.jac, shape=[n_el, 3, *feature_dims])
+        jac = jac.at[self.idx_dep, :, ...].add(self.jac, mode="drop")
+        return FwdLaplArray(x, FwdJacobian(jac.reshape([n_el * 3, *feature_dims])), lap)
+
     def to_folx(self):
         return FwdLaplArray(self.x, FwdJacobian(self.dense_jac()), self.lap)
 
     def __add__(self, other):
-        return NodeWithFwdLap(self.x + other.x, self.jac + other.jac, self.lap + other.lap, self.idx_ctr, self.idx_dep)
+        if isinstance(other, NodeWithFwdLap):
+            return NodeWithFwdLap(
+                self.x + other.x,
+                self.jac + other.jac,
+                self.lap + other.lap,
+                self.idx_ctr,
+                self.idx_dep,
+            )
+        elif isinstance(other, jax.Array):
+            return NodeWithFwdLap(self.x + other, self.jac, self.lap, self.idx_ctr, self.idx_dep)
+        else:
+            raise TypeError(f"Unsupported type for addition with NodeWithFwdLap: {type(other)}")
 
     def __mul__(self, scalar: float) -> "NodeWithFwdLap":
         return NodeWithFwdLap(self.x * scalar, self.jac * scalar, self.lap * scalar, self.idx_ctr, self.idx_dep)
@@ -114,34 +134,26 @@ def get_pair_indices_from_triplets(pair_indices, triplet_indices, n_el):
     return pair_in, pair_kn
 
 
-class Linear(PyTreeNode):
+class Linear(nn.Module):
     features: int
     use_bias: bool = True
-    bias_init: Optional[Callable] = None
-    kernel_init: Optional[Callable] = None
+    bias_init: Optional[Callable] = nn.initializers.zeros_init()
+    kernel_init: Optional[Callable] = nn.initializers.lecun_normal()
 
-    def apply(self, params, x):
-        y = x @ params["kernel"]
-        if self.use_bias:
-            y += params["bias"]
+    @nn.compact
+    def __call__(self, x, use_bias=True):
+        if isinstance(x, NodeWithFwdLap):
+            y = self(x.x)
+            jac = self(x.jac, use_bias=False)
+            lap = self(x.lap, use_bias=False)
+            return NodeWithFwdLap(y, jac, lap, x.idx_ctr, x.idx_dep)
+        else:
+            kernel = self.param("kernel", self.kernel_init, (x.shape[-1], self.features), jnp.float32)
+            y = x @ kernel
+            if self.use_bias and use_bias:
+                bias = self.param("bias", self.bias_init, (self.features,), jnp.float32)
+                y += bias
         return y
-
-    def apply_with_fwd_lap(self, params, x: NodeWithFwdLap):
-        y = x.x @ params["kernel"]
-        if self.use_bias:
-            y += params["bias"]
-        jac = x.jac @ params["kernel"]
-        lap = x.lap @ params["kernel"]
-        return NodeWithFwdLap(y, jac, lap, x.idx_ctr, x.idx_dep)
-
-    def init(self, rng, x):
-        rngs = jax.random.split(rng, 2)
-        bias_init = self.bias_init or (lambda k, s: jnp.zeros(s, dtype=jnp.float32))
-        kernel_init = self.kernel_init or nn.initializers.lecun_normal(dtype=jnp.float32)
-        return dict(
-            kernel=kernel_init(rngs[0], (x.shape[-1], self.features)),
-            bias=bias_init(rngs[1], (self.features,)),
-        )
 
 
 class ElementWise(PyTreeNode):
@@ -149,6 +161,12 @@ class ElementWise(PyTreeNode):
 
     def apply(self, x):
         return self.fn(x)
+
+    def __call__(self, x):
+        if isinstance(x, NodeWithFwdLap):
+            return self.apply_with_fwd_lap(x)
+        else:
+            return self.apply(x)
 
     def apply_with_fwd_lap(self, x: NodeWithFwdLap):
         grad_fn = jax.grad(self.fn)
@@ -163,33 +181,23 @@ class ElementWise(PyTreeNode):
         )
 
 
-class MLP(PyTreeNode):
-    width: int
-    depth: int
+class SparseMLP(nn.Module):
+    widths: Sequence[int]
     activate_final: bool = False
-    activation: callable = nn.silu
+    activation: Callable = jax.nn.silu
+    output_bias: bool = True
 
-    def apply(self, params, x):
-        for i, p in enumerate(params):
-            x = Linear(self.width).apply(p, x)
-            if (i < (len(params) - 1)) or self.activate_final:
-                x = ElementWise(self.activation).apply(x)
+    @nn.compact
+    def __call__(self, x):
+        for i, width in enumerate(self.widths):
+            is_last_layer = i == len(self.widths) - 1
+            use_bias = self.output_bias or ~is_last_layer
+            use_activation = self.activate_final or ~is_last_layer
+
+            x = Linear(width, use_bias)(x)
+            if use_activation:
+                x = ElementWise(self.activation)(x)
         return x
-
-    def apply_with_fwd_lap(self, params, x: NodeWithFwdLap):
-        for i, p in enumerate(params):
-            x = Linear(self.width).apply_with_fwd_lap(p, x)
-            if (i < (len(params) - 1)) or self.activate_final:
-                x = ElementWise(self.activation).apply_with_fwd_lap(x)
-        return x
-
-    def init(self, rng, x):
-        params = []
-        for _ in range(self.depth):
-            rng, key = jax.random.split(rng)
-            params.append(Linear(self.width).init(key, x))
-            x = np.zeros_like(x, shape=(self.width,))
-        return params
 
 
 def sparse_slogdet_with_fwd_lap(A: NodeWithFwdLap, triplet_indices):

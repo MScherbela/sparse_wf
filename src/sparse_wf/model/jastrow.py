@@ -1,5 +1,5 @@
 import functools
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, cast
 
 import flax.linen as nn
 import jax
@@ -11,7 +11,9 @@ from sparse_wf.api import ElectronIdx, Electrons, SignedLogAmplitude
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.model.graph_utils import pad_jacobian_to_dense
 from sparse_wf.model.utils import MLP, get_dist_same_diff
+from sparse_wf.model.sparse_fwd_lap import SparseMLP
 from sparse_wf.tree_utils import tree_add
+from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap
 
 JastrowState: TypeAlias = jax.Array
 
@@ -58,6 +60,7 @@ class Jastrow(nn.Module):
     use_mlp_jastrow: bool
     mlp_depth: int
     mlp_width: int
+    sparse_embedding: bool = False
 
     def setup(self):
         if self.e_e_cusps == "none":
@@ -70,7 +73,10 @@ class Jastrow(nn.Module):
             raise ValueError(f"Unknown e_e_cusps: {self.e_e_cusps}")
 
         if self.use_mlp_jastrow or self.use_log_jastrow:
-            self.mlp = MLP([self.mlp_width] * self.mlp_depth + [2], activate_final=False)
+            if self.sparse_embedding:
+                self.mlp = MLP([self.mlp_width] * self.mlp_depth + [2], activate_final=False)
+            else:
+                self.mlp = SparseMLP([self.mlp_width] * self.mlp_depth + [2])
             self.mlp_scale = self.param("mlp_scale", nn.initializers.zeros, (2,), jnp.float32)
             if self.use_log_jastrow:
                 self.log_bias = self.param("log_bias", nn.initializers.ones, (), jnp.float32)
@@ -89,7 +95,7 @@ class Jastrow(nn.Module):
             logpsi += self.pairwise_cusps(electrons)
         if self.mlp:
             jastrows_before_sum = self._apply_mlp(embeddings)
-            J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum)
+            J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum.sum(axis=0))
             sign *= J_sign
             logpsi += J_logpsi
         else:
@@ -116,7 +122,7 @@ class Jastrow(nn.Module):
         if self.mlp:
             jastrows_before_sum = self._apply_mlp(embeddings[changed_embeddings])
             jastrows_before_sum = state.at[changed_embeddings].set(jastrows_before_sum)
-            J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum)
+            J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum.sum(axis=0))
             sign *= J_sign
             logpsi += J_logpsi
         else:
@@ -127,20 +133,23 @@ class Jastrow(nn.Module):
         return self.mlp(embeddings) * self.mlp_scale + jnp.array([0, self.log_bias])
 
     def _mlp_to_logpsi(self, jastrows):
+        assert jastrows.shape == (2,)
         logpsi = jnp.zeros((), dtype=jastrows.dtype)
         sign = jnp.ones((), dtype=jastrows.dtype)
         if self.use_mlp_jastrow:
-            logpsi += jastrows[..., 0].sum()
+            logpsi += jastrows[0]
         if self.use_log_jastrow:
-            log_J = jastrows[..., 1].sum()
+            log_J = jastrows[1]
             sign *= jnp.sign(log_J).prod()
-            logpsi += jnp.log(jnp.abs(log_J)).sum()
+            logpsi += jnp.log(jnp.abs(log_J))
         return sign, logpsi
 
     def _apply_pairwise_cusps(self, electrons):
         return self.pairwise_cusps(electrons)
 
-    def apply_with_fwd_lap(self, params, electrons: Electrons, embeddings: FwdLaplArray, dependencies) -> jax.Array:
+    def apply_with_fwd_lap(
+        self, params, electrons: Electrons, embeddings: FwdLaplArray | NodeWithFwdLap, dependencies
+    ) -> jax.Array:
         zeros = jnp.zeros([], electrons.dtype)
         logpsi = FwdLaplArray(zeros, FwdJacobian(data=zeros), zeros)
         if self.e_e_cusps != "none":
@@ -152,17 +161,19 @@ class Jastrow(nn.Module):
             logpsi = tree_add(logpsi, get_pairwise_jastrow(electrons))
         if self.use_mlp_jastrow or self.use_log_jastrow:
             _get_jastrows = functools.partial(self.apply, params, method=self._apply_mlp)
-            _get_jastrows = fwd_lap(_get_jastrows, argnums=0)
-            _get_jastrows = jax.vmap(_get_jastrows, in_axes=-2, out_axes=-2)
-            jastrows = _get_jastrows(embeddings)
-            # TODO: this generates an n_el x n_el x 2 tensor, which is very sparse, and which is immediately summed over in the the next step.
-            # Find a way to avoid this. Probably using reverse dependency mapping.
-            n_el = electrons.shape[-2]
-            jastrows = jax.vmap(pad_jacobian_to_dense, in_axes=(-2, 0, None), out_axes=-2)(jastrows, dependencies, n_el)
-
-            @fwd_lap
-            def _get_logpsi(jastrows):
-                return self._mlp_to_logpsi(jastrows)[1]
-
-            logpsi = tree_add(logpsi, _get_logpsi(jastrows))
+            if isinstance(embeddings, FwdLaplArray):
+                _get_jastrows = fwd_lap(_get_jastrows, argnums=0)
+                _get_jastrows = jax.vmap(_get_jastrows, in_axes=-2, out_axes=-2)  # vmap over eletrons
+                jastrows = _get_jastrows(embeddings)
+                # TODO: this generates an n_el x n_el x 2 tensor, which is very sparse, and which is immediately summed over in the the next step.
+                # Find a way to avoid this. Probably using reverse dependency mapping.
+                n_el = electrons.shape[-2]
+                jastrows = jax.vmap(pad_jacobian_to_dense, in_axes=(-2, 0, None), out_axes=-2)(
+                    jastrows, dependencies, n_el
+                )
+                jastrows = fwd_lap(lambda J: J.sum(axis=0))(jastrows)
+            elif isinstance(embeddings, NodeWithFwdLap):
+                jastrows = cast(NodeWithFwdLap, _get_jastrows(embeddings)).sum_over_nodes()
+            logpsi_jastrow = fwd_lap(lambda J: self._mlp_to_logpsi(J)[1])(jastrows)
+            logpsi = tree_add(logpsi, logpsi_jastrow)
         return logpsi

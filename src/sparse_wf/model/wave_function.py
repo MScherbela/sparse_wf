@@ -249,7 +249,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         self, params: MoonLikeParams[T], electrons: Electrons, embeddings: NodeWithFwdLap
     ):
         envelopes = jax.vmap(fwd_lap(lambda r: self.envelope.apply(params.envelope, r - self.R)))(electrons)
-        orbitals = self.to_orbitals.apply_with_fwd_lap(params.to_orbitals, embeddings)
+        orbitals = cast(NodeWithFwdLap, self.to_orbitals.apply(params.to_orbitals, embeddings))
         orbitals = multiply_with_1el_fn(orbitals, envelopes)
         phi, jac_phi, lap_phi = to_slater_matrices(orbitals, self.n_electrons, self.n_up)
         return NodeWithFwdLap(phi, jac_phi, lap_phi, orbitals.idx_ctr, orbitals.idx_dep)

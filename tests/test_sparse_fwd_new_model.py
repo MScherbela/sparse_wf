@@ -45,7 +45,7 @@ def setup_inputs(dtype):
     model, params, electrons = jtu.tree_map(lambda x: change_float_dtype(x, dtype), (model, params, electrons))
     static = model.get_static_input(electrons)
     static = jtu.tree_map(lambda x: 1.2 * x, static)
-    static_args = static.round_with_padding(1.1, n_el, n_nuc).to_static()
+    static_args = static.round_with_padding(1.1, n_el, n_el // 2, n_nuc).to_static()
     return model, electrons, params, static_args
 
 

@@ -16,7 +16,7 @@ from sparse_wf.model.utils import (
     AppendingList,
 )
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
-from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap, get, MLP
+from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap, get, SparseMLP
 import jax
 import numpy as np
 from typing import NamedTuple, Generic, TypeVar, Callable, cast
@@ -235,7 +235,7 @@ class NewSparseEmbedding(PyTreeNode):
     elec_init: ElecInit
     edge_same: ElecElecEdges
     edge_diff: ElecElecEdges
-    updates: tuple[MLP, ...]
+    updates: tuple[SparseMLP, ...]
 
     @classmethod
     def create(
@@ -268,7 +268,7 @@ class NewSparseEmbedding(PyTreeNode):
             elec_init=ElecInit(cutoff_1el, pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
             edge_same=ElecElecEdges(cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
             edge_diff=ElecElecEdges(cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
-            updates=tuple([MLP(feature_dim, 2) for _ in range(n_updates)]),
+            updates=tuple([SparseMLP([feature_dim] * 2) for _ in range(n_updates)]),
         )
 
     @property
@@ -425,7 +425,7 @@ class NewSparseEmbedding(PyTreeNode):
             h = contract_with_fwd_lap(h, h_same, g_same, e_same, idx_ct_same, idx_nb_same, idx_jac_same)
             h = contract_with_fwd_lap(h, h_diff, g_diff, e_diff, idx_ct_diff, idx_nb_diff, idx_jac_diff)
             h = h * next(scale_seq)  # type: ignore
-            h = update_module.apply_with_fwd_lap(update_params, h)
+            h = update_module.apply(update_params, h)
             h = h * next(scale_seq)  # type: ignore
 
         return h

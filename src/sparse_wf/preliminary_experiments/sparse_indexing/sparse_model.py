@@ -1,7 +1,7 @@
 # %%
 import os
 
-from sparse_wf.model.sparse_fwd_lap import MLP, Linear, NodeWithFwdLap, get_pair_indices, multiply_with_1el_fn, slogdet_with_fwd_lap
+from sparse_wf.model.sparse_fwd_lap import SparseMLP, Linear, NodeWithFwdLap, get_pair_indices, multiply_with_1el_fn, slogdet_with_fwd_lap
 from sparse_wf.model.sparse_fwd_lap import get
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -139,7 +139,7 @@ class Embedding(PyTreeNode):
     elec_init: ElecInit
     edge_same: PairWiseFunction
     edge_diff: PairWiseFunction
-    updates: list[MLP]
+    updates: list[SparseMLP]
     orbitals: Linear
 
     @property
@@ -157,7 +157,7 @@ class Embedding(PyTreeNode):
             elec_init=ElecInit(feature_dim, n_layers),
             edge_same=PairWiseFunction(cutoff, feature_dim, n_layers),
             edge_diff=PairWiseFunction(cutoff, feature_dim, n_layers),
-            updates=[MLP(feature_dim, 2) for _ in range(n_layers)],
+            updates=[SparseMLP([feature_dim]*2) for _ in range(n_layers)],
             orbitals=Linear(n_el),
         )
 
