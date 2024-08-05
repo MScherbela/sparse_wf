@@ -162,7 +162,7 @@ def main(
     for step in range(pretraining["steps"]):
         state, aux_data = pretrainer.step(state, static)
         static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data)
+        log_data = to_log_data(aux_data | static.to_log_data())
         log_data["pretrain/step"] = step
         loggers.log(log_data)
         if np.isnan(log_data["pretrain/loss"]):
@@ -175,7 +175,7 @@ def main(
     for _ in range(optimization["burn_in"]):
         state, aux_data = trainer.sampling_step(state, static, False)
         static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data)
+        log_data = to_log_data(aux_data | static.to_log_data())
         loggers.log(log_data)
 
     logging.info("Training")
@@ -183,7 +183,7 @@ def main(
         t0 = time.perf_counter()
         state, _, aux_data = trainer.step(state, static)
         static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data)
+        log_data = to_log_data(aux_data | static.to_log_data())
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0
         log_data["opt/step"] = opt_step
@@ -200,7 +200,7 @@ def main(
         t0 = time.perf_counter()
         state, aux_data = trainer.sampling_step(state, static, evaluation["compute_energy"])
         static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data)
+        log_data = to_log_data(aux_data | static.to_log_data())
         t1 = time.perf_counter()
         log_data["eval/t_step"] = t1 - t0
         log_data["eval/step"] = eval_step

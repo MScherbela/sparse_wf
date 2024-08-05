@@ -60,6 +60,17 @@ class StaticArgs(NamedTuple, Generic[T]):
         max_values = self.get_max(n_el, n_up, n_nuc)
         return jtu.tree_map(lambda x, max_x: round_with_padding(x, padding_factor, max_x), self, max_values)
 
+    def to_log_data(self):
+        return {
+            "static/rounded.n_pairs_same": self.n_pairs_same,
+            "static/rounded.n_pairs_diff": self.n_pairs_diff,
+            "static/rounded.n_triplets": self.n_triplets,
+            "static/rounded.n_neighbours_en": self.n_neighbours_en,
+            "static/rounded.n_changed_hout": self.n_changed_hout,
+            "static/rounded.n_changed_pair_same": self.n_changed_pair_same,
+            "static/rounded.n_changed_pair_diff": self.n_changed_pair_diff,
+        }
+
 
 def contract(h_residual, h_ct, h_nb, Gamma, edges, idx_ctr, idx_nb):
     pair_msg = Gamma * nn.silu(edges + get(h_ct, idx_ctr) + get(h_nb, idx_nb))

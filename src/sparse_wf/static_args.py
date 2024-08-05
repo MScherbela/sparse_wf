@@ -21,7 +21,7 @@ def round_with_padding(n, padding_factor, max_val):
 
 class StaticScheduler:
     def __init__(
-        self, n_electrons: int, n_up: int, n_nuclei: int, history_length: int = 5, padding_factor: float = 1.1
+        self, n_electrons: int, n_up: int, n_nuclei: int, history_length: int = 20, padding_factor: float = 1.2
     ):
         self.step = 0
         self.history_length = history_length
