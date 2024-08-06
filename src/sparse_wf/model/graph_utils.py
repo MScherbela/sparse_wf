@@ -174,3 +174,11 @@ def affected_particles(old_x, old_y, new_x, new_y, num_changes: int, cutoff: flo
     neg_dists, order = jax.lax.top_k(-dist_shortest, num_changes)
     idx_affected = jnp.where(neg_dists > (-cutoff), order, NO_NEIGHBOUR)
     return idx_affected
+
+
+def is_neighbour(electrons: Electrons, cutoff: float):
+    assert electrons.ndim == 2
+    n_electrons = electrons.shape[0]
+    dist = jnp.linalg.norm(electrons[:, None] - electrons[None], axis=-1)
+    dist = dist.at[jnp.arange(n_electrons), jnp.arange(n_electrons)].set(jnp.inf)
+    return dist < cutoff

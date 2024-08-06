@@ -20,11 +20,14 @@ def round_with_padding(n, padding_factor, max_val):
 
 
 class StaticScheduler:
-    def __init__(self, n_electrons: int, n_nuclei: int, history_length: int = 5, padding_factor: float = 1.1):
+    def __init__(
+        self, n_electrons: int, n_up: int, n_nuclei: int, history_length: int = 20, padding_factor: float = 1.2
+    ):
         self.step = 0
         self.history_length = history_length
         self.history: Optional[StaticInput[np.array]] = None
         self.n_electrons = n_electrons
+        self.n_up = n_up
         self.n_nuclei = n_nuclei
         self.padding_factor = padding_factor
 
@@ -38,7 +41,7 @@ class StaticScheduler:
         static = jtu.tree_map(lambda x: int(jnp.max(x)), self.history)
         static = StaticInput(
             mcmc=jax.tree_map(lambda n: round_with_padding(n, self.padding_factor, self.n_electrons), static.mcmc),
-            model=static.model.round_with_padding(self.padding_factor, self.n_electrons, self.n_nuclei),
+            model=static.model.round_with_padding(self.padding_factor, self.n_electrons, self.n_up, self.n_nuclei),
         )
 
         return static

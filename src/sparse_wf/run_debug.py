@@ -6,4 +6,5 @@ if __name__ == "__main__":
     file_config = load_yaml("debug_config.yaml")
     full_config = update_dict(default_config, file_config, allow_new_keys=False)
     save_yaml("full_config.yaml", full_config)
+    # with chex.fake_pmap_and_jit():
     train_with_config("full_config.yaml")

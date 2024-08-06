@@ -42,7 +42,7 @@ def setup_inputs(dtype, embedding):
 
 # TODO: add separate testcases for embedding, jastrow, determinant, total_logpsi
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
-@pytest.mark.parametrize("embedding", ["moon", "new"])
+@pytest.mark.parametrize("embedding", ["moon", "new", "new_sparse"])
 def test_low_rank_update_logpsi(dtype, embedding):
     model, electrons, params, static_args = setup_inputs(dtype, embedding)
     (_, logpsi_old), state_old = model.log_psi_with_state(params, electrons, static_args)
@@ -51,10 +51,9 @@ def test_low_rank_update_logpsi(dtype, embedding):
     tol_kwargs = dict(rtol=get_relative_tolerance(dtype), atol=get_relative_tolerance(dtype))
 
     for step in range(2):
-        ind_move = np.array(len(electrons) // 2)
-        idx_changed = ind_move[None]
+        idx_changed = np.array([3])
         dr = np.array([2, 0, 0]).astype(dtype)
-        electrons_new = electrons.at[ind_move].add(dr)
+        electrons_new = electrons.at[idx_changed].add(dr)
         static_args = to_static(model.get_static_input(electrons, electrons_new, idx_changed))
 
         (_, logpsi_new), state_new = model.log_psi_with_state(params, electrons_new, static_args)
@@ -77,6 +76,6 @@ def test_low_rank_update_logpsi(dtype, embedding):
 
 
 if __name__ == "__main__":
-    for embedding in ["moon", "new"]:
-        for dtype in [jnp.float32, jnp.float64]:
+    for embedding in ["new_sparse", "moon", "new"]:
+        for dtype in [jnp.float64, jnp.float32]:
             test_low_rank_update_logpsi(dtype, embedding)

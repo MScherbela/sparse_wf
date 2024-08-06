@@ -26,7 +26,7 @@ from sparse_wf.api import (
     MCMCStaticArgs,
     StaticInput,
 )
-from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap, psum_if_pmap
+from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
 from sparse_wf.tree_utils import tree_add, tree_maximum, tree_zeros_like
 
@@ -71,11 +71,13 @@ def mcmc_steps_all_electron(
         new_electrons = jnp.where(accept, new_electrons, electrons)
         new_log_prob = jnp.where(accept, new_log_prob, log_prob)
         num_accept += accept.astype(jnp.int32)
-        return key, electrons, log_prob, static_mean, static_max, num_accept
+        return key, new_electrons, new_log_prob, static_mean, static_max, num_accept
 
     local_batch_size = electrons.shape[0]
     logprob = jax.vmap(log_prob_fn)(electrons)
-    actual_static = StaticInput(model=logpsi_fn.get_static_input(electrons), mcmc=MCMCStaticArgs(max_cluster_size=0))
+    actual_static = StaticInput(
+        model=jax.vmap(logpsi_fn.get_static_input)(electrons), mcmc=MCMCStaticArgs(max_cluster_size=0)
+    )
     x0 = (
         jax.random.split(key, local_batch_size),
         electrons,
@@ -86,7 +88,7 @@ def mcmc_steps_all_electron(
     )
     _, electrons, _, static_mean, static_max, num_accept = lax.fori_loop(0, steps, step_fn, x0)
     summary_stats = {
-        "mcmc/pmove": psum_if_pmap(jnp.mean(num_accept) / steps),
+        "mcmc/pmove": pmean_if_pmap(jnp.mean(num_accept) / steps),
         "static/mean": jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
         "static/max": jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
     }
@@ -107,6 +109,10 @@ def proposal_single_electron(
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
 
 
+def _cluster_inclusion_logprob(dist, cluster_radius):
+    return -((dist / cluster_radius) ** 2)
+
+
 def proposal_cluster_update(
     R: Nuclei,
     cluster_radius: float,
@@ -118,21 +124,23 @@ def proposal_cluster_update(
 ) -> tuple[Electrons, ElectronIdx, jax.Array, Int]:
     dtype = electrons.dtype
     n_el = electrons.shape[-2]
-    idx_center = idx_step % len(R)
-    R_center = R[idx_center]
+    idx_center = idx_step % n_el
 
     rng_select, rng_move = jax.random.split(key)
-    dist_before_move = jnp.linalg.norm(electrons - R_center, axis=-1)
-    log_p_select1 = -dist_before_move / cluster_radius
+    dist_before_move = jnp.linalg.norm(electrons - electrons[idx_center], axis=-1)
+    log_p_select1 = _cluster_inclusion_logprob(dist_before_move, cluster_radius)
+    log_p_notselect1 = jnp.log(-jnp.expm1(log_p_select1))
 
     do_move = log_p_select1 >= jnp.log(jax.random.uniform(rng_select, (n_el,), dtype))
     idx_el_changed = jnp.nonzero(do_move, fill_value=NO_NEIGHBOUR, size=max_cluster_size)[0]
     dr = jax.random.normal(rng_move, (max_cluster_size, 3), dtype) * width
     proposed_electrons = electrons.at[idx_el_changed].add(dr, mode="drop")
 
-    dist_after_move = jnp.linalg.norm(proposed_electrons - R_center, axis=-1)
-    log_p_select2 = -dist_after_move / cluster_radius
-    proposal_log_ratio = jnp.sum(log_p_select2) - jnp.sum(log_p_select1)
+    dist_after_move = jnp.linalg.norm(proposed_electrons - proposed_electrons[idx_center], axis=-1)
+    log_p_select2 = _cluster_inclusion_logprob(dist_after_move, cluster_radius)
+    log_p_notselect2 = jnp.log(-jnp.expm1(log_p_select2))
+    proposal_log_ratio = jnp.where(do_move, log_p_select2 - log_p_select1, log_p_notselect2 - log_p_notselect1)
+    proposal_log_ratio = jnp.sum(proposal_log_ratio)
     actual_cluster_size = jnp.sum(do_move).astype(jnp.int32)
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
 
@@ -226,7 +234,7 @@ def make_mcmc(
         case "cluster-update":
             cluster_radius = proposal_args["cluster_radius"]
             proposal_fn = functools.partial(proposal_cluster_update, jnp.array(R, jnp.float32), cluster_radius)
-            steps = proposal_args["sweeps"] * len(R)
+            steps = proposal_args["sweeps"] * n_el
             mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, proposal_fn, steps)
         case _:
             raise ValueError(f"Invalid proposal: {proposal}")
@@ -235,7 +243,7 @@ def make_mcmc(
 
 def make_width_scheduler(
     window_size: int = 20,
-    target_pmove: float = 0.234,
+    target_pmove: float = 0.5,
     error: float = 0.025,
     width_multiplier: float = 1.1,
 ) -> WidthScheduler:

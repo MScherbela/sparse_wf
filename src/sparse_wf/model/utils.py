@@ -6,6 +6,7 @@ import jax
 import jax.nn as jnn
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike, Float
+import numpy as np
 
 from sparse_wf.api import ElectronIdx, Electrons, HFOrbitals, Int, ScalingParam, SignedLogAmplitude, SlaterMatrices
 from sparse_wf.jax_utils import vectorize
@@ -392,11 +393,11 @@ def zeros_initializer(dtype=jnp.float32):
 
 class PairwiseFilter(nn.Module):
     cutoff: float
-    pair_dim: int
+    filter_dims: tuple[int, int]
 
     @nn.compact
     def __call__(
-        self, dist_diff: Float[Array, "*batch_dims features_in"], dynamic_params: DynamicFilterParams
+        self, dist_diff: Float[Array, "*batch_dims features_in"], dynamic_params: Optional[DynamicFilterParams] = None
     ) -> Float[Array, "*batch_dims features_out"]:
         """Compute the pairwise filters between two particles.
 
@@ -405,9 +406,20 @@ class PairwiseFilter(nn.Module):
                 The 0th feature dimension must contain the distance, the remaining dimensions can contain arbitrary
                 features that are used to compute the pairwise filters, e.g. product of spins.
         """
+        if dynamic_params is None:
+            dynamic_params = DynamicFilterParams(
+                scales=self.param(
+                    "scale", lambda key, shape: scale_initializer(key, self.cutoff, shape), (self.filter_dims[0],)
+                ),
+                kernel=self.param("kernel", lecun_normal, (4, self.filter_dims[0])),
+                bias=self.param(
+                    "bias", lambda key, shape: jax.random.normal(key, shape, jnp.float32), (self.filter_dims[0],)
+                ),
+            )
+
         # Direction- (and spin-) dependent MLP
         directional_features = jax.nn.silu(dist_diff @ dynamic_params.kernel + dynamic_params.bias)
-        directional_features = nn.Dense(self.pair_dim)(directional_features)
+        directional_features = nn.Dense(self.filter_dims[1])(directional_features)
 
         # Distance-dependenet radial filters
         dist = dist_diff[..., 0]
@@ -415,7 +427,7 @@ class PairwiseFilter(nn.Module):
         scales = jax.nn.softplus(dynamic_params.scales)
         envelopes = jnp.exp(-((dist[..., None] / scales) ** 2))
         envelopes *= cutoff_function(dist / self.cutoff)[..., None]
-        envelopes = nn.Dense(self.pair_dim, use_bias=False)(envelopes)
+        envelopes = nn.Dense(self.filter_dims[1], use_bias=False)(envelopes)
         beta = directional_features * envelopes
         return beta
 
@@ -447,6 +459,17 @@ def normalize(x, scale: ScalingParam | None, return_scale=False):
     if return_scale:
         return x, scale
     return x
+
+
+def iter_list_with_pad(lst, pad=None):
+    yield from lst
+    while True:
+        yield pad
+
+
+class AppendingList(list):
+    def __setattr__(self, name, value):
+        self.append(value)
 
 
 class FixedScalingFactor(nn.Module):
@@ -499,3 +522,31 @@ class FixedScalingFactor(nn.Module):
 
 def get_relative_tolerance(dtype):
     return 1e-12 if (dtype == jnp.float64) else 1e-6
+
+
+class NodeWithFwdLap(NamedTuple):
+    # The jacobian is layed out as follows:
+    # The first n_el entries correspond to the jacobian of the node with itself, ie. idx_dep = idx_ctr
+    # The next n_pairs entries correspond to the jacobian of the node with its neighbours, i.e. idx_dep != idx_ctr
+    x: jax.Array  # [n_el x feature_dim]
+    jac: jax.Array  # [n_el + n_pairs x 3 x feature_dim]
+    lap: jax.Array  # [n_el x feature_dim]
+    idx_ctr: jax.Array  # [n_el + n_pairs]
+    idx_dep: jax.Array  # [n_el + n_pairs]
+
+    def get_jac_sqr(self):
+        jac_sqr = jnp.zeros_like(self.x)
+        # .at[idx_ctr].add => sum over dependency index; jnp.sum => sum over xyz
+        jac_sqr = jac_sqr.at[self.idx_ctr].add(jnp.sum(self.jac**2, axis=1), mode="drop")
+        return jac_sqr
+
+    def dense_jac(self):
+        n_el = np.max(self.idx_ctr) + 1
+        feature_dim = self.jac.shape[-1]
+        J_dense = np.zeros((n_el, 3, n_el, feature_dim))  # [dep, xyz, i, feature_dim]
+        J_dense[self.idx_dep, :, self.idx_ctr, :] = self.jac
+        J_dense = J_dense.reshape([n_el * 3, n_el, feature_dim])
+        return J_dense
+
+    def __add__(self, other):
+        return NodeWithFwdLap(self.x + other.x, self.jac + other.jac, self.lap + other.lap, self.idx_ctr, self.idx_dep)

@@ -78,7 +78,8 @@ def main(
 
     mol = get_molecule(molecule_args)
     R = np.array(mol.atom_coords())
-    n_el = sum(mol.nelec)
+    n_up, n_dn = mol.nelec
+    n_el = n_up + n_dn
 
     loggers = MultiLogger(logging_args)
     loggers.log_config(config)
@@ -112,7 +113,7 @@ def main(
     electrons = init_electrons(subkey, mol, batch_size)
     mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
-    static_scheduler = StaticScheduler(n_el, len(R))
+    static_scheduler = StaticScheduler(n_el, n_up, len(R))
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
@@ -161,7 +162,7 @@ def main(
     for step in range(pretraining["steps"]):
         state, aux_data = pretrainer.step(state, static)
         static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data)
+        log_data = to_log_data(aux_data | static.to_log_data())
         log_data["pretrain/step"] = step
         loggers.log(log_data)
         if np.isnan(log_data["pretrain/loss"]):
@@ -174,7 +175,7 @@ def main(
     for _ in range(optimization["burn_in"]):
         state, aux_data = trainer.sampling_step(state, static, False)
         static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data)
+        log_data = to_log_data(aux_data | static.to_log_data())
         loggers.log(log_data)
 
     logging.info("Training")
@@ -182,7 +183,7 @@ def main(
         t0 = time.perf_counter()
         state, _, aux_data = trainer.step(state, static)
         static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data)
+        log_data = to_log_data(aux_data | static.to_log_data())
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0
         log_data["opt/step"] = opt_step
@@ -199,7 +200,7 @@ def main(
         t0 = time.perf_counter()
         state, aux_data = trainer.sampling_step(state, static, evaluation["compute_energy"])
         static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data)
+        log_data = to_log_data(aux_data | static.to_log_data())
         t1 = time.perf_counter()
         log_data["eval/t_step"] = t1 - t0
         log_data["eval/step"] = eval_step
