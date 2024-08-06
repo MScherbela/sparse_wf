@@ -31,8 +31,17 @@ for i, row in df.iterrows():
             E=energy,
         ))
 
-save_geometries(geometries)
+# save_geometries(geometries)
 
-df_energies = pd.read_csv("/home/mscherbela/develop/sparse_wf/data/energies.csv")
-df_energies = pd.concat([df_energies, pd.DataFrame(energy_data)])
-df_energies.to_csv("/home/mscherbela/develop/sparse_wf/data/energies.csv", index=False)
+# df_energies = pd.read_csv("/home/mscherbela/develop/sparse_wf/data/energies.csv")
+# df_energies = pd.concat([df_energies, pd.DataFrame(energy_data)])
+# df_energies.to_csv("/home/mscherbela/develop/sparse_wf/data/energies.csv", index=False)
+df_geom = pd.DataFrame([
+    dict(name=g.name, comment=g.comment, n_el=g.n_el, n_el_cutoff=g.n_electrons_in_cutoff(4.0)) for g in geometries.values()
+])
+df_min = df_geom.loc[df_geom.groupby("name").n_el_cutoff.idxmin()]
+df_min.sort_values("n_el_cutoff", ascending=True, inplace=True)
+print(df_min)
+    # if geom.name != "WG":
+    #     continue
+    # print(f"{geom.comment:<10}: {geom.n_electrons_in_cutoff(5.0):3}/{geom.n_el:3d}")
