@@ -129,15 +129,19 @@ def proposal_cluster_update(
     rng_select, rng_move = jax.random.split(key)
     dist_before_move = jnp.linalg.norm(electrons - electrons[idx_center], axis=-1)
     log_p_select1 = _cluster_inclusion_logprob(dist_before_move, cluster_radius)
+    log_p_notselect1 = jnp.log(-jnp.expm1(log_p_select1))
 
     do_move = log_p_select1 >= jnp.log(jax.random.uniform(rng_select, (n_el,), dtype))
     idx_el_changed = jnp.nonzero(do_move, fill_value=NO_NEIGHBOUR, size=max_cluster_size)[0]
     dr = jax.random.normal(rng_move, (max_cluster_size, 3), dtype) * width
     proposed_electrons = electrons.at[idx_el_changed].add(dr, mode="drop")
 
-    dist_after_move = jnp.linalg.norm(proposed_electrons - proposed_electrons[idx_center], axis=-1)
+    dist_after_move = jnp.linalg.norm(proposed_electrons - proposed_electrons, axis=-1)
     log_p_select2 = _cluster_inclusion_logprob(dist_after_move, cluster_radius)
-    proposal_log_ratio = jnp.sum(log_p_select2) - jnp.sum(log_p_select1)
+    log_p_notselect2 = jnp.log(-jnp.expm1(log_p_select2))
+    # proposal_log_ratio = jnp.sum(log_p_select2) - jnp.sum(log_p_select1)
+    proposal_log_ratio = jnp.where(do_move, log_p_select2 - log_p_select1, log_p_notselect2 - log_p_notselect1)
+    proposal_log_ratio = jnp.sum(proposal_log_ratio)
     actual_cluster_size = jnp.sum(do_move).astype(jnp.int32)
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
 
