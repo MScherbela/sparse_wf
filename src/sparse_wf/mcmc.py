@@ -136,10 +136,9 @@ def proposal_cluster_update(
     dr = jax.random.normal(rng_move, (max_cluster_size, 3), dtype) * width
     proposed_electrons = electrons.at[idx_el_changed].add(dr, mode="drop")
 
-    dist_after_move = jnp.linalg.norm(proposed_electrons - proposed_electrons, axis=-1)
+    dist_after_move = jnp.linalg.norm(proposed_electrons - proposed_electrons[idx_center], axis=-1)
     log_p_select2 = _cluster_inclusion_logprob(dist_after_move, cluster_radius)
     log_p_notselect2 = jnp.log(-jnp.expm1(log_p_select2))
-    # proposal_log_ratio = jnp.sum(log_p_select2) - jnp.sum(log_p_select1)
     proposal_log_ratio = jnp.where(do_move, log_p_select2 - log_p_select1, log_p_notselect2 - log_p_notselect1)
     proposal_log_ratio = jnp.sum(proposal_log_ratio)
     actual_cluster_size = jnp.sum(do_move).astype(jnp.int32)
