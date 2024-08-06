@@ -73,7 +73,7 @@ class Geometry:
                 tokens = line.split()
                 assert len(tokens) == 4
                 R.append([float(x) / BOHR_IN_ANGSTROM for x in tokens[1:]])
-                Z.append(int(tokens[0]) if tokens[0].isdigit() else PERIODIC_TABLE.index(tokens[0]) + 1)
+                Z.append(int(tokens[0]) if tokens[0].isdigit() else PERIODIC_TABLE.index(tokens[0].capitalize()) + 1)
         return cls(R, Z, 0, None, comment or comment_from_file, name or comment_from_file)
 
     @property
