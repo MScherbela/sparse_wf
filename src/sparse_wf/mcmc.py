@@ -109,6 +109,10 @@ def proposal_single_electron(
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
 
 
+def _cluster_inclusion_logprob(dist, cluster_radius):
+    return -((dist / cluster_radius) ** 2)
+
+
 def proposal_cluster_update(
     R: Nuclei,
     cluster_radius: float,
@@ -125,7 +129,7 @@ def proposal_cluster_update(
 
     rng_select, rng_move = jax.random.split(key)
     dist_before_move = jnp.linalg.norm(electrons - R_center, axis=-1)
-    log_p_select1 = -dist_before_move / cluster_radius
+    log_p_select1 = _cluster_inclusion_logprob(dist_before_move, cluster_radius)
 
     do_move = log_p_select1 >= jnp.log(jax.random.uniform(rng_select, (n_el,), dtype))
     idx_el_changed = jnp.nonzero(do_move, fill_value=NO_NEIGHBOUR, size=max_cluster_size)[0]
@@ -133,7 +137,7 @@ def proposal_cluster_update(
     proposed_electrons = electrons.at[idx_el_changed].add(dr, mode="drop")
 
     dist_after_move = jnp.linalg.norm(proposed_electrons - R_center, axis=-1)
-    log_p_select2 = -dist_after_move / cluster_radius
+    log_p_select2 = _cluster_inclusion_logprob(dist_after_move, cluster_radius)
     proposal_log_ratio = jnp.sum(log_p_select2) - jnp.sum(log_p_select1)
     actual_cluster_size = jnp.sum(do_move).astype(jnp.int32)
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
