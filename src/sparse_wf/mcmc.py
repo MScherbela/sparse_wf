@@ -124,11 +124,10 @@ def proposal_cluster_update(
 ) -> tuple[Electrons, ElectronIdx, jax.Array, Int]:
     dtype = electrons.dtype
     n_el = electrons.shape[-2]
-    idx_center = idx_step % len(R)
-    R_center = R[idx_center]
+    idx_center = idx_step % n_el
 
     rng_select, rng_move = jax.random.split(key)
-    dist_before_move = jnp.linalg.norm(electrons - R_center, axis=-1)
+    dist_before_move = jnp.linalg.norm(electrons - electrons[idx_center], axis=-1)
     log_p_select1 = _cluster_inclusion_logprob(dist_before_move, cluster_radius)
 
     do_move = log_p_select1 >= jnp.log(jax.random.uniform(rng_select, (n_el,), dtype))
@@ -136,7 +135,7 @@ def proposal_cluster_update(
     dr = jax.random.normal(rng_move, (max_cluster_size, 3), dtype) * width
     proposed_electrons = electrons.at[idx_el_changed].add(dr, mode="drop")
 
-    dist_after_move = jnp.linalg.norm(proposed_electrons - R_center, axis=-1)
+    dist_after_move = jnp.linalg.norm(proposed_electrons - proposed_electrons[idx_center], axis=-1)
     log_p_select2 = _cluster_inclusion_logprob(dist_after_move, cluster_radius)
     proposal_log_ratio = jnp.sum(log_p_select2) - jnp.sum(log_p_select1)
     actual_cluster_size = jnp.sum(do_move).astype(jnp.int32)
@@ -232,7 +231,7 @@ def make_mcmc(
         case "cluster-update":
             cluster_radius = proposal_args["cluster_radius"]
             proposal_fn = functools.partial(proposal_cluster_update, jnp.array(R, jnp.float32), cluster_radius)
-            steps = proposal_args["sweeps"] * len(R)
+            steps = proposal_args["sweeps"] * n_el
             mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, proposal_fn, steps)
         case _:
             raise ValueError(f"Invalid proposal: {proposal}")
