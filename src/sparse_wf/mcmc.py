@@ -109,10 +109,6 @@ def proposal_single_electron(
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
 
 
-def _cluster_inclusion_logprob(dist, cluster_radius):
-    return -((dist / cluster_radius) ** 2)
-
-
 def _get_closest_k(dist, dist_max, k):
     neg_d, idx = jax.lax.top_k(-dist, k=k)
     idx = jnp.where(neg_d >= -dist_max, idx, NO_NEIGHBOUR)
@@ -137,7 +133,7 @@ def proposal_cluster_update(
 
     dist_before_move = jnp.linalg.norm(electrons - electrons[idx_center], axis=-1)
     idx_el_changed = _get_closest_k(dist_before_move, max_cluster_radius, max_cluster_size)
-    actual_cluster_size = jnp.sum(idx_center != NO_NEIGHBOUR).astype(jnp.int32)
+    actual_cluster_size = jnp.sum(idx_el_changed != NO_NEIGHBOUR).astype(jnp.int32)
 
     def _propose(rng):
         dr = jax.random.normal(rng, (max_cluster_size, 3), dtype) * width
