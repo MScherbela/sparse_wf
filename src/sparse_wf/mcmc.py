@@ -96,7 +96,7 @@ def mcmc_steps_all_electron(
 
 
 def proposal_single_electron(
-    idx_step: int, key: PRNGKeyArray, electrons: Electrons, width: Width, max_cluster_size: int = 1
+    idx_step: int, key: PRNGKeyArray, electrons: Electrons, width: Width
 ) -> tuple[Electrons, ElectronIdx, jax.Array, Int]:
     # key_select, key_propose = jax.random.split(key)
     n_el = electrons.shape[-2]
@@ -113,35 +113,45 @@ def _cluster_inclusion_logprob(dist, cluster_radius):
     return -((dist / cluster_radius) ** 2)
 
 
+def _get_closest_k(dist, dist_max, k):
+    neg_d, idx = jax.lax.top_k(-dist, k=k)
+    idx = jnp.where(neg_d >= -dist_max, idx, NO_NEIGHBOUR)
+    return idx
+
+
+def _is_same_set(idx_a, idx_b):
+    return jnp.all(jnp.sort(idx_a) == jnp.sort(idx_b))
+
+
 def proposal_cluster_update(
-    R: Nuclei,
-    cluster_radius: float,
+    max_cluster_size: int,
+    max_cluster_radius: float,
     idx_step: int,
     key: PRNGKeyArray,
     electrons: Electrons,
     width: Width,
-    max_cluster_size: int,
 ) -> tuple[Electrons, ElectronIdx, jax.Array, Int]:
     dtype = electrons.dtype
     n_el = electrons.shape[-2]
     idx_center = idx_step % n_el
 
-    rng_select, rng_move = jax.random.split(key)
     dist_before_move = jnp.linalg.norm(electrons - electrons[idx_center], axis=-1)
-    log_p_select1 = _cluster_inclusion_logprob(dist_before_move, cluster_radius)
-    log_p_notselect1 = jnp.log(-jnp.expm1(log_p_select1))
+    idx_el_changed = _get_closest_k(dist_before_move, max_cluster_radius, max_cluster_size)
+    actual_cluster_size = jnp.sum(idx_center != NO_NEIGHBOUR).astype(jnp.int32)
 
-    do_move = log_p_select1 >= jnp.log(jax.random.uniform(rng_select, (n_el,), dtype))
-    idx_el_changed = jnp.nonzero(do_move, fill_value=NO_NEIGHBOUR, size=max_cluster_size)[0]
-    dr = jax.random.normal(rng_move, (max_cluster_size, 3), dtype) * width
-    proposed_electrons = electrons.at[idx_el_changed].add(dr, mode="drop")
+    def _propose(rng):
+        dr = jax.random.normal(rng, (max_cluster_size, 3), dtype) * width
+        r_proposed = electrons.at[idx_el_changed].add(dr, mode="drop")
+        dist_after_move = jnp.linalg.norm(r_proposed - r_proposed[idx_center], axis=-1)
+        idx_el_changed_reverse = _get_closest_k(dist_after_move, max_cluster_radius, max_cluster_size)
+        is_valid = _is_same_set(idx_el_changed, idx_el_changed_reverse)
+        return r_proposed, is_valid.astype(jnp.float32)
 
-    dist_after_move = jnp.linalg.norm(proposed_electrons - proposed_electrons[idx_center], axis=-1)
-    log_p_select2 = _cluster_inclusion_logprob(dist_after_move, cluster_radius)
-    log_p_notselect2 = jnp.log(-jnp.expm1(log_p_select2))
-    proposal_log_ratio = jnp.where(do_move, log_p_select2 - log_p_select1, log_p_notselect2 - log_p_notselect1)
-    proposal_log_ratio = jnp.sum(proposal_log_ratio)
-    actual_cluster_size = jnp.sum(do_move).astype(jnp.int32)
+    n_trials = 5
+    proposed_electrons, is_valid = jax.vmap(_propose)(jax.random.split(key, n_trials))
+    idx_trial = jnp.argmax(is_valid)
+    proposed_electrons = proposed_electrons[idx_trial]
+    proposal_log_ratio = jnp.log(is_valid[idx_trial])
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
 
 
@@ -172,7 +182,7 @@ def mcmc_steps_low_rank(
 
         # Make proposal
         proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size = proposal_fn(
-            i, key_propose, electrons, width, static.mcmc.max_cluster_size
+            i, key_propose, electrons, width
         )
 
         # Track actual static neigbour counts
@@ -232,8 +242,9 @@ def make_mcmc(
             steps = proposal_args["sweeps"] * n_el
             mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, proposal_single_electron, steps)
         case "cluster-update":
-            cluster_radius = proposal_args["cluster_radius"]
-            proposal_fn = functools.partial(proposal_cluster_update, jnp.array(R, jnp.float32), cluster_radius)
+            proposal_fn = functools.partial(
+                proposal_cluster_update, proposal_args["max_cluster_size"], proposal_args["max_cluster_radius"]
+            )
             steps = proposal_args["sweeps"] * n_el
             mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, proposal_fn, steps)
         case _:
