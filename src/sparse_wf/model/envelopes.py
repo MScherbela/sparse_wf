@@ -25,24 +25,23 @@ class Envelope(Protocol):
     def init(self, key, diffs: ElecNucDifferences) -> Parameters: ...
 
 
+def envelope_sigma_initializer(key, shape, dtype=jnp.float32, scale_min=0.2, scale_max=5.0):
+    scale = jnp.geomspace(scale_min, scale_max, shape[-1])
+    scale *= jax.random.truncated_normal(key, 0.8, 1.2, shape, dtype)
+    scale = jnp.log(jnp.expm1(scale))  # undo softplus
+    return scale.astype(jnp.float32)
+
+
 class IsotropicEnvelope(nn.Module):
     n_determinants: int
     n_orbitals: int
     cutoff: Optional[float] = None
 
-    def _sigma_initializer(self, key, shape, dtype=jnp.float32):
-        assert shape[-1] == self.envelope_size
-        scale = jnp.geomspace(0.2, 10.0, self.envelope_size)
-        scale *= jax.random.truncated_normal(key, 0.5, 1.5, shape, dtype)
-        return scale.astype(jnp.float32)
-
     @nn.compact
     def __call__(self, diffs: ElecNucDifferences) -> jax.Array:
         dists = jnp.linalg.norm(diffs, axis=-1)
         n_nuc = dists.shape[-1]
-        sigma = self.param(
-            "sigma", self._sigma_initializer, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32
-        )
+        sigma = self.param("sigma", nn.initializers.ones, (n_nuc, self.n_determinants, self.n_orbitals), jnp.float32)
         sigma = nn.softplus(sigma)
         pi = self.param("pi", jnn.initializers.ones, (n_nuc, self.n_determinants * self.n_orbitals), jnp.float32)
         scaled_dists = dists[..., None] * sigma
@@ -63,7 +62,9 @@ class EfficientIsotropicEnvelopes(nn.Module):
     def __call__(self, diffs: ElecNucDifferences) -> jax.Array:
         dists = jnp.linalg.norm(diffs, axis=-1)
         n_nuc = dists.shape[-1]
-        sigma = self.param("sigma", jnn.initializers.ones, (n_nuc, self.n_determinants, self.n_envelopes), jnp.float32)
+        sigma = self.param(
+            "sigma", envelope_sigma_initializer, (n_nuc, self.n_determinants, self.n_envelopes), jnp.float32
+        )
         sigma = nn.softplus(sigma)
         pi = self.param(
             "pi",
