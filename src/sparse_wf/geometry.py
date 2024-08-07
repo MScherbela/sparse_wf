@@ -2,8 +2,6 @@
 import numpy as np
 import json
 import hashlib
-import ase
-import ase.io
 import pathlib
 
 BOHR_IN_ANGSTROM = 0.529177249
@@ -124,13 +122,15 @@ class Geometry:
         return data_dict
 
     def as_ase(self):
+        import ase  # noqa
+
         return ase.Atoms(self.Z, self.R * BOHR_IN_ANGSTROM)
 
     def as_pyscf_molecule(self, basis_set):
         import pyscf.gto
 
         molecule = pyscf.gto.Mole()
-        molecule.atom = [[Z_, tuple(R_)] for R_, Z_ in zip(R, Z)]
+        molecule.atom = [[Z_, tuple(R_)] for R_, Z_ in zip(self.R, self.Z)]
         molecule.unit = "bohr"
         molecule.basis = basis_set
         molecule.cart = True
@@ -166,9 +166,6 @@ def save_geometries(geometries, geom_db_fname=None):
 
 
 if __name__ == "__main__":
-    import ase.visualize
-    import glob
-
     geoms = load_geometries()
     for h, g in geoms.items():
         if "cumulene" in g.comment:

@@ -3,7 +3,7 @@
 #SBATCH -N {(n_gpus-1)//4 + 1}
 #SBATCH -p boost_usr_prod
 #SBATCH --qos normal
-#SBATCH -A l-aut_005
+#SBATCH -A L-AUT_Sch-Hoef
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
 #SBATCH --gres=gpu:{min(n_gpus, 4)}
