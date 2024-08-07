@@ -83,7 +83,7 @@ def main(
     n_el = n_up + n_dn
 
     loggers = MultiLogger(logging_args)
-    loggers.log_config(config | dict(molecule_args=dict(R=R.tolist(), Z=Z.tolist())))
+    loggers.log_config(config | dict(molecule=dict(R=R.tolist(), Z=Z.tolist(), n_el=n_el, n_up=n_up)))
     # initialize distributed training
     if int(os.environ.get("SLURM_NTASKS", 1)) > 1:
         jax.distributed.initialize()
