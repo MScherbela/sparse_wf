@@ -25,7 +25,7 @@ class Envelope(Protocol):
     def init(self, key, diffs: ElecNucDifferences) -> Parameters: ...
 
 
-def envelope_sigma_initializer(key, shape, dtype=jnp.float32, scale_min=0.2, scale_max=5.0):
+def envelope_sigma_initializer(key, shape, dtype=jnp.float32, scale_min=1, scale_max=5.0):
     scale = jnp.geomspace(scale_min, scale_max, shape[-1])
     scale *= jax.random.truncated_normal(key, 0.8, 1.2, shape, dtype)
     scale = jnp.log(jnp.expm1(scale))  # undo softplus
