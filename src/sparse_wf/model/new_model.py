@@ -1,5 +1,5 @@
 import functools
-from typing import Callable, NamedTuple, Optional, Generic, TypeVar, override
+from typing import Callable, NamedTuple, Optional, Generic, TypeVar
 from sparse_wf.static_args import round_with_padding
 
 import flax.linen as nn
@@ -195,7 +195,7 @@ class NrOfNeighbours(NamedTuple, Generic[T]):
 class StaticInputNewModel(Generic[T]):
     n_neighbours: NrOfNeighbours[T]
 
-    @override
+    # @override
     def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
         return StaticInputNewModel(
             NrOfNeighbours(
