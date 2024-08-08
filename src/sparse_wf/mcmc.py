@@ -23,8 +23,8 @@ from sparse_wf.api import (
     WidthSchedulerState,
     MCMCArgs,
     ElectronIdx,
-    MCMCStaticArgs,
     StaticInput,
+    MCMCStats,
 )
 from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
@@ -40,13 +40,13 @@ def mcmc_steps_all_electron(
     key: PRNGKeyArray,
     params: P,
     electrons: Electrons,
-    static: StaticInput[S],
+    static: StaticInput,
     width: Width,
 ):
     n_el = electrons.shape[-2]
 
     def log_prob_fn(electrons: Electrons) -> LogAmplitude:
-        return 2 * logpsi_fn(params, electrons, static.model)
+        return 2 * logpsi_fn(params, electrons, static)
 
     @functools.partial(jax.vmap, in_axes=(None, 0))
     def step_fn(_, carry):
@@ -59,8 +59,7 @@ def mcmc_steps_all_electron(
         new_log_prob = log_prob_fn(new_electrons)
 
         # Track actual static neigbour counts
-        actual_model_static = logpsi_fn.get_static_input(electrons, new_electrons, np.arange(n_el))
-        actual_static = StaticInput(model=actual_model_static, mcmc=MCMCStaticArgs(n_el))
+        actual_static = logpsi_fn.get_static_input(electrons, new_electrons, np.arange(n_el))
         static_mean = tree_add(static_mean, actual_static)
         static_max = tree_maximum(static_max, actual_static)
 
@@ -75,9 +74,7 @@ def mcmc_steps_all_electron(
 
     local_batch_size = electrons.shape[0]
     logprob = jax.vmap(log_prob_fn)(electrons)
-    actual_static = StaticInput(
-        model=jax.vmap(logpsi_fn.get_static_input)(electrons), mcmc=MCMCStaticArgs(max_cluster_size=0)
-    )
+    actual_static = jax.vmap(logpsi_fn.get_static_input)(electrons)
     x0 = (
         jax.random.split(key, local_batch_size),
         electrons,
@@ -87,12 +84,13 @@ def mcmc_steps_all_electron(
         jnp.zeros(local_batch_size, dtype=jnp.int32),
     )
     _, electrons, _, static_mean, static_max, num_accept = lax.fori_loop(0, steps, step_fn, x0)
-    summary_stats = {
-        "mcmc/pmove": pmean_if_pmap(jnp.mean(num_accept) / steps),
-        "static/mean": jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
-        "static/max": jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
-    }
-    return electrons, summary_stats
+    stats = MCMCStats(
+        pmove=pmean_if_pmap(jnp.mean(num_accept) / steps),
+        stepsize=width,
+        static_mean=jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
+        static_max=jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
+    )
+    return electrons, stats
 
 
 def proposal_single_electron(
@@ -158,22 +156,22 @@ def mcmc_steps_low_rank(
     key: PRNGKeyArray,
     params: P,
     electrons: Electrons,
-    static: StaticInput[S],
+    static: StaticInput,
     width: Width,
 ):
     def log_prob_fn(r: Electrons):
-        (_, logpsi), model_state = logpsi_fn.log_psi_with_state(params, r, static.model)
+        (_, logpsi), model_state = logpsi_fn.log_psi_with_state(params, r, static)
         return 2 * logpsi, model_state
 
     def update_log_prob_fn(r: Electrons, idx_changed: ElectronIdx, model_state):
-        (_, logpsi), model_state = logpsi_fn.log_psi_low_rank_update(params, r, idx_changed, static.model, model_state)
+        (_, logpsi), model_state = logpsi_fn.log_psi_low_rank_update(params, r, idx_changed, static, model_state)
         return 2 * logpsi, model_state
 
     logprob, model_state = jax.vmap(log_prob_fn)(electrons)
 
     @functools.partial(jax.vmap, in_axes=(None, 0))
     def step_fn(i, carry):
-        key, electrons, log_prob, model_state, static_mean, static_max, num_accept = carry
+        key, electrons, log_prob, model_state, static_mean, static_max, num_accept, mean_cluster_size = carry
         key, key_propose, key_accept = jax.random.split(key, 3)
 
         # Make proposal
@@ -182,10 +180,7 @@ def mcmc_steps_low_rank(
         )
 
         # Track actual static neigbour counts
-        actual_model_static = logpsi_fn.get_static_input(electrons, proposed_electrons, idx_el_changed)
-        actual_static = StaticInput(
-            model=actual_model_static, mcmc=MCMCStaticArgs(max_cluster_size=actual_cluster_size)
-        )
+        actual_static = logpsi_fn.get_static_input(electrons, proposed_electrons, idx_el_changed)
         static_mean = tree_add(static_mean, actual_static)
         static_max = tree_maximum(static_max, actual_static)
 
@@ -199,10 +194,11 @@ def mcmc_steps_low_rank(
             (electrons, log_prob, model_state),
         )
         num_accept += accept.astype(jnp.int32)
-        return key, electrons, log_prob, model_state, static_mean, static_max, num_accept
+        mean_cluster_size += actual_cluster_size
+        return key, electrons, log_prob, model_state, static_mean, static_max, num_accept, mean_cluster_size
 
     local_batch_size = electrons.shape[0]
-    actual_static = StaticInput(model=logpsi_fn.get_static_input(electrons), mcmc=MCMCStaticArgs(max_cluster_size=0))
+    actual_static = jax.vmap(logpsi_fn.get_static_input)(electrons)
     x0 = (
         jax.random.split(key, local_batch_size),
         electrons,
@@ -211,14 +207,17 @@ def mcmc_steps_low_rank(
         tree_zeros_like(actual_static, jnp.int32, local_batch_size),
         tree_zeros_like(actual_static, jnp.int32, local_batch_size),
         jnp.zeros(local_batch_size, dtype=jnp.int32),
+        jnp.zeros(local_batch_size, dtype=jnp.int32),
     )
-    _, electrons, _, _, static_mean, static_max, num_accept = lax.fori_loop(0, steps, step_fn, x0)
-    summary_stats = {
-        "mcmc/pmove": pmean_if_pmap(jnp.mean(num_accept) / steps),
-        "static/mean": jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
-        "static/max": jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
-    }
-    return electrons, summary_stats
+    _, electrons, _, _, static_mean, static_max, num_accept, mean_cluster_size = lax.fori_loop(0, steps, step_fn, x0)
+    stats = MCMCStats(
+        pmove=pmean_if_pmap(jnp.mean(num_accept) / steps),
+        stepsize=width,
+        static_mean=jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
+        static_max=jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
+        mean_cluster_size=pmean_if_pmap(jnp.mean(mean_cluster_size) / steps),
+    )
+    return electrons, stats
 
 
 def make_mcmc(

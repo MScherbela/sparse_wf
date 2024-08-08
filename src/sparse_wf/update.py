@@ -96,43 +96,44 @@ def make_trainer(
         )
 
     @pmap(static_broadcasted_argnums=(1, 2))
-    def sampling_step(state: TrainingState[P, SS], static: StaticInput[S], compute_energy: bool):
+    def sampling_step(state: TrainingState[P, SS], static: StaticInput, compute_energy: bool):
         key, subkey = jax.random.split(state.key)
         electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
-        width_state = width_scheduler.update(state.width_state, stats["mcmc/pmove"])
+        width_state = width_scheduler.update(state.width_state, stats.pmove)
         state = state.replace(key=key, electrons=electrons, width_state=width_state)
-        aux_data = {"mcmc/stepsize": state.width_state.width} | stats
+        aux_data = {}
         if compute_energy:
             E_loc = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
-                state.params, electrons, static.model
+                state.params,
+                electrons,
             )
             E_mean = pmean(E_loc.mean())
             E_std = pmean(((E_loc - E_mean) ** 2).mean()) ** 0.5
             aux_data["eval/E"] = E_mean
             aux_data["eval/E_std"] = E_std
-        return state, aux_data
+        return state, aux_data, stats
 
     @pmap(static_broadcasted_argnums=1)
-    def step(state: TrainingState[P, SS], static: StaticInput[S]):
+    def step(state: TrainingState[P, SS], static: StaticInput):
         key, subkey = jax.random.split(state.key)
         electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
-        width_state = width_scheduler.update(state.width_state, stats["mcmc/pmove"])
+        width_state = width_scheduler.update(state.width_state, stats.pmove)
         energy = batched_vmap(energy_fn, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
-            state.params, electrons, static.model
+            state.params, electrons, static
         )
         energy_diff = local_energy_diff(energy, **clipping_args)
 
         E_mean = pmean(energy.mean())
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
-        aux_data = {"opt/E": E_mean, "opt/E_std": E_std, "mcmc/stepsize": state.width_state.width} | stats
+        aux_data = {"opt/E": E_mean, "opt/E_std": E_std}
 
-        spin_op_value, spin_grad, spin_state = spin_operator(state.params, electrons, static.model, state.spin_state)
+        spin_op_value, spin_grad, spin_state = spin_operator(state.params, electrons, static, state.spin_state)
         aux_data["opt/S"] = spin_op_value
 
         natgrad, precond_state, preconditioner_aux = preconditioner.precondition(
             state.params,
             electrons,
-            static.model,
+            static,
             energy_diff,
             spin_grad,
             state.opt_state.natgrad,
@@ -155,6 +156,7 @@ def make_trainer(
             ),
             energy,
             aux_data,
+            stats,
         )
 
     return Trainer(

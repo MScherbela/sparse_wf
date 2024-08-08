@@ -1,12 +1,12 @@
 import functools
-from typing import Callable, NamedTuple, Optional, Generic, TypeVar
+from typing import Callable, NamedTuple, Optional, Generic, TypeVar, override
 from sparse_wf.static_args import round_with_padding
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from flax.struct import PyTreeNode
+from flax import struct
 from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float, Integer
 
@@ -191,9 +191,11 @@ class NrOfNeighbours(NamedTuple, Generic[T]):
     en: T
 
 
-class StaticInputNewModel(NamedTuple, Generic[T]):
+@struct.dataclass
+class StaticInputNewModel(Generic[T]):
     n_neighbours: NrOfNeighbours[T]
 
+    @override
     def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
         return StaticInputNewModel(
             NrOfNeighbours(
@@ -202,14 +204,8 @@ class StaticInputNewModel(NamedTuple, Generic[T]):
             )
         )
 
-    def to_log_data(self):
-        return {
-            "static/n_nb_ee": self.n_neighbours.ee,
-            "static/n_nb_en": self.n_neighbours.en,
-        }
 
-
-class NewEmbedding(PyTreeNode, Embedding[EmbeddingParams, StaticInputNewModel, EmbeddingState]):
+class NewEmbedding(struct.PyTreeNode, Embedding[EmbeddingParams, StaticInputNewModel, EmbeddingState]):
     # Molecule
     R: Nuclei
     Z: Charges

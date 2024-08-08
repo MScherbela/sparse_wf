@@ -3,6 +3,8 @@ from enum import Enum
 from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar, overload
 import jax
 import jax.tree_util as jtu
+import jax.numpy as jnp
+from sparse_wf.tree_utils import tree_to_flat_dict
 import numpy as np
 import optax
 from flax import struct
@@ -147,9 +149,45 @@ class ParameterizedWaveFunction(Protocol[P, S, MS]):
     ) -> tuple[SignedLogAmplitude, MS]: ...
 
 
+# TODO: For some reason PyTreeNode and Generics don't work together
+# Seems a bit ugly to use to PyTreeNodes for some stuff and dataclasses for others, but here we go...
+@struct.dataclass
+class StaticInput:
+    def to_log_data(self, prefix="static/") -> dict:
+        data = jtu.tree_map(lambda x: x if isinstance(x, (int, float)) else float(np.mean(x)), self)
+        return tree_to_flat_dict(data, prefix)
+
+    def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
+        return jax.tree_map(lambda x: x * padding_factor, self)
+
+    def to_static(self):
+        return jtu.tree_map(lambda x: int(jnp.max(x)), self)
+
+
 ############################################################################
 # MCMC
 ############################################################################
+
+
+class MCMCStats(NamedTuple):
+    pmove: jax.Array
+    stepsize: jax.Array
+    static_mean: StaticInput
+    static_max: StaticInput
+    mean_cluster_size: Optional[jax.Array] = None
+
+    def to_log_data(self) -> dict[str, float]:
+        log_data = {
+            "mcmc/pmove": float(jnp.mean(self.pmove)),
+            "mcmc/stepsize": float(jnp.mean(self.stepsize)),
+        }
+        if self.mean_cluster_size is not None:
+            log_data["mcmc/mean_cluster_size"] = float(jnp.mean(self.mean_cluster_size))
+        log_data = log_data | self.static_mean.to_log_data("static/mean.")
+        log_data = log_data | self.static_max.to_log_data("static/max.")
+        return log_data
+
+
 class ClosedLogLikelihood(Protocol):
     def __call__(self, electrons: Electrons) -> LogAmplitude: ...
 
@@ -157,7 +195,7 @@ class ClosedLogLikelihood(Protocol):
 class MCStep(Protocol[P_contra, S_contra]):
     def __call__(
         self, key: PRNGKeyArray, params: P_contra, electrons: Electrons, static: S_contra, width: Width
-    ) -> tuple[Electrons, dict]: ...
+    ) -> tuple[Electrons, MCMCStats]: ...
 
 
 class WidthSchedulerState(NamedTuple):
@@ -281,13 +319,13 @@ class VMCStepFn(Protocol[P, S_contra, SS]):
         self,
         state: TrainingState[P, SS],
         static: S_contra,
-    ) -> tuple[TrainingState[P, SS], LocalEnergy, AuxData]: ...
+    ) -> tuple[TrainingState[P, SS], LocalEnergy, AuxData, MCMCStats]: ...
 
 
 class SamplingStepFn(Protocol[P, S_contra, SS]):
     def __call__(
         self, state: TrainingState[P, SS], static: S_contra, compute_energy: bool
-    ) -> tuple[TrainingState[P, SS], AuxData]: ...
+    ) -> tuple[TrainingState[P, SS], AuxData, MCMCStats]: ...
 
 
 class InitTrainState(Protocol[P, SS]):
@@ -341,7 +379,9 @@ class InitPretrainState(Protocol[P, SS]):
 
 
 class UpdatePretrainFn(Protocol[P, S_contra, SS]):
-    def __call__(self, state: PretrainState[P, SS], static: S_contra) -> tuple[PretrainState[P, SS], AuxData]: ...
+    def __call__(
+        self, state: PretrainState[P, SS], static: S_contra
+    ) -> tuple[PretrainState[P, SS], AuxData, MCMCStats]: ...
 
 
 class Pretrainer(NamedTuple, Generic[P, S, SS]):
@@ -586,14 +626,3 @@ class MoleculeArgs(TypedDict):
 
 class MCMCStaticArgs(NamedTuple):
     max_cluster_size: int
-
-
-class StaticInput(NamedTuple, Generic[S]):
-    model: S
-    mcmc: MCMCStaticArgs
-
-    def to_log_data(self):
-        return {"mcmc/max_cluster_size": self.mcmc.max_cluster_size, **self.model.to_log_data()}
-
-    def to_int(self) -> "StaticInput[int]":
-        return jtu.tree_map(int, self)

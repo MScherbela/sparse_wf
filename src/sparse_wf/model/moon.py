@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import jax.tree_util as jtu
 from flax.struct import PyTreeNode
+import flax.struct
 from jaxtyping import Array, Float, Integer
 
 from folx.api import FwdLaplArray
@@ -21,6 +22,7 @@ from sparse_wf.api import (
     Parameters,
     Spins,
     Embedding,
+    StaticInput,
 )
 from sparse_wf.jax_utils import fwd_lap, jit, nn_vmap
 from sparse_wf.static_args import round_with_padding
@@ -79,21 +81,11 @@ class NrOfChanges(NamedTuple, Generic[T]):
     out: T
 
 
-class StaticInputMoon(NamedTuple, Generic[T]):
+@flax.struct.dataclass
+class StaticInputMoon(StaticInput, Generic[T]):
     n_deps: NrOfDependencies[T]
     n_neighbours: NrOfNeighbours[T]
     n_changes: NrOfChanges[T]
-
-    def to_log_data(self):
-        return {
-            "static/n_nb_en": self.n_neighbours.en,
-            "static/n_nb_ee": self.n_neighbours.ee,
-            "static/n_nb_ne": self.n_neighbours.ne,
-            "static/n_nb_en_1el": self.n_neighbours.en_1el,
-            "static/n_deps_h0": self.n_deps.h_el_initial,
-            "static/n_deps_H": self.n_deps.H_nuc,
-            "static/n_deps_hout": self.n_deps.h_el_out,
-        }
 
     def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
         n_neighbours = NrOfNeighbours(

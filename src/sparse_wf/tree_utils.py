@@ -89,3 +89,13 @@ def tree_maximum(tree1, tree2):
 
 def tree_zeros_like(tree, dtype=None, shape=None):
     return jtu.tree_map(lambda x: jnp.zeros_like(x, dtype, shape), tree)
+
+
+def tree_to_flat_dict(tree: PyTree, prefix: str) -> dict:
+    out_dict = {}
+    for key, v in jtu.tree_leaves_with_path(tree):
+        key_string = "".join([str(k) for k in key])
+        if key_string[0] == ".":
+            key_string = key_string[1:]
+        out_dict[prefix + key_string] = v
+    return out_dict
