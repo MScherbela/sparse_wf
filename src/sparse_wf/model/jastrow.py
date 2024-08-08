@@ -56,6 +56,15 @@ class ElElCusp(nn.Module):
         return factor_same * cusp_same + factor_diff * cusp_diff
 
 
+def get_all_pair_indices(n_el: int, n_up: int):
+    idx_grids = np.meshgrid(np.arange(n_el), np.arange(n_el), indexing="ij")
+    spin = np.concatenate([np.zeros(n_up, dtype=int), np.ones(n_el - n_up, dtype=int)])
+    indices = np.stack([idx.flatten() for idx in idx_grids], axis=0)
+    indices = indices[:, indices[0] != indices[1]]
+    is_same = spin[indices[0]] == spin[indices[1]]
+    return indices[:, is_same], indices[:, ~is_same]
+
+
 class Jastrow(nn.Module):
     n_up: int
     e_e_cusps: Literal["none", "psiformer", "yukawa"]
@@ -88,22 +97,22 @@ class Jastrow(nn.Module):
             self.mlp = None
 
         if self.use_e_e_mlp:
-            self.e_e_mlp = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False, output_bias=False)
-            self.e_e_mlp_scale = self.param("e_e_mlp_scale", nn.initializers.zeros, (), jnp.float32)
+            self.e_e_mlp_same = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False, output_bias=False)
+            self.e_e_mlp_diff = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False, output_bias=False)
+            self.e_e_mlp_scale_same = self.param("e_e_mlp_scale_same", nn.initializers.zeros, (), jnp.float32)
+            self.e_e_mlp_scale_diff = self.param("e_e_mlp_scale_diff", nn.initializers.zeros, (), jnp.float32)
         else:
             self.e_e_mlp = None
 
     def _apply_pairwise_mlp(self, electrons: Electrons) -> jax.Array:
         n_el = electrons.shape[-2]
-        idx_ct, idx_nb = np.meshgrid(np.arange(n_el), np.arange(n_el), indexing="ij")
-        idx_ct, idx_nb = idx_ct.flatten(), idx_nb.flatten()
-        include = idx_ct < idx_nb
-        idx_ct, idx_nb = idx_ct[include], idx_nb[include]
+        (idx_ct_same, idx_nb_same), (idx_ct_diff, idx_nb_diff) = get_all_pair_indices(n_el, self.n_up)
 
-        logpsi = jax.vmap(lambda r1, r2: self.e_e_mlp(get_logscaled_diff_features(r1 - r2)))(
-            electrons[idx_nb], electrons[idx_ct]
-        )
-        return jnp.sum(logpsi) * self.e_e_mlp_scale
+        features_same = get_logscaled_diff_features(electrons[idx_ct_same] - electrons[idx_nb_same])
+        features_diff = get_logscaled_diff_features(electrons[idx_ct_diff] - electrons[idx_nb_diff])
+        logpsi_same = self.e_e_mlp_same(features_same)
+        logpsi_diff = self.e_e_mlp_diff(features_diff)
+        return jnp.sum(logpsi_same) * self.e_e_mlp_scale_same + jnp.sum(logpsi_diff) * self.e_e_mlp_scale_diff
 
     def __call__(
         self,
