@@ -8,7 +8,6 @@ if socket.gethostname() == "gpu1-mat":
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
-
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -17,7 +16,6 @@ import pytest
 from jax import config as jax_config
 from sparse_wf.mcmc import init_electrons
 from sparse_wf.model.utils import get_relative_tolerance
-from sparse_wf.static_args import to_static
 
 from utils import build_atom_chain, build_model, change_float_dtype
 
@@ -36,7 +34,7 @@ def setup_inputs(dtype, embedding):
     n_el = electrons.shape[-2]
     params = model.init(rng_params, electrons)
     params, electrons = jtu.tree_map(lambda x: change_float_dtype(x, dtype), (params, electrons))
-    static_args = to_static(model.get_static_input(electrons, electrons, np.arange(n_el)))
+    static_args = model.get_static_input(electrons, electrons, np.arange(n_el)).to_static()
     return model, electrons, params, static_args
 
 
@@ -54,7 +52,7 @@ def test_low_rank_update_logpsi(dtype, embedding):
         idx_changed = np.array([3])
         dr = np.array([2, 0, 0]).astype(dtype)
         electrons_new = electrons.at[idx_changed].add(dr)
-        static_args = to_static(model.get_static_input(electrons, electrons_new, idx_changed))
+        static_args = model.get_static_input(electrons, electrons_new, idx_changed).to_static()
 
         (_, logpsi_new), state_new = model.log_psi_with_state(params, electrons_new, static_args)
         (_, logpsi_new_update), state_new_update = model.log_psi_low_rank_update(

@@ -23,8 +23,8 @@ from sparse_wf.api import (
     WidthSchedulerState,
     MCMCArgs,
     ElectronIdx,
-    MCMCStaticArgs,
     StaticInput,
+    MCMCStats,
 )
 from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
@@ -40,13 +40,13 @@ def mcmc_steps_all_electron(
     key: PRNGKeyArray,
     params: P,
     electrons: Electrons,
-    static: StaticInput[S],
+    static: StaticInput,
     width: Width,
 ):
     n_el = electrons.shape[-2]
 
     def log_prob_fn(electrons: Electrons) -> LogAmplitude:
-        return 2 * logpsi_fn(params, electrons, static.model)
+        return 2 * logpsi_fn(params, electrons, static)
 
     @functools.partial(jax.vmap, in_axes=(None, 0))
     def step_fn(_, carry):
@@ -59,8 +59,7 @@ def mcmc_steps_all_electron(
         new_log_prob = log_prob_fn(new_electrons)
 
         # Track actual static neigbour counts
-        actual_model_static = logpsi_fn.get_static_input(electrons, new_electrons, np.arange(n_el))
-        actual_static = StaticInput(model=actual_model_static, mcmc=MCMCStaticArgs(n_el))
+        actual_static = logpsi_fn.get_static_input(electrons, new_electrons, np.arange(n_el))
         static_mean = tree_add(static_mean, actual_static)
         static_max = tree_maximum(static_max, actual_static)
 
@@ -75,9 +74,7 @@ def mcmc_steps_all_electron(
 
     local_batch_size = electrons.shape[0]
     logprob = jax.vmap(log_prob_fn)(electrons)
-    actual_static = StaticInput(
-        model=jax.vmap(logpsi_fn.get_static_input)(electrons), mcmc=MCMCStaticArgs(max_cluster_size=0)
-    )
+    actual_static = jax.vmap(logpsi_fn.get_static_input)(electrons)
     x0 = (
         jax.random.split(key, local_batch_size),
         electrons,
@@ -87,16 +84,17 @@ def mcmc_steps_all_electron(
         jnp.zeros(local_batch_size, dtype=jnp.int32),
     )
     _, electrons, _, static_mean, static_max, num_accept = lax.fori_loop(0, steps, step_fn, x0)
-    summary_stats = {
-        "mcmc/pmove": pmean_if_pmap(jnp.mean(num_accept) / steps),
-        "static/mean": jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
-        "static/max": jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
-    }
-    return electrons, summary_stats
+    stats = MCMCStats(
+        pmove=pmean_if_pmap(jnp.mean(num_accept) / steps),
+        stepsize=width,
+        static_mean=jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
+        static_max=jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
+    )
+    return electrons, stats
 
 
 def proposal_single_electron(
-    idx_step: int, key: PRNGKeyArray, electrons: Electrons, width: Width, max_cluster_size: int = 1
+    idx_step: int, key: PRNGKeyArray, electrons: Electrons, width: Width
 ) -> tuple[Electrons, ElectronIdx, jax.Array, Int]:
     # key_select, key_propose = jax.random.split(key)
     n_el = electrons.shape[-2]
@@ -109,39 +107,45 @@ def proposal_single_electron(
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
 
 
-def _cluster_inclusion_logprob(dist, cluster_radius):
-    return -((dist / cluster_radius) ** 2)
+def _get_closest_k(dist, dist_max, k):
+    neg_d, idx = jax.lax.top_k(-dist, k=k)
+    idx = jnp.where(neg_d >= -dist_max, idx, NO_NEIGHBOUR)
+    return idx
+
+
+def _is_same_set(idx_a, idx_b):
+    return jnp.all(jnp.sort(idx_a) == jnp.sort(idx_b))
 
 
 def proposal_cluster_update(
-    R: Nuclei,
-    cluster_radius: float,
+    max_cluster_size: int,
+    max_cluster_radius: float,
     idx_step: int,
     key: PRNGKeyArray,
     electrons: Electrons,
     width: Width,
-    max_cluster_size: int,
 ) -> tuple[Electrons, ElectronIdx, jax.Array, Int]:
     dtype = electrons.dtype
     n_el = electrons.shape[-2]
     idx_center = idx_step % n_el
 
-    rng_select, rng_move = jax.random.split(key)
     dist_before_move = jnp.linalg.norm(electrons - electrons[idx_center], axis=-1)
-    log_p_select1 = _cluster_inclusion_logprob(dist_before_move, cluster_radius)
-    log_p_notselect1 = jnp.log(-jnp.expm1(log_p_select1))
+    idx_el_changed = _get_closest_k(dist_before_move, max_cluster_radius, max_cluster_size)
+    actual_cluster_size = jnp.sum(idx_el_changed != NO_NEIGHBOUR).astype(jnp.int32)
 
-    do_move = log_p_select1 >= jnp.log(jax.random.uniform(rng_select, (n_el,), dtype))
-    idx_el_changed = jnp.nonzero(do_move, fill_value=NO_NEIGHBOUR, size=max_cluster_size)[0]
-    dr = jax.random.normal(rng_move, (max_cluster_size, 3), dtype) * width
-    proposed_electrons = electrons.at[idx_el_changed].add(dr, mode="drop")
+    def _propose(rng):
+        dr = jax.random.normal(rng, (max_cluster_size, 3), dtype) * width
+        r_proposed = electrons.at[idx_el_changed].add(dr, mode="drop")
+        dist_after_move = jnp.linalg.norm(r_proposed - r_proposed[idx_center], axis=-1)
+        idx_el_changed_reverse = _get_closest_k(dist_after_move, max_cluster_radius, max_cluster_size)
+        is_valid = _is_same_set(idx_el_changed, idx_el_changed_reverse)
+        return r_proposed, is_valid.astype(jnp.float32)
 
-    dist_after_move = jnp.linalg.norm(proposed_electrons - proposed_electrons[idx_center], axis=-1)
-    log_p_select2 = _cluster_inclusion_logprob(dist_after_move, cluster_radius)
-    log_p_notselect2 = jnp.log(-jnp.expm1(log_p_select2))
-    proposal_log_ratio = jnp.where(do_move, log_p_select2 - log_p_select1, log_p_notselect2 - log_p_notselect1)
-    proposal_log_ratio = jnp.sum(proposal_log_ratio)
-    actual_cluster_size = jnp.sum(do_move).astype(jnp.int32)
+    n_trials = 5
+    proposed_electrons, is_valid = jax.vmap(_propose)(jax.random.split(key, n_trials))
+    idx_trial = jnp.argmax(is_valid)
+    proposed_electrons = proposed_electrons[idx_trial]
+    proposal_log_ratio = jnp.log(is_valid[idx_trial])
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
 
 
@@ -152,34 +156,31 @@ def mcmc_steps_low_rank(
     key: PRNGKeyArray,
     params: P,
     electrons: Electrons,
-    static: StaticInput[S],
+    static: StaticInput,
     width: Width,
 ):
     def log_prob_fn(r: Electrons):
-        (_, logpsi), model_state = logpsi_fn.log_psi_with_state(params, r, static.model)
+        (_, logpsi), model_state = logpsi_fn.log_psi_with_state(params, r, static)
         return 2 * logpsi, model_state
 
     def update_log_prob_fn(r: Electrons, idx_changed: ElectronIdx, model_state):
-        (_, logpsi), model_state = logpsi_fn.log_psi_low_rank_update(params, r, idx_changed, static.model, model_state)
+        (_, logpsi), model_state = logpsi_fn.log_psi_low_rank_update(params, r, idx_changed, static, model_state)
         return 2 * logpsi, model_state
 
     logprob, model_state = jax.vmap(log_prob_fn)(electrons)
 
     @functools.partial(jax.vmap, in_axes=(None, 0))
     def step_fn(i, carry):
-        key, electrons, log_prob, model_state, static_mean, static_max, num_accept = carry
+        key, electrons, log_prob, model_state, static_mean, static_max, num_accept, mean_cluster_size = carry
         key, key_propose, key_accept = jax.random.split(key, 3)
 
         # Make proposal
         proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size = proposal_fn(
-            i, key_propose, electrons, width, static.mcmc.max_cluster_size
+            i, key_propose, electrons, width
         )
 
         # Track actual static neigbour counts
-        actual_model_static = logpsi_fn.get_static_input(electrons, proposed_electrons, idx_el_changed)
-        actual_static = StaticInput(
-            model=actual_model_static, mcmc=MCMCStaticArgs(max_cluster_size=actual_cluster_size)
-        )
+        actual_static = logpsi_fn.get_static_input(electrons, proposed_electrons, idx_el_changed)
         static_mean = tree_add(static_mean, actual_static)
         static_max = tree_maximum(static_max, actual_static)
 
@@ -193,10 +194,11 @@ def mcmc_steps_low_rank(
             (electrons, log_prob, model_state),
         )
         num_accept += accept.astype(jnp.int32)
-        return key, electrons, log_prob, model_state, static_mean, static_max, num_accept
+        mean_cluster_size += actual_cluster_size
+        return key, electrons, log_prob, model_state, static_mean, static_max, num_accept, mean_cluster_size
 
     local_batch_size = electrons.shape[0]
-    actual_static = StaticInput(model=logpsi_fn.get_static_input(electrons), mcmc=MCMCStaticArgs(max_cluster_size=0))
+    actual_static = jax.vmap(logpsi_fn.get_static_input)(electrons)
     x0 = (
         jax.random.split(key, local_batch_size),
         electrons,
@@ -205,14 +207,17 @@ def mcmc_steps_low_rank(
         tree_zeros_like(actual_static, jnp.int32, local_batch_size),
         tree_zeros_like(actual_static, jnp.int32, local_batch_size),
         jnp.zeros(local_batch_size, dtype=jnp.int32),
+        jnp.zeros(local_batch_size, dtype=jnp.int32),
     )
-    _, electrons, _, _, static_mean, static_max, num_accept = lax.fori_loop(0, steps, step_fn, x0)
-    summary_stats = {
-        "mcmc/pmove": pmean_if_pmap(jnp.mean(num_accept) / steps),
-        "static/mean": jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
-        "static/max": jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
-    }
-    return electrons, summary_stats
+    _, electrons, _, _, static_mean, static_max, num_accept, mean_cluster_size = lax.fori_loop(0, steps, step_fn, x0)
+    stats = MCMCStats(
+        pmove=pmean_if_pmap(jnp.mean(num_accept) / steps),
+        stepsize=width,
+        static_mean=jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
+        static_max=jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
+        mean_cluster_size=pmean_if_pmap(jnp.mean(mean_cluster_size) / steps),
+    )
+    return electrons, stats
 
 
 def make_mcmc(
@@ -232,8 +237,9 @@ def make_mcmc(
             steps = proposal_args["sweeps"] * n_el
             mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, proposal_single_electron, steps)
         case "cluster-update":
-            cluster_radius = proposal_args["cluster_radius"]
-            proposal_fn = functools.partial(proposal_cluster_update, jnp.array(R, jnp.float32), cluster_radius)
+            proposal_fn = functools.partial(
+                proposal_cluster_update, proposal_args["max_cluster_size"], proposal_args["max_cluster_radius"]
+            )
             steps = proposal_args["sweeps"] * n_el
             mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, proposal_fn, steps)
         case _:

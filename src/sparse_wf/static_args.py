@@ -1,14 +1,9 @@
-from sparse_wf.api import Int, StaticInput
+from sparse_wf.api import StaticInput
 from sparse_wf.tree_utils import tree_zeros_like
 from typing import Optional
-import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-
-
-def to_static(static: StaticInput[jax.Array]) -> StaticInput[int]:
-    return jtu.tree_map(lambda x: int(jnp.max(x)), static)
 
 
 def round_with_padding(n, padding_factor, max_val):
@@ -25,13 +20,13 @@ class StaticScheduler:
     ):
         self.step = 0
         self.history_length = history_length
-        self.history: Optional[StaticInput[np.array]] = None
+        self.history: Optional[StaticInput] = None
         self.n_electrons = n_electrons
         self.n_up = n_up
         self.n_nuclei = n_nuclei
         self.padding_factor = padding_factor
 
-    def __call__(self, actual_static: StaticInput[Int]) -> StaticInput[int]:
+    def __call__(self, actual_static: StaticInput) -> StaticInput:
         if self.history is None:
             self.history = tree_zeros_like(actual_static, jnp.int32, self.history_length)
         self.history = jtu.tree_map(
@@ -39,9 +34,5 @@ class StaticScheduler:
         )
         self.step = (self.step + 1) % self.history_length
         static = jtu.tree_map(lambda x: int(jnp.max(x)), self.history)
-        static = StaticInput(
-            mcmc=jax.tree_map(lambda n: round_with_padding(n, self.padding_factor, self.n_electrons), static.mcmc),
-            model=static.model.round_with_padding(self.padding_factor, self.n_electrons, self.n_up, self.n_nuclei),
-        )
-
+        static = static.round_with_padding(self.padding_factor, self.n_electrons, self.n_up, self.n_nuclei)
         return static

@@ -18,12 +18,11 @@ from sparse_wf.api import (
     PretrainingArgs,
     EvaluationArgs,
     MCMCArgs,
-    StaticInput,
 )
 from sparse_wf.static_args import StaticScheduler
 from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, pmax, get_from_main_process
 from sparse_wf.loggers import MultiLogger
-from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler, MCMCStaticArgs
+from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 
 # from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
@@ -78,11 +77,12 @@ def main(
 
     mol = get_molecule(molecule_args)
     R = np.array(mol.atom_coords())
+    Z = np.array(mol.atom_charges())
     n_up, n_dn = mol.nelec
     n_el = n_up + n_dn
 
     loggers = MultiLogger(logging_args)
-    loggers.log_config(config)
+    loggers.log_config(config | dict(molecule=dict(R=R.tolist(), Z=Z.tolist(), n_el=n_el, n_up=n_up)))
     # initialize distributed training
     if int(os.environ.get("SLURM_NTASKS", 1)) > 1:
         jax.distributed.initialize()
@@ -156,13 +156,16 @@ def main(
     )
     state = pretrainer.init(state)
     model_static = pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons)
-    static = static_scheduler(StaticInput(model_static, MCMCStaticArgs(1)))
+    static = static_scheduler(model_static)
 
     logging.info("Pretraining")
     for step in range(pretraining["steps"]):
-        state, aux_data = pretrainer.step(state, static)
-        static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data | static.to_log_data())
+        t0 = time.perf_counter()
+        state, aux_data, mcmc_stats = pretrainer.step(state, static)
+        static = static_scheduler(mcmc_stats.static_max)
+        log_data = to_log_data(aux_data) | mcmc_stats.to_log_data() | static.to_log_data("static/padded.")
+        t1 = time.perf_counter()
+        log_data["pretrain/t_step"] = t1 - t0
         log_data["pretrain/step"] = step
         loggers.log(log_data)
         if np.isnan(log_data["pretrain/loss"]):
@@ -173,17 +176,17 @@ def main(
 
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
-        state, aux_data = trainer.sampling_step(state, static, False)
-        static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data | static.to_log_data())
+        state, aux_data, mcmc_stats = trainer.sampling_step(state, static, False)
+        static = static_scheduler(mcmc_stats.static_max)
+        log_data = to_log_data(aux_data) | mcmc_stats.to_log_data() | static.to_log_data("static/padded.")
         loggers.log(log_data)
 
     logging.info("Training")
     for opt_step in range(optimization["steps"]):
         t0 = time.perf_counter()
-        state, _, aux_data = trainer.step(state, static)
-        static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data | static.to_log_data())
+        state, _, aux_data, mcmc_stats = trainer.step(state, static)
+        static = static_scheduler(mcmc_stats.static_max)
+        log_data = to_log_data(aux_data) | mcmc_stats.to_log_data() | static.to_log_data("static/padded.")
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0
         log_data["opt/step"] = opt_step
@@ -198,9 +201,9 @@ def main(
     logging.info("Evaluation")
     for eval_step in range(evaluation["steps"]):
         t0 = time.perf_counter()
-        state, aux_data = trainer.sampling_step(state, static, evaluation["compute_energy"])
-        static = static_scheduler(aux_data["static/max"])  # type: ignore
-        log_data = to_log_data(aux_data | static.to_log_data())
+        state, aux_data, mcmc_stats = trainer.sampling_step(state, static, evaluation["compute_energy"])
+        static = static_scheduler(mcmc_stats.static_max)
+        log_data = to_log_data(aux_data) | mcmc_stats.to_log_data() | static.to_log_data("static/padded.")
         t1 = time.perf_counter()
         log_data["eval/t_step"] = t1 - t0
         log_data["eval/step"] = eval_step

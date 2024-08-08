@@ -155,4 +155,5 @@ mcmc_args:
   cluster_update_args:
     sweeps: 1
     init_width: 0.2
-    cluster_radius: 2.0
+    max_cluster_radius: 2.0
+    max_cluster_size: 5
