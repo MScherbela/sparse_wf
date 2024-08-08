@@ -102,7 +102,7 @@ class Jastrow(nn.Module):
             self.e_e_mlp_scale_same = self.param("e_e_mlp_scale_same", nn.initializers.zeros, (), jnp.float32)
             self.e_e_mlp_scale_diff = self.param("e_e_mlp_scale_diff", nn.initializers.zeros, (), jnp.float32)
         else:
-            self.e_e_mlp = None
+            self.e_e_mlp_same, self.e_e_mlp_diff = None, None
 
     def _apply_pairwise_mlp(self, electrons: Electrons) -> jax.Array:
         n_el = electrons.shape[-2]
@@ -124,7 +124,7 @@ class Jastrow(nn.Module):
         logpsi = jnp.zeros([], electrons.dtype)
         if self.pairwise_cusps:
             logpsi += self.pairwise_cusps(electrons)
-        if self.e_e_mlp:
+        if self.use_e_e_mlp:
             logpsi += self._apply_pairwise_mlp(electrons)
         if self.mlp:
             jastrows_before_sum = self._apply_mlp(embeddings)
