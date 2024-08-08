@@ -46,7 +46,9 @@ class ElElCusp(nn.Module):
 
         alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
         alpha_diff = self.param("alpha_diff", nn.initializers.ones, (), jnp.float32)
-        factor_same, factor_diff = -0.25, -0.5
+        factor_same = self.param("factor_same", nn.initializers.zeros, (), jnp.float32)
+        factor_diff = self.param("factor_diff", nn.initializers.zeros, (), jnp.float32)
+        # factor_same, factor_diff = -0.25, -0.5
 
         cusp_same = jnp.sum(alpha_same**2 / (alpha_same + dist_same), axis=-1)
         cusp_diff = jnp.sum(alpha_diff**2 / (alpha_diff + dist_diff), axis=-1)
@@ -86,7 +88,8 @@ class Jastrow(nn.Module):
             self.mlp = None
 
         if self.use_e_e_mlp:
-            self.e_e_mlp = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False)
+            self.e_e_mlp = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False, output_bias=False)
+            self.e_e_mlp_scale = self.param("e_e_mlp_scale", nn.initializers.zeros, (), jnp.float32)
         else:
             self.e_e_mlp = None
 
@@ -100,7 +103,7 @@ class Jastrow(nn.Module):
         logpsi = jax.vmap(lambda r1, r2: self.e_e_mlp(get_logscaled_diff_features(r1 - r2)))(
             electrons[idx_nb], electrons[idx_ct]
         )
-        return jnp.sum(logpsi)
+        return jnp.sum(logpsi) * self.e_e_mlp_scale
 
     def __call__(
         self,
