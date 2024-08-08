@@ -451,6 +451,12 @@ def get_diff_features(
 get_diff_features_vmapped = jax.vmap(get_diff_features, in_axes=(None, 0, None, 0))
 
 
+def get_logscaled_diff_features(diff):
+    dist = jnp.linalg.norm(diff, axis=-1, keepdims=True)
+    diff = diff * (jnp.log1p(dist) / dist)
+    return jnp.concatenate([jnp.log1p(dist), diff], axis=-1)
+
+
 def normalize(x, scale: ScalingParam | None, return_scale=False):
     if scale is None:
         scale = 1.0 / jnp.std(x)

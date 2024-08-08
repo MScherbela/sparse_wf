@@ -44,6 +44,7 @@ model_args:
       low_rank_buffer: 2
   jastrow:
     e_e_cusps: psiformer
+    use_e_e_mlp: False
     use_log_jastrow: True
     use_mlp_jastrow: True
     mlp_depth: 2

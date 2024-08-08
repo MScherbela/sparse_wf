@@ -433,6 +433,7 @@ class EmbeddingArgs(TypedDict):
 
 class JastrowArgs(TypedDict):
     e_e_cusps: Literal["none", "psiformer", "yukawa"]
+    use_e_e_mlp: bool
     use_log_jastrow: bool
     use_mlp_jastrow: bool
     mlp_depth: int

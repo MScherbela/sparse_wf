@@ -10,10 +10,11 @@ from jaxtyping import Array, Float
 from sparse_wf.api import ElectronIdx, Electrons, SignedLogAmplitude
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.model.graph_utils import pad_jacobian_to_dense
-from sparse_wf.model.utils import MLP, get_dist_same_diff
+from sparse_wf.model.utils import MLP, get_dist_same_diff, get_logscaled_diff_features
 from sparse_wf.model.sparse_fwd_lap import SparseMLP
 from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap
+import numpy as np
 
 JastrowState: TypeAlias = jax.Array
 
@@ -56,6 +57,7 @@ class ElElCusp(nn.Module):
 class Jastrow(nn.Module):
     n_up: int
     e_e_cusps: Literal["none", "psiformer", "yukawa"]
+    use_e_e_mlp: bool
     use_log_jastrow: bool
     use_mlp_jastrow: bool
     mlp_depth: int
@@ -83,6 +85,23 @@ class Jastrow(nn.Module):
         else:
             self.mlp = None
 
+        if self.use_e_e_mlp:
+            self.e_e_mlp = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False)
+        else:
+            self.e_e_mlp = None
+
+    def _apply_pairwise_mlp(self, electrons: Electrons) -> jax.Array:
+        n_el = electrons.shape[-2]
+        idx_ct, idx_nb = np.meshgrid(np.arange(n_el), np.arange(n_el), indexing="ij")
+        idx_ct, idx_nb = idx_ct.flatten(), idx_nb.flatten()
+        include = idx_ct < idx_nb
+        idx_ct, idx_nb = idx_ct[include], idx_nb[include]
+
+        logpsi = jax.vmap(lambda r1, r2: self.e_e_mlp(get_logscaled_diff_features(r1 - r2)))(
+            electrons[idx_nb], electrons[idx_ct]
+        )
+        return jnp.sum(logpsi)
+
     def __call__(
         self,
         electrons: Electrons,
@@ -93,6 +112,8 @@ class Jastrow(nn.Module):
         logpsi = jnp.zeros([], electrons.dtype)
         if self.pairwise_cusps:
             logpsi += self.pairwise_cusps(electrons)
+        if self.e_e_mlp:
+            logpsi += self._apply_pairwise_mlp(electrons)
         if self.mlp:
             jastrows_before_sum = self._apply_mlp(embeddings)
             J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum.sum(axis=0))
