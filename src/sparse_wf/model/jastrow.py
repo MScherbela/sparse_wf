@@ -45,7 +45,9 @@ class ElElCusp(nn.Module):
 
         alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
         alpha_diff = self.param("alpha_diff", nn.initializers.ones, (), jnp.float32)
-        factor_same, factor_diff = -0.25, -0.5
+        factor_same = self.param("factor_same", nn.initializers.zeros, (), jnp.float32)
+        factor_diff = self.param("factor_diff", nn.initializers.zeros, (), jnp.float32)
+        # factor_same, factor_diff = -0.25, -0.5
 
         cusp_same = jnp.sum(alpha_same**2 / (alpha_same + dist_same), axis=-1)
         cusp_diff = jnp.sum(alpha_diff**2 / (alpha_diff + dist_diff), axis=-1)

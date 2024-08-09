@@ -31,6 +31,7 @@ fixed:
   molecule_args.method: from_str
   model_args.embedding.embedding: new
   batch_size: 4096
+  logging_args.python.use: False
 
 grid:
   molecule_args.from_str_args.atom:

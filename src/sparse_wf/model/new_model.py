@@ -178,7 +178,7 @@ class ElecToRegister(nn.Module):
         spin: Integer[Array, " n_nodes"],
     ):
         # Inspired by https://openreview.net/forum?id=2dnO3LLiJ1
-        register_keys = self.param("register_keys", nn.initializers.normal(), (self.n_register, self.register_dim))
+        register_keys = self.param("register_keys", nn.initializers.normal(1), (self.n_register, self.register_dim))
         queries = nn.Dense(self.n_register * self.register_dim)(h).reshape(-1, self.n_register, self.register_dim)
         values = nn.Dense(self.n_register * self.register_dim)(h).reshape(-1, self.n_register, self.register_dim)
 
@@ -228,8 +228,8 @@ class RegisterAttention(nn.Module):
 
     @nn.compact
     def __call__(self, h: Float[Array, "n_nodes feature_dim"], spin: Integer[Array, " n_nodes"]):
-        register = ElecToRegister(self.n_register, self.register_dim)(h, spin)
-        h = RegisterToElec(self.heads, self.out_dim)(h, register, spin)
+        # register = ElecToRegister(self.n_register, self.register_dim)(h, spin)
+        # h = RegisterToElec(self.heads, self.out_dim)(h, register, spin)
         return h
 
 
