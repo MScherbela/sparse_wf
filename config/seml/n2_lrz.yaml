@@ -19,7 +19,8 @@ slurm:
 
 fixed:
   logging_args.wandb.project: ngao_n2
-  pretraining.steps: 10_000
+  # pretraining.steps: 10_000
+  pretraining.steps: 0
   mcmc_args.proposal: all-electron
   optimization.energy_operator: dense
   optimization.preconditioner_args.preconditioner: spring_dense
@@ -37,10 +38,10 @@ grid:
   molecule_args.from_str_args.atom:
     type: choice
     options:
-      - "N 0 0 0; N 2.068 0 0"
-      - "N 0 0 0; N 3.0 0 0"
-      - "N 0 0 0; N 4.0 0 0"
-      - "N 0 0 0; N 5.0 0 0"
+      # - "N 0 0 0; N 2.068 0 0"
+      # - "N 0 0 0; N 3.0 0 0"
+      # - "N 0 0 0; N 4.0 0 0"
+      # - "N 0 0 0; N 5.0 0 0"
       - "N 0 0 0; N 6.0 0 0"
   model_args.embedding.new.cutoff:
     type: choice

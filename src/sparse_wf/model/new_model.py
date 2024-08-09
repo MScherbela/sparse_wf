@@ -228,8 +228,8 @@ class RegisterAttention(nn.Module):
 
     @nn.compact
     def __call__(self, h: Float[Array, "n_nodes feature_dim"], spin: Integer[Array, " n_nodes"]):
-        # register = ElecToRegister(self.n_register, self.register_dim)(h, spin)
-        # h = RegisterToElec(self.heads, self.out_dim)(h, register, spin)
+        register = ElecToRegister(self.n_register, self.register_dim)(h, spin)
+        h = RegisterToElec(self.heads, self.out_dim)(h, register, spin)
         return h
 
 
