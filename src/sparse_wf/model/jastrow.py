@@ -55,6 +55,39 @@ class ElElCusp(nn.Module):
         return factor_same * cusp_same + factor_diff * cusp_diff
 
 
+class ElecToRegister(nn.Module):
+    n_register: int
+    register_dim: int
+    n_up: int
+
+    @nn.compact
+    def __call__(self, h: Float[Array, "n_nodes feature_dim"]):
+        # Inspired by https://openreview.net/forum?id=2dnO3LLiJ1
+        register_keys = self.param("register_keys", nn.initializers.normal(1), (self.n_register, self.register_dim))
+        queries = nn.Dense(self.n_register * self.register_dim)(h).reshape(-1, self.n_register, self.register_dim)
+        values = nn.Dense(self.n_register * self.register_dim)(h).reshape(-1, self.n_register, self.register_dim)
+
+        attention = jnp.einsum("rd,nrd->nr", register_keys, queries)
+        attention = jax.nn.softmax(attention / jnp.sqrt(self.register_dim), axis=0)
+        register_vals = jnp.einsum("nr,nrd->rd", attention, values)
+        # These registers we would have to treat as new particles for our jacobian.
+        register = register_vals.reshape(-1)
+        register = nn.LayerNorm()(register)
+        return register
+
+
+class GlobalAttentionJastrow(nn.Module):
+    n_up: int
+
+    @nn.compact
+    def __call__(self, h: Float[Array, "n_nodes feature_dim"]):
+        register = ElecToRegister(n_register=8, register_dim=64, n_up=self.n_up)(h)
+        jastrow = MLP([256, 256, 2])(register)
+        scale = self.param("scale", nn.initializers.zeros, (2,), jnp.float32)
+        bias = self.param("bias", nn.initializers.ones, (1,), jnp.float32)
+        return jastrow * scale + jnp.concatenate([jnp.zeros(1), bias])
+
+
 class Jastrow(nn.Module):
     n_up: int
     e_e_cusps: Literal["none", "psiformer", "yukawa"]
@@ -63,6 +96,7 @@ class Jastrow(nn.Module):
     mlp_depth: int
     mlp_width: int
     sparse_embedding: bool = False
+    use_attention: bool = False
 
     def setup(self):
         if self.e_e_cusps == "none":
@@ -85,6 +119,11 @@ class Jastrow(nn.Module):
         else:
             self.mlp = None
 
+        if self.use_attention:
+            self.att_jastrow = GlobalAttentionJastrow(self.n_up)
+        else:
+            self.att_jastrow = None
+
     def __call__(
         self,
         electrons: Electrons,
@@ -102,6 +141,11 @@ class Jastrow(nn.Module):
             logpsi += J_logpsi
         else:
             jastrows_before_sum = jnp.zeros(())
+
+        if self.att_jastrow:
+            pos_J, log_J = self.att_jastrow(embeddings)
+            sign *= jnp.sign(log_J)
+            logpsi += jnp.log(jnp.abs(log_J)) + pos_J
         if return_state:
             return (sign, logpsi), jastrows_before_sum
         return (sign, logpsi)

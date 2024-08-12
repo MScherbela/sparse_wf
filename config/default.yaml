@@ -48,6 +48,7 @@ model_args:
     use_mlp_jastrow: True
     mlp_depth: 2
     mlp_width: 64
+    use_attention: False
   envelopes:
     envelope: isotropic
     isotropic_args:
