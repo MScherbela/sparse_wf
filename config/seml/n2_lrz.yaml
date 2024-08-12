@@ -52,5 +52,5 @@ grid:
   model_args.jastrow.use_attention:
     type: choice
     options:
-      # - true
-      - false
+      - true
+      # - false
