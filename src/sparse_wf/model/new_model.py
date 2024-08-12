@@ -183,10 +183,11 @@ class ElecToRegister(nn.Module):
         values = nn.Dense(self.n_register * self.register_dim)(h).reshape(-1, self.n_register, self.register_dim)
 
         attention = jnp.einsum("rd,nrd->nr", register_keys, queries)
-        attention = jax.nn.softmax(attention, axis=0)
+        attention = jax.nn.softmax(attention / jnp.sqrt(self.register_dim), axis=0)
         register_vals = jnp.einsum("nr,nrd->rd", attention, values)
         # These registers we would have to treat as new particles for our jacobian.
         register = register_vals.reshape(-1)
+        register = nn.LayerNorm()(register)
         return register
 
 
@@ -207,9 +208,10 @@ class RegisterToElec(nn.Module):
         queries, values = jnp.split(register.reshape(2 * self.heads, att_dim), 2, 0)
         keys = nn.Dense(self.heads * att_dim)(h).reshape(-1, self.heads, att_dim)
         attention = jnp.einsum("nrd,rd->nr", keys, queries)
-        attention = jax.nn.softmax(attention, axis=1)
+        attention = jax.nn.softmax(attention / jnp.sqrt(att_dim), axis=1)
         out = jnp.einsum("nr,rd->nrd", attention, values).reshape(-1, self.out_dim)
 
+        # This is from psiformer
         h += out
         h = nn.LayerNorm()(h)
 

@@ -19,8 +19,7 @@ slurm:
 
 fixed:
   logging_args.wandb.project: ngao_n2
-  # pretraining.steps: 10_000
-  pretraining.steps: 0
+  pretraining.steps: 10_000
   mcmc_args.proposal: all-electron
   optimization.energy_operator: dense
   optimization.preconditioner_args.preconditioner: spring_dense
