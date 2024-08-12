@@ -127,8 +127,8 @@ class Jastrow(nn.Module):
         if self.use_e_e_mlp:
             self.e_e_mlp_same = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False, output_bias=False)
             self.e_e_mlp_diff = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False, output_bias=False)
-            self.e_e_mlp_scale_same = self.param("e_e_mlp_scale_same", nn.initializers.ones, (), jnp.float32)
-            self.e_e_mlp_scale_diff = self.param("e_e_mlp_scale_diff", nn.initializers.ones, (), jnp.float32)
+            self.e_e_mlp_scale_same = self.param("e_e_mlp_scale_same", nn.initializers.zeros, (), jnp.float32)
+            self.e_e_mlp_scale_diff = self.param("e_e_mlp_scale_diff", nn.initializers.zeros, (), jnp.float32)
         else:
             self.e_e_mlp_same, self.e_e_mlp_diff = None, None
 
