@@ -32,7 +32,7 @@ fixed:
   model_args.embedding.embedding: new
   batch_size: 4096
   logging_args.python.use: False
-  optimization.max_batch_size: 4
+  optimization.max_batch_size: 1
 
 grid:
   molecule_args.from_str_args.atom:
@@ -52,5 +52,5 @@ grid:
   model_args.jastrow.use_attention:
     type: choice
     options:
-      - true
+      # - true
       - false

@@ -81,7 +81,7 @@ class GlobalAttentionJastrow(nn.Module):
 
     @nn.compact
     def __call__(self, h: Float[Array, "n_nodes feature_dim"]):
-        register = ElecToRegister(n_register=8, register_dim=64, n_up=self.n_up)(h)
+        register = ElecToRegister(n_register=8, register_dim=16, n_up=self.n_up)(h)
         jastrow = MLP([256, 256, 2])(register)
         scale = self.param("scale", nn.initializers.zeros, (2,), jnp.float32)
         bias = self.param("bias", nn.initializers.ones, (1,), jnp.float32)
