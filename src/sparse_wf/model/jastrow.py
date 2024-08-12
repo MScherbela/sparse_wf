@@ -50,11 +50,10 @@ class ElElCusp(nn.Module):
     def __call__(self, electrons: Electrons) -> Float[Array, " *batch_dims"]:
         dist_same, dist_diff = get_dist_same_diff(electrons, self.n_up)
 
-        # TODO: revert init for factor to zeros
         alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
         alpha_diff = self.param("alpha_diff", nn.initializers.ones, (), jnp.float32)
-        factor_same = self.param("factor_same", nn.initializers.ones, (), jnp.float32)
-        factor_diff = self.param("factor_diff", nn.initializers.ones, (), jnp.float32)
+        factor_same = self.param("factor_same", nn.initializers.zeros, (), jnp.float32)
+        factor_diff = self.param("factor_diff", nn.initializers.zeros, (), jnp.float32)
         # factor_same, factor_diff = -0.25, -0.5
 
         cusp_same = jnp.sum(alpha_same**2 / (alpha_same + dist_same), axis=-1)
@@ -84,8 +83,11 @@ def get_changed_pair_indices(n_el: int, n_up: int, idx_changed: ElectronIdx):
     )
     # TODO: this is not tight if n_up != n_dn, but it's not a big deal.
     # To make it tight, one would need to know the number of up and down electrons that are changed, which requires static args
-    n_pairs_same = n_changes * (max(n_up, n_dn) - 1)
-    n_pairs_diff = n_changes * max(n_up, n_dn)
+    # n_pairs_same = n_changes * (max(n_up, n_dn) - 1)
+    n_pairs_same = n_changes * (2 * max(n_up, n_dn) - 1)
+    n_pairs_diff = n_changes * 2 * max(n_up, n_dn)
+    n_pairs_same = min(n_pairs_same, len(idx_ct_same))
+    n_pairs_diff = min(n_pairs_diff, len(idx_ct_diff))
     idx_pair_same = jnp.nonzero(is_changed_same, size=n_pairs_same, fill_value=NO_NEIGHBOUR)
     idx_pair_diff = jnp.nonzero(is_changed_diff, size=n_pairs_diff, fill_value=NO_NEIGHBOUR)
     return idx_pair_same, idx_pair_diff
@@ -125,8 +127,8 @@ class Jastrow(nn.Module):
         if self.use_e_e_mlp:
             self.e_e_mlp_same = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False, output_bias=False)
             self.e_e_mlp_diff = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False, output_bias=False)
-            self.e_e_mlp_scale_same = self.param("e_e_mlp_scale_same", nn.initializers.zeros, (), jnp.float32)
-            self.e_e_mlp_scale_diff = self.param("e_e_mlp_scale_diff", nn.initializers.zeros, (), jnp.float32)
+            self.e_e_mlp_scale_same = self.param("e_e_mlp_scale_same", nn.initializers.ones, (), jnp.float32)
+            self.e_e_mlp_scale_diff = self.param("e_e_mlp_scale_diff", nn.initializers.ones, (), jnp.float32)
         else:
             self.e_e_mlp_same, self.e_e_mlp_diff = None, None
 
