@@ -62,7 +62,8 @@ ES = TypeVar("ES")
 
 class MoonLikeParams(NamedTuple, Generic[T]):
     embedding: T
-    to_orbitals: Parameters
+    to_orbitals_up: Parameters
+    to_orbitals_dn: Optional[Parameters]
     envelope: Parameters
     jastrow: Parameters
 
@@ -88,9 +89,11 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
 
     # Hyperparams
     n_determinants: int
+    spin_restricted: bool
 
     # Submodules
-    to_orbitals: nn.Dense | Linear
+    to_orbitals_up: nn.Dense | Linear
+    to_orbitals_dn: Optional[nn.Dense | Linear]
     envelope: Envelope
     embedding: Embedding[T, S, ES]
     jastrow: Jastrow
@@ -102,12 +105,14 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         return len(self.R)
 
     def init(self, rng: PRNGKeyArray, electrons: Electrons) -> Parameters:  # type: ignore
-        rngs = jax.random.split(rng, 7)
+        rngs = jax.random.split(rng, 5)
         dummy_embeddings = jnp.zeros([electrons.shape[-2], self.embedding.feature_dim])
         static = jtu.tree_map(int, self.get_static_input(electrons))
+
         params = MoonLikeParams(
             embedding=self.embedding.init(rngs[0], electrons, static),
-            to_orbitals=self.to_orbitals.init(rngs[1], dummy_embeddings),
+            to_orbitals_up=self.to_orbitals_up.init(rngs[1], dummy_embeddings),
+            to_orbitals_dn=self.to_orbitals_dn.init(rngs[2], dummy_embeddings) if self.to_orbitals_dn else None,
             envelope=self.envelope.init(rngs[2], jnp.zeros([self.n_nuclei, 3])),
             jastrow=self.jastrow.init(rngs[3], electrons, dummy_embeddings),
         )
@@ -121,6 +126,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         jastrow: JastrowArgs,
         envelopes: EnvelopeArgs,
         n_determinants: int,
+        spin_restricted: bool,
     ):
         R = np.asarray(mol.atom_coords(), dtype=jnp.float32)
         Z = np.asarray(mol.atom_charges())
@@ -134,11 +140,20 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         else:
             raise ValueError(f"Unknown envelope type {envelopes['+envelope']}")
 
-        to_orbitals: Linear | nn.Dense = nn.Dense(
+        to_orbitals_up: Linear | nn.Dense = nn.Dense(
             n_determinants * mol.nelectron,
-            name="to_orbitals",
+            name="to_orbitals_up",
             bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
         )
+        if spin_restricted:
+            to_orbitals_dn = None
+        else:
+            to_orbitals_dn = nn.Dense(
+                n_determinants * mol.nelectron,
+                name="to_orbitals_dn",
+                bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
+            )
+
         _sparse_jacobian = False
         emb_mod: MoonEmbedding | NewEmbedding
         match embedding["embedding"].lower():
@@ -148,7 +163,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
                 emb_mod = NewEmbedding.create(R, Z, n_electrons, n_up, **embedding["new"])
             case "new_sparse":
                 emb_mod = NewSparseEmbedding.create(R, Z, n_electrons, n_up, **embedding["new"])
-                to_orbitals = Linear(
+                to_orbitals_up = Linear(
                     n_determinants * mol.nelectron,
                     bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
                 )
@@ -162,7 +177,8 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
             n_electrons=mol.nelectron,
             n_up=n_up,
             n_determinants=n_determinants,
-            to_orbitals=to_orbitals,
+            to_orbitals_up=to_orbitals_up,
+            to_orbitals_dn=to_orbitals_dn,
             envelope=env,  # type: ignore
             embedding=emb_mod,  # type: ignore
             jastrow=Jastrow(n_up, **jastrow),

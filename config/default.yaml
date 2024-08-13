@@ -24,6 +24,7 @@ model: moon
 
 model_args:
   n_determinants: 16
+  spin_restricted: true
   embedding:
     embedding: new
     new:
