@@ -103,9 +103,8 @@ def make_trainer(
         state = state.replace(key=key, electrons=electrons, width_state=width_state)
         aux_data = {}
         if compute_energy:
-            E_loc = batched_vmap(wave_function.local_energy, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
-                state.params,
-                electrons,
+            E_loc = batched_vmap(energy_fn, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
+                state.params, electrons, static
             )
             E_mean = pmean(E_loc.mean())
             E_std = pmean(((E_loc - E_mean) ** 2).mean()) ** 0.5

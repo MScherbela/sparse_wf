@@ -1,21 +1,28 @@
 import functools
-from typing import Literal, TypeAlias, cast
+from typing import Literal, cast
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float
+import jax.tree_util as jtu
 
 from sparse_wf.api import ElectronIdx, Electrons, SignedLogAmplitude
 from sparse_wf.jax_utils import fwd_lap
-from sparse_wf.model.graph_utils import pad_jacobian_to_dense
-from sparse_wf.model.utils import MLP, get_dist_same_diff
+from sparse_wf.model.graph_utils import pad_jacobian_to_dense, NO_NEIGHBOUR
+from sparse_wf.model.utils import MLP, get_dist_same_diff, get_logscaled_diff_features
 from sparse_wf.model.sparse_fwd_lap import SparseMLP
 from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap
+from flax.struct import PyTreeNode
+import numpy as np
 
-JastrowState: TypeAlias = jax.Array
+
+class JastrowState(PyTreeNode):
+    one_el: jax.Array
+    two_el_same: jax.Array
+    two_el_diff: jax.Array
 
 
 class YukawaJastrow(nn.Module):
@@ -45,7 +52,9 @@ class ElElCusp(nn.Module):
 
         alpha_same = self.param("alpha_same", nn.initializers.ones, (), jnp.float32)
         alpha_diff = self.param("alpha_diff", nn.initializers.ones, (), jnp.float32)
-        factor_same, factor_diff = -0.25, -0.5
+        factor_same = self.param("factor_same", nn.initializers.zeros, (), jnp.float32)
+        factor_diff = self.param("factor_diff", nn.initializers.zeros, (), jnp.float32)
+        # factor_same, factor_diff = -0.25, -0.5
 
         cusp_same = jnp.sum(alpha_same**2 / (alpha_same + dist_same), axis=-1)
         cusp_diff = jnp.sum(alpha_diff**2 / (alpha_diff + dist_diff), axis=-1)
@@ -53,9 +62,41 @@ class ElElCusp(nn.Module):
         return factor_same * cusp_same + factor_diff * cusp_diff
 
 
+def get_all_pair_indices(n_el: int, n_up: int):
+    idx_grids = np.meshgrid(np.arange(n_el), np.arange(n_el), indexing="ij")
+    spin = np.concatenate([np.zeros(n_up, dtype=int), np.ones(n_el - n_up, dtype=int)])
+    indices = np.stack([idx.flatten() for idx in idx_grids], axis=0)
+    indices = indices[:, indices[0] != indices[1]]
+    is_same = spin[indices[0]] == spin[indices[1]]
+    return indices[:, is_same], indices[:, ~is_same]
+
+
+def get_changed_pair_indices(n_el: int, n_up: int, idx_changed: ElectronIdx):
+    n_changes = len(idx_changed)
+    n_dn = n_el - n_up
+    (idx_ct_same, idx_nb_same), (idx_ct_diff, idx_nb_diff) = get_all_pair_indices(n_el, n_up)
+    is_changed_same = jnp.any(idx_ct_same[:, None] == idx_changed, axis=-1) | jnp.any(
+        idx_nb_same[:, None] == idx_changed, axis=-1
+    )
+    is_changed_diff = jnp.any(idx_ct_diff[:, None] == idx_changed, axis=-1) | jnp.any(
+        idx_nb_diff[:, None] == idx_changed, axis=-1
+    )
+    # TODO: this is not tight if n_up != n_dn, but it's not a big deal.
+    # To make it tight, one would need to know the number of up and down electrons that are changed, which requires static args
+    # n_pairs_same = n_changes * (max(n_up, n_dn) - 1)
+    n_pairs_same = n_changes * (2 * max(n_up, n_dn) - 1)
+    n_pairs_diff = n_changes * 2 * max(n_up, n_dn)
+    n_pairs_same = min(n_pairs_same, len(idx_ct_same))
+    n_pairs_diff = min(n_pairs_diff, len(idx_ct_diff))
+    idx_pair_same = jnp.nonzero(is_changed_same, size=n_pairs_same, fill_value=NO_NEIGHBOUR)
+    idx_pair_diff = jnp.nonzero(is_changed_diff, size=n_pairs_diff, fill_value=NO_NEIGHBOUR)
+    return idx_pair_same, idx_pair_diff
+
+
 class Jastrow(nn.Module):
     n_up: int
     e_e_cusps: Literal["none", "psiformer", "yukawa"]
+    use_e_e_mlp: bool
     use_log_jastrow: bool
     use_mlp_jastrow: bool
     mlp_depth: int
@@ -83,6 +124,27 @@ class Jastrow(nn.Module):
         else:
             self.mlp = None
 
+        if self.use_e_e_mlp:
+            self.e_e_mlp_same = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False, output_bias=False)
+            self.e_e_mlp_diff = MLP([self.mlp_width] * self.mlp_depth + [1], activate_final=False, output_bias=False)
+            self.e_e_mlp_scale_same = self.param("e_e_mlp_scale_same", nn.initializers.zeros, (), jnp.float32)
+            self.e_e_mlp_scale_diff = self.param("e_e_mlp_scale_diff", nn.initializers.zeros, (), jnp.float32)
+        else:
+            self.e_e_mlp_same, self.e_e_mlp_diff = None, None
+
+    def _get_all_electron_pairs(self, electrons):
+        n_el = electrons.shape[-2]
+        pair_indices = get_all_pair_indices(n_el, self.n_up)
+        return jtu.tree_map(lambda idx: electrons[idx], pair_indices)
+
+    def _apply_pairwise_mlp_same(self, r1: Float[Array, " dim=3"], r2: Float[Array, " dim=3"]) -> jax.Array:
+        features = get_logscaled_diff_features(r1 - r2)
+        return self.e_e_mlp_same(features) * self.e_e_mlp_scale_same
+
+    def _apply_pairwise_mlp_diff(self, r1: Float[Array, " dim=3"], r2: Float[Array, " dim=3"]) -> jax.Array:
+        features = get_logscaled_diff_features(r1 - r2)
+        return self.e_e_mlp_diff(features) * self.e_e_mlp_scale_diff
+
     def __call__(
         self,
         electrons: Electrons,
@@ -93,15 +155,22 @@ class Jastrow(nn.Module):
         logpsi = jnp.zeros([], electrons.dtype)
         if self.pairwise_cusps:
             logpsi += self.pairwise_cusps(electrons)
+        if self.use_e_e_mlp:
+            (r1_same, r2_same), (r1_diff, r2_diff) = self._get_all_electron_pairs(electrons)
+            jastrow_same = self._apply_pairwise_mlp_same(r1_same, r2_same)
+            jastrow_diff = self._apply_pairwise_mlp_diff(r1_diff, r2_diff)
+            logpsi += jnp.sum(jastrow_same) + jnp.sum(jastrow_diff)
+        else:
+            jastrow_same, jastrow_diff = jnp.zeros([], electrons.dtype), jnp.zeros([], electrons.dtype)
         if self.mlp:
             jastrows_before_sum = self._apply_mlp(embeddings)
             J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum.sum(axis=0))
             sign *= J_sign
             logpsi += J_logpsi
         else:
-            jastrows_before_sum = jnp.zeros(())
+            jastrows_before_sum = jnp.zeros([], electrons.dtype)
         if return_state:
-            return (sign, logpsi), jastrows_before_sum
+            return (sign, logpsi), JastrowState(jastrows_before_sum, jastrow_same, jastrow_diff)
         return (sign, logpsi)
 
     def low_rank_update(
@@ -114,20 +183,33 @@ class Jastrow(nn.Module):
     ) -> tuple[SignedLogAmplitude, JastrowState]:
         sign = jnp.ones((), electrons.dtype)
         logpsi = jnp.zeros([], electrons.dtype)
+        n_el = electrons.shape[-2]
         if self.pairwise_cusps:
             # TODO: one could do low-rank updates on the cusps, though they should be cheap anyway.
             # NG: I benchmarked this on 200-electrons and it accounts for <5% of the runtime.
             # If we want to implement this, we can use the changed_electrons variable.
             logpsi += self.pairwise_cusps(electrons)
+        if self.use_e_e_mlp:
+            (r1_same, r2_same), (r1_diff, r2_diff) = self._get_all_electron_pairs(electrons)
+            idx_same, idx_diff = get_changed_pair_indices(n_el, self.n_up, changed_electrons)
+            jastrow_same = state.two_el_same.at[idx_same].set(
+                self._apply_pairwise_mlp_same(r1_same[idx_same], r2_same[idx_same])
+            )
+            jastrow_diff = state.two_el_diff.at[idx_diff].set(
+                self._apply_pairwise_mlp_diff(r1_diff[idx_diff], r2_diff[idx_diff])
+            )
+            logpsi += jnp.sum(jastrow_same) + jnp.sum(jastrow_diff)
+        else:
+            jastrow_same, jastrow_diff = jnp.zeros([], electrons.dtype), jnp.zeros([], electrons.dtype)
         if self.mlp:
             jastrows_before_sum = self._apply_mlp(embeddings[changed_embeddings])
-            jastrows_before_sum = state.at[changed_embeddings].set(jastrows_before_sum)
+            jastrows_before_sum = state.one_el.at[changed_embeddings].set(jastrows_before_sum)
             J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum.sum(axis=0))
             sign *= J_sign
             logpsi += J_logpsi
         else:
             jastrows_before_sum = jnp.zeros(())
-        return (sign, logpsi), jastrows_before_sum
+        return (sign, logpsi), JastrowState(jastrows_before_sum, jastrow_same, jastrow_diff)
 
     def _apply_mlp(self, embeddings):
         return self.mlp(embeddings) * self.mlp_scale + jnp.array([0, self.log_bias])
@@ -150,6 +232,7 @@ class Jastrow(nn.Module):
     def apply_with_fwd_lap(
         self, params, electrons: Electrons, embeddings: FwdLaplArray | NodeWithFwdLap, dependencies
     ) -> jax.Array:
+        n_el = electrons.shape[-2]
         zeros = jnp.zeros([], electrons.dtype)
         logpsi = FwdLaplArray(zeros, FwdJacobian(data=zeros), zeros)
         if self.e_e_cusps != "none":
@@ -159,6 +242,34 @@ class Jastrow(nn.Module):
                 return self.apply(params, r, method=self._apply_pairwise_cusps)
 
             logpsi = tree_add(logpsi, get_pairwise_jastrow(electrons))
+        if self.use_e_e_mlp:
+            (idx1_same, idx2_same), (idx1_diff, idx2_diff) = get_all_pair_indices(n_el, self.n_up)
+
+            @fwd_lap
+            def get_jastrow(r):
+                r1_same, r2_same = r[idx1_same], r[idx2_same]
+                r1_diff, r2_diff = r[idx1_diff], r[idx2_diff]
+                J_same = self.apply(params, r1_same, r2_same, method=self._apply_pairwise_mlp_same)
+                J_diff = self.apply(params, r1_diff, r2_diff, method=self._apply_pairwise_mlp_diff)
+                return jnp.sum(J_same) + jnp.sum(J_diff)
+
+            # TODO: does folx use sparse jacobians here?
+            logpsi = tree_add(logpsi, get_jastrow(electrons))
+
+            # Sparse by-hand implementation; probably not necessary.
+            # same_fn = functools.partial(self.apply, params, method=self._apply_pairwise_mlp_same)
+            # diff_fn = functools.partial(self.apply, params, method=self._apply_pairwise_mlp_diff)
+            # J_same = jax.vmap(fwd_lap(same_fn))(r1_same, r2_same)
+            # J_diff = jax.vmap(fwd_lap(diff_fn))(r1_diff, r2_diff)
+            # J_val = jnp.sum(J_same.x) + jnp.sum(J_diff.x)
+            # J_lap = jnp.sum(J_same.laplacian) + jnp.sum(J_diff.laplacian)
+            # J_jac = jnp.zeros_like(electrons, shape=[n_el, 3])
+            # J_jac = J_jac.at[idx1_same, :].add(J_same.jacobian.data[:, :3])
+            # J_jac = J_jac.at[idx2_same, :].add(J_same.jacobian.data[:, 3:])
+            # J_jac = J_jac.at[idx1_diff, :].add(J_diff.jacobian.data[:, :3])
+            # J_jac = J_jac.at[idx2_diff, :].add(J_diff.jacobian.data[:, 3:])
+            # logpsi = tree_add(logpsi, FwdLaplArray(J_val, FwdJacobian(J_jac), J_lap))
+
         if self.use_mlp_jastrow or self.use_log_jastrow:
             _get_jastrows = functools.partial(self.apply, params, method=self._apply_mlp)
             if isinstance(embeddings, FwdLaplArray):

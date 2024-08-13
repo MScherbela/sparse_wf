@@ -19,7 +19,7 @@ from sparse_wf.model.graph_utils import NO_NEIGHBOUR, is_neighbour
 from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap, get, SparseMLP
 import jax
 import numpy as np
-from typing import NamedTuple, Generic, TypeVar, Callable, cast, override
+from typing import NamedTuple, Generic, TypeVar, Callable, cast
 from sparse_wf.jax_utils import fwd_lap, nn_vmap, rng_sequence
 import functools
 from folx.api import FwdLaplArray, FwdJacobian
@@ -55,7 +55,7 @@ class StaticArgs(StaticInput, Generic[T]):
             max_pairs_diff,
         )
 
-    @override
+    # @override
     def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
         max_values = self.get_max(n_el, n_up, n_nuc)
         return jtu.tree_map(lambda x, max_x: round_with_padding(x, padding_factor, max_x), self, max_values)

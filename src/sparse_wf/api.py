@@ -433,6 +433,7 @@ class EmbeddingArgs(TypedDict):
 
 class JastrowArgs(TypedDict):
     e_e_cusps: Literal["none", "psiformer", "yukawa"]
+    use_e_e_mlp: bool
     use_log_jastrow: bool
     use_mlp_jastrow: bool
     mlp_depth: int
@@ -558,7 +559,7 @@ class OptimizationArgs(TypedDict):
     clipping: ClippingArgs
     max_batch_size: int
     spin_operator_args: SpinOperatorArgs
-    energy_operator: str
+    energy_operator: Literal["dense", "sparse"]
 
 
 class PretrainingArgs(TypedDict):
