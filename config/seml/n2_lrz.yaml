@@ -33,6 +33,7 @@ fixed:
   batch_size: 4096
   logging_args.python.use: False
   optimization.max_batch_size: 1
+  optimization.steps: 40_000
 
 grid:
   molecule_args.from_str_args.atom:

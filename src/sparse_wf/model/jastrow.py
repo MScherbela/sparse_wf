@@ -70,9 +70,7 @@ class ElecToRegister(nn.Module):
         attention = jnp.einsum("rd,nrd->nr", register_keys, queries)
         attention = jax.nn.softmax(attention / jnp.sqrt(self.register_dim), axis=0)
         register_vals = jnp.einsum("nr,nrd->rd", attention, values)
-        # These registers we would have to treat as new particles for our jacobian.
         register = register_vals.reshape(-1)
-        register = nn.LayerNorm()(register)
         return register
 
 
@@ -81,7 +79,7 @@ class GlobalAttentionJastrow(nn.Module):
 
     @nn.compact
     def __call__(self, h: Float[Array, "n_nodes feature_dim"]):
-        register = ElecToRegister(n_register=8, register_dim=16, n_up=self.n_up)(h)
+        register = ElecToRegister(n_register=8, register_dim=32, n_up=self.n_up)(h)
         jastrow = MLP([256, 256, 2])(register)
         scale = self.param("scale", nn.initializers.zeros, (2,), jnp.float32)
         bias = self.param("bias", nn.initializers.ones, (1,), jnp.float32)
