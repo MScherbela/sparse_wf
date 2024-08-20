@@ -155,7 +155,7 @@ class Jastrow(nn.Module):
             self.mlp = None
 
         if self.use_attention:
-            self.att_inp = GlobalAttentionJastrowAttentionValues(4, 32, self.n_up)
+            self.att_inp = GlobalAttentionJastrowAttentionValues(16, 8, self.n_up)
             self.att_out = AttentionOut()
         else:
             self.att_inp = None
