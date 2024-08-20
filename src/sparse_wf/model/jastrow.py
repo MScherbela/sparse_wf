@@ -9,7 +9,6 @@ from jaxtyping import Array, Float
 
 from sparse_wf.api import ElectronIdx, Electrons, SignedLogAmplitude
 from sparse_wf.jax_utils import fwd_lap
-from sparse_wf.model.graph_utils import pad_jacobian_to_dense
 from sparse_wf.model.utils import MLP, get_dist_same_diff
 from sparse_wf.model.sparse_fwd_lap import SparseMLP
 from sparse_wf.tree_utils import tree_add
@@ -77,27 +76,26 @@ class GlobalAttentionJastrowAttentionValues(nn.Module):
         # folx-friendly version of the inner product
         attention = (register_keys * queries).sum(-1)
         attention = jnp.exp(-attention / jnp.sqrt(self.register_dim))
-        return attention, values  # attention is el x reg, values is el x reg x dim
+        return attention, attention[..., None] * values  # attention is el x reg, values is el x reg x dim
 
 
-def attention_out(attention, values):
-    normalizer = attention.sum(axis=0)
-    # folx-friendly version of the inner product
-    out = (attention[..., None] * values).sum(axis=0)
-    out = out / normalizer[:, None]
-    out = out.reshape(-1)
-    return out
+def sum_fwd_lap(x: FwdLaplArray, dependencies, n_el: int) -> FwdLaplArray:
+    out_jac = jnp.zeros((n_el, 3, *x.shape[1:]), x.x.dtype)
+    jac = x.jacobian.data
+    jac = jac.reshape((n_el, 3, *jac.shape[1:]))
+    jac = jnp.swapaxes(jac, 1, 2)
+    out_jac = out_jac.at[dependencies.T].add(jac, mode="drop")
+    out_jac = out_jac.reshape(n_el * 3, *x.shape[1:])
+    y = x.x.sum(0)
+    y_lapl = x.laplacian.sum(0)
+    return FwdLaplArray(x=y, jacobian=FwdJacobian(out_jac), laplacian=y_lapl)
 
 
-class GlobalAttentionJastrow(nn.Module):
-    n_up: int
-
+class AttentionOut(nn.Module):
     @nn.compact
-    def __call__(
-        self, attention: Float[Array, "n_nodes n_register"], values: Float[Array, "n_nodes n_register feature_dim"]
-    ):
-        register = attention_out(attention, values)
-        jastrow = MLP([256, 256, 2])(register)
+    def __call__(self, norm: Float[Array, " n_register"], values: Float[Array, "n_register feature_dim"]):
+        values = (values / norm[:, None]).reshape(-1)
+        jastrow = MLP([256, 256, 2])(values)
         scale = self.param("scale", nn.initializers.zeros, (2,), jnp.float32)
         bias = self.param("bias", nn.initializers.ones, (1,), jnp.float32)
         return jastrow * scale + jnp.concatenate([jnp.zeros(1), bias])
@@ -135,11 +133,11 @@ class Jastrow(nn.Module):
             self.mlp = None
 
         if self.use_attention:
-            self.att_inp = GlobalAttentionJastrowAttentionValues(8, 32, self.n_up)
-            self.att_jastrow = GlobalAttentionJastrow(self.n_up)
+            self.att_inp = GlobalAttentionJastrowAttentionValues(4, 16, self.n_up)
+            self.att_out = AttentionOut()
         else:
             self.att_inp = None
-            self.att_jastrow = None
+            self.att_out = None
 
     def __call__(
         self,
@@ -155,7 +153,7 @@ class Jastrow(nn.Module):
             jastrows_before_sum = self._apply_mlp(embeddings)
             jastrows_after_sum = jastrows_before_sum.sum(axis=0)
             J_attention, J_values = self._apply_att_jastrow_inp(embeddings)
-            jastrows_after_sum += self._apply_att_jastrow(J_attention, J_values)
+            jastrows_after_sum += self._apply_att_jastrow(J_attention.sum(0), J_values.sum(0))
             J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum.sum(axis=0))
             sign *= J_sign
             logpsi += J_logpsi
@@ -191,7 +189,7 @@ class Jastrow(nn.Module):
                 J_attention, J_values = self._apply_att_jastrow_inp(embeddings[changed_embeddings])
                 J_attention = state.attention.at[changed_embeddings].set(J_attention)
                 J_values = state.values.at[changed_embeddings].set(J_values)
-                jastrows_after_sum += self._apply_att_jastrow(J_attention, J_values)
+                jastrows_after_sum += self._apply_att_jastrow(J_attention.sum(0), J_values.sum(0))
             else:
                 J_attention, J_values = jnp.zeros(()), jnp.zeros(())
             J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_after_sum)
@@ -210,8 +208,8 @@ class Jastrow(nn.Module):
         return jnp.zeros(()), jnp.zeros(())
 
     def _apply_att_jastrow(self, attention, values):
-        if self.att_jastrow:
-            return self.att_jastrow(attention, values)
+        if self.att_out:
+            return self.att_out(attention, values)
         return jnp.array([0, 1])
 
     def _mlp_to_logpsi(self, jastrows):
@@ -247,24 +245,15 @@ class Jastrow(nn.Module):
                 _get_jastrows = fwd_lap(_get_jastrows, argnums=0)
                 _get_jastrows = jax.vmap(_get_jastrows, in_axes=-2, out_axes=-2)  # vmap over eletrons
                 jastrows = _get_jastrows(embeddings)
-                # TODO: this generates an n_el x n_el x 2 tensor, which is very sparse, and which is immediately summed over in the the next step.
-                # Find a way to avoid this. Probably using reverse dependency mapping.
                 n_el = electrons.shape[-2]
-
-                def pad_to_dense(x, axis=-2):
-                    return jax.vmap(pad_jacobian_to_dense, in_axes=(axis, 0, None), out_axes=axis)(
-                        x, dependencies, n_el
-                    )
-
-                jastrows = pad_to_dense(jastrows)
-                jastrows = fwd_lap(lambda J: J.sum(axis=0))(jastrows)
+                jastrows = sum_fwd_lap(jastrows, dependencies, n_el)
 
                 if self.use_attention:
                     _get_att_inp = functools.partial(self.apply, params, method=self._apply_att_jastrow_inp)
                     _get_att_inp = jax.vmap(fwd_lap(_get_att_inp, argnums=0), in_axes=-2, out_axes=(-2, -3))
                     J_attention, J_values = _get_att_inp(embeddings)
-                    J_attention = pad_to_dense(J_attention)
-                    J_values = pad_to_dense(J_values, -3)
+                    J_attention = sum_fwd_lap(J_attention, dependencies, n_el)
+                    J_values = sum_fwd_lap(J_values, dependencies, n_el)
                     _get_att_jastrow = functools.partial(self.apply, params, method=self._apply_att_jastrow)
                     jastrows = tree_add(jastrows, fwd_lap(_get_att_jastrow, argnums=(0, 1))(J_attention, J_values))
             elif isinstance(embeddings, NodeWithFwdLap):
