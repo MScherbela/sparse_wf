@@ -32,7 +32,8 @@ fixed:
   model_args.embedding.embedding: new
   batch_size: 4096
   logging_args.python.use: False
-  optimization.max_batch_size: 1
+  optimization.max_batch_size: 4
+  optimization.preconditioner_args.spring_dense_args.max_batch_size: 16
   optimization.steps: 40_000
 
 grid:
