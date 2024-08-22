@@ -73,28 +73,39 @@ class NodeWithFwdLap(PyTreeNode):
         return self.x.shape
 
 
-def to_slater_matrices(orbitals: NodeWithFwdLap, n_el: int, n_up):
-    n_dets = orbitals.x.shape[-1] // n_el
+def merge_up_down(orb_up: NodeWithFwdLap, orb_dn: NodeWithFwdLap, n_el: int, n_up: int):
+    assert orb_up.x.shape == orb_dn.x.shape
+    assert orb_up.lap.shape == orb_dn.lap.shape
+    assert orb_up.jac.shape == orb_dn.jac.shape
+    assert orb_up.x.shape[0] == n_el
+    x = jnp.concatenate([orb_up.x[:n_up, ...], orb_dn.x[n_up:, ...]], axis=0)
+    lap = jnp.concatenate([orb_up.lap[:n_up, ...], orb_dn.lap[n_up:, ...]], axis=0)
+    jac = jnp.where(orb_up.idx_ctr < n_up, orb_up.jac, orb_dn.jac)
+    return NodeWithFwdLap(x, jac, lap, orb_up.idx_ctr, orb_up.idx_dep)
 
-    def reshape(X):
-        X = X.reshape([n_el, n_dets, n_el])  # [el x det x orbital]
-        X = jnp.moveaxis(X, 1, 0)  # [det x el x orbital]
-        # swap bottom spin blocks
-        top_block = X[:, :n_up, :]
-        bottom_block = jnp.concatenate([X[:, n_up:, n_up:], X[:, n_up:, :n_up]], axis=2)
-        X = jnp.concatenate([top_block, bottom_block], axis=1)
-        return X
 
-    phi = reshape(orbitals.x)
-    lap = reshape(orbitals.lap)
-    jac = orbitals.jac.reshape([-1, 3, n_dets, n_el])  # [pair(el,dep) x xyz x det x orb]
-    jac = jnp.moveaxis(jac, 2, 0)  # [det x pair(el,dep) x xyz x orb]
-    jac = jnp.where(
-        (orbitals.idx_ctr < n_up)[None, :, None, None],
-        jac,
-        jnp.concatenate([jac[:, :, :, n_up:], jac[:, :, :, :n_up]], axis=3),
-    )
-    return phi, jac, lap
+# def to_slater_matrices(orbitals: NodeWithFwdLap, n_el: int, n_up):
+#     n_dets = orbitals.x.shape[-1] // n_el
+
+#     def reshape(X):
+#         X = X.reshape([n_el, n_dets, n_el])  # [el x det x orbital]
+#         X = jnp.moveaxis(X, 1, 0)  # [det x el x orbital]
+#         # swap bottom spin blocks
+#         top_block = X[:, :n_up, :]
+#         bottom_block = jnp.concatenate([X[:, n_up:, n_up:], X[:, n_up:, :n_up]], axis=2)
+#         X = jnp.concatenate([top_block, bottom_block], axis=1)
+#         return X
+
+#     phi = reshape(orbitals.x)
+#     lap = reshape(orbitals.lap)
+#     jac = orbitals.jac.reshape([-1, 3, n_dets, n_el])  # [pair(el,dep) x xyz x det x orb]
+#     jac = jnp.moveaxis(jac, 2, 0)  # [det x pair(el,dep) x xyz x orb]
+#     jac = jnp.where(
+#         (orbitals.idx_ctr < n_up)[None, :, None, None],
+#         jac,
+#         jnp.concatenate([jac[:, :, :, n_up:], jac[:, :, :, :n_up]], axis=3),
+#     )
+#     return phi, jac, lap
 
 
 def get_pair_indices(r, n_up, cutoff, n_pairs_same: int, n_pairs_diff: int):
@@ -143,11 +154,13 @@ class Linear(nn.Module):
     @nn.compact
     def __call__(self, x, use_bias=True):
         if isinstance(x, NodeWithFwdLap):
+            # Forward-Laplacian pass with jacobian and laplacian
             y = self(x.x)
             jac = self(x.jac, use_bias=False)
             lap = self(x.lap, use_bias=False)
             return NodeWithFwdLap(y, jac, lap, x.idx_ctr, x.idx_dep)
         else:
+            # Regular forward pass
             kernel = self.param("kernel", self.kernel_init, (x.shape[-1], self.features), jnp.float32)
             y = x @ kernel
             if self.use_bias and use_bias:

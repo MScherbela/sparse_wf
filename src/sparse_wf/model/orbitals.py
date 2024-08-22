@@ -3,9 +3,13 @@ from sparse_wf.model.sparse_fwd_lap import Linear
 from sparse_wf.model.envelopes import EfficientIsotropicEnvelopes, GLUEnvelopes
 import jax.numpy as jnp
 from sparse_wf.api import Charges, Electrons, ElectronEmb, EnvelopeArgs, Parameters, ElectronIdx, Nuclei
+from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap, merge_up_down, multiply_with_1el_fn
+from sparse_wf.jax_utils import fwd_lap
+from folx.api import FwdLaplArray
 import jax
 from typing import NamedTuple
 import einops
+import jax.tree_util as jtu
 
 
 class OrbitalState(NamedTuple):
@@ -18,6 +22,20 @@ def _swap_spin_updn(phi, n_electrons, n_up):
     phi = phi.reshape([*phi.shape[-1], -1, n_electrons])  # split off det axis
     phi = jnp.concatenate([phi[..., n_up:], phi[..., :n_up]], axis=-1)  # swap spin up and down
     return phi.reshape([*phi.shape[:-2], -1])  # flatten det axis
+
+
+def _swap_spin_updn_with_fwd_lap(phi: NodeWithFwdLap, n_electrons, n_up):
+    x = _swap_spin_updn(phi.x, n_electrons, n_up)
+    lap = _swap_spin_updn(phi.lap, n_electrons, n_up)
+    jac = phi.jac.reshape([*phi.shape[:-1], -1, n_electrons])  # [pair(el,dep) x xyz x det x orb]
+    jac_swapped = jnp.concatenate([jac[..., n_up:], jac[..., :n_up]], axis=-1)
+    jac = jnp.where(
+        (phi.idx_ctr < n_up)[:, None, None, None],
+        jac,
+        jac_swapped,
+    )
+    jac = jac.reshape([*jac.shape[:-2], -1])
+    return NodeWithFwdLap(x, jac, lap, phi.idx_ctr, phi.idx_dep)
 
 
 class Orbitals(nn.Module):
@@ -67,7 +85,11 @@ class Orbitals(nn.Module):
 
     def _get_orbitals_dn(self, embeddings_dn):
         if self.spin_restricted:
-            return _swap_spin_updn(self._get_orbitals_up(embeddings_dn), self.n_electrons, self.n_up)
+            orbitals = self._get_orbitals_up(embeddings_dn)
+            if isinstance(orbitals, NodeWithFwdLap):
+                return _swap_spin_updn_with_fwd_lap(orbitals, self.n_electrons, self.n_up)
+            else:
+                return _swap_spin_updn(orbitals, self.n_electrons, self.n_up)
         else:
             return self.to_orbitals_dn(embeddings_dn)
 
@@ -85,7 +107,6 @@ class Orbitals(nn.Module):
     def __call__(self, electrons, embeddings, return_state=False):
         r_up, r_dn = jnp.split(electrons, [self.n_up], axis=-2)
         h_up, h_dn = jnp.split(embeddings, [self.n_up], axis=-2)
-        h_dn = embeddings[..., self.n_up :, :]
         orb_raw_up, orb_raw_dn = self._get_orbitals_up(h_up), self._get_orbitals_dn(h_dn)
         env_up, env_dn = self._get_envelopes_up(r_up), self._get_envelopes_dn(r_dn)
         orb_raw = jnp.concatenate([orb_raw_up, orb_raw_dn], axis=-1)
@@ -120,17 +141,33 @@ class Orbitals(nn.Module):
         orbitals = einops.rearrange(orb_raw * env, "el (det orb) -> det el orb", det=self.n_determinants)
         return orbitals, OrbitalState(env, orb_raw)
 
-    # def fwd_lap(self, params, electrons: Electrons, embeddings, static: S):
-    #     embeddings, dependencies = self.embedding.apply_with_fwd_lap(params.embedding, electrons, static)
-    #     orbitals = self._orbitals_with_fwd_lap_folx(params, electrons, embeddings)
+    def fwd_lap(self, params, electrons: Electrons, embeddings):
+        orbitals = self._orbitals_with_fwd_lap_folx(params, electrons, embeddings)
 
-    #     # vmap over determinants
-    #     signs, logdets = jax.vmap(lambda o: slogdet_with_sparse_fwd_lap(o, dependencies), in_axes=-3, out_axes=-1)(
-    #         orbitals
-    #     )
-    #     logpsi = fwd_lap(lambda logdets_: jax.nn.logsumexp(logdets_, b=signs, return_sign=True)[0])(logdets)
-    #     logpsi_jastrow = self.jastrow.apply_with_fwd_lap(params.jastrow, electrons, embeddings, dependencies)
-    #     logpsi = tree_add(logpsi, logpsi_jastrow)
-    #     return logpsi
+        r_up, r_dn = jnp.split(electrons, [self.n_up], axis=-2)
+        env_up = jax.vmap(fwd_lap(lambda r: self.apply(params, r, method=self._get_envelopes_up)))(r_up)
+        env_dn = jax.vmap(fwd_lap(lambda r: self.apply(params, r, method=self._get_envelopes_dn)))(r_dn)
+        envelopes = jtu.tree_map(lambda u, d: jnp.concatenate([u, d], axis=-2), env_up, env_dn)
 
-    # def fwd_lap_sparse()
+        if isinstance(embeddings, FwdLaplArray):
+            # Use folx to compute the raw orbitals
+            h_up, h_dn = jtu.tree_map(lambda h: jnp.split(h, [self.n_up], axis=-2), embeddings)
+            orb_raw_up = jax.vmap(fwd_lap(lambda h: self.apply(params, h, method=self._get_orbitals_up)))(h_up)
+            orb_raw_dn = jax.vmap(fwd_lap(lambda h: self.apply(params, h, method=self._get_orbitals_dn)))(h_dn)
+
+            orbitals = jtu.tree_map(lambda u, d: jnp.concatenate([u, d], axis=-2), orb_raw_up, orb_raw_dn)
+            orbitals = jax.vmap(
+                fwd_lap(lambda o, e: jnp.reshape(o * e, [self.n_determinants, self.n_electrons])),
+                in_axes=(-2, -2),
+                out_axes=-2,
+            )(orbitals, envelopes)
+        else:
+            orb_raw_up = self.apply(params, embeddings, method=self._get_orbitals_up)
+            orb_raw_dn = self.apply(params, embeddings, method=self._get_orbitals_dn)
+            orb_raw = merge_up_down(orb_raw_up, orb_raw_dn, self.n_up, self.n_electrons)
+            orbitals = multiply_with_1el_fn(orb_raw, envelopes)
+            phi = einops.rearrange(orbitals.x, "el (det orb) -> det el orb", det=self.n_determinants)
+            lap = einops.rearrange(orbitals.lap, "el (det orb) -> det el orb", det=self.n_determinants)
+            jac = einops.rearrange(orbitals.jac, "pair (det orb) -> det pair orb", det=self.n_determinants)
+            orbitals = NodeWithFwdLap(phi, jac, lap, orbitals.idx_ctr, orbitals.idx_dep)
+        return orbitals
