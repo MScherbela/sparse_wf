@@ -4,6 +4,7 @@ from typing import Literal, NamedTuple, cast
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 from folx.api import FwdJacobian, FwdLaplArray
 from jaxtyping import Array, Float
 
@@ -94,10 +95,10 @@ def sum_fwd_lap(x: FwdLaplArray, dependencies, n_el: int) -> FwdLaplArray:
 def att_to_mlp_inp(attention, values, n_up, dependencies=None):
     n_el = attention.shape[-2]
     if isinstance(attention, FwdLaplArray):
-        up_norm = sum_fwd_lap(jax.tree.map(lambda x: x[..., :n_up, :], attention), dependencies[:n_up], n_el)
-        down_norm = sum_fwd_lap(jax.tree.map(lambda x: x[..., n_up:, :], attention), dependencies[n_up:], n_el)
-        up_values = sum_fwd_lap(jax.tree.map(lambda x: x[..., :n_up, :, :], values), dependencies[:n_up], n_el)
-        down_values = sum_fwd_lap(jax.tree.map(lambda x: x[..., n_up:, :, :], values), dependencies[n_up:], n_el)
+        up_norm = sum_fwd_lap(jtu.tree_map(lambda x: x[..., :n_up, :], attention), dependencies[:n_up], n_el)
+        down_norm = sum_fwd_lap(jtu.tree_map(lambda x: x[..., n_up:, :], attention), dependencies[n_up:], n_el)
+        up_values = sum_fwd_lap(jtu.tree_map(lambda x: x[..., :n_up, :, :], values), dependencies[:n_up], n_el)
+        down_values = sum_fwd_lap(jtu.tree_map(lambda x: x[..., n_up:, :, :], values), dependencies[n_up:], n_el)
     else:
         up_norm, down_norm = attention[:n_up].sum(0), attention[n_up:].sum(0)
         up_values, down_values = values[:n_up].sum(0), values[n_up:].sum(0)
