@@ -19,22 +19,23 @@ class OrbitalState(NamedTuple):
 
 def _swap_spin_updn(phi, n_electrons, n_up):
     # Input shape: [... x (dets*orbitals) ]"
-    phi = phi.reshape([*phi.shape[-1], -1, n_electrons])  # split off det axis
+    phi = einops.rearrange(phi, "... (det orb) -> ... det orb", orb=n_electrons)
     phi = jnp.concatenate([phi[..., n_up:], phi[..., :n_up]], axis=-1)  # swap spin up and down
-    return phi.reshape([*phi.shape[:-2], -1])  # flatten det axis
+    phi = einops.rearrange(phi, "... det orb -> ... (det orb)", orb=n_electrons)
+    return phi
 
 
 def _swap_spin_updn_with_fwd_lap(phi: NodeWithFwdLap, n_electrons, n_up):
     x = _swap_spin_updn(phi.x, n_electrons, n_up)
     lap = _swap_spin_updn(phi.lap, n_electrons, n_up)
-    jac = phi.jac.reshape([*phi.shape[:-1], -1, n_electrons])  # [pair(el,dep) x xyz x det x orb]
+    jac = einops.rearrange(phi.jac, "... (det orb) -> ... det orb", orb=n_electrons)
     jac_swapped = jnp.concatenate([jac[..., n_up:], jac[..., :n_up]], axis=-1)
     jac = jnp.where(
         (phi.idx_ctr < n_up)[:, None, None, None],
         jac,
         jac_swapped,
     )
-    jac = jac.reshape([*jac.shape[:-2], -1])
+    jac = einops.rearrange(jac, "... det orb -> ... (det orb)", orb=n_electrons)
     return NodeWithFwdLap(x, jac, lap, phi.idx_ctr, phi.idx_dep)
 
 
@@ -49,13 +50,13 @@ class Orbitals(nn.Module):
 
     def setup(self):
         self.to_orbitals_up = Linear(
-            self.n_orbitals * self.n_determinants,
+            self.n_electrons * self.n_determinants,
             bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
             name="to_orbitals_up",
         )
         if not self.spin_restricted:
             self.to_orbitals_dn = Linear(
-                self.n_orbitals * self.n_determinants,
+                self.n_electrons * self.n_determinants,
                 bias_init=nn.initializers.truncated_normal(0.01, jnp.float32),
                 name="to_orbitals_dn",
             )
@@ -94,11 +95,11 @@ class Orbitals(nn.Module):
             return self.to_orbitals_dn(embeddings_dn)
 
     def _get_envelopes_up(self, electrons_up):
-        diffs = electrons_up[:, None, :] - self.R[None, :, :]
+        diffs = electrons_up[..., None, :] - self.R
         return self.envelope_up(diffs)
 
     def _get_envelopes_dn(self, electrons_dn):
-        diffs = electrons_dn[:, None, :] - self.R[None, :, :]
+        diffs = electrons_dn[..., None, :] - self.R
         if self.spin_restricted:
             return _swap_spin_updn(self._get_envelopes_up(electrons_dn), self.n_electrons, self.n_up)
         else:
@@ -109,11 +110,12 @@ class Orbitals(nn.Module):
         h_up, h_dn = jnp.split(embeddings, [self.n_up], axis=-2)
         orb_raw_up, orb_raw_dn = self._get_orbitals_up(h_up), self._get_orbitals_dn(h_dn)
         env_up, env_dn = self._get_envelopes_up(r_up), self._get_envelopes_dn(r_dn)
-        orb_raw = jnp.concatenate([orb_raw_up, orb_raw_dn], axis=-1)
-        env = jnp.concatenate([env_up, env_dn], axis=-1)
+        orb_raw = jnp.concatenate([orb_raw_up, orb_raw_dn], axis=-2)
+        env = jnp.concatenate([env_up, env_dn], axis=-2)
         orbitals = einops.rearrange(orb_raw * env, "el (det orb) -> det el orb", det=self.n_determinants)  # type: ignore
         if return_state:
             return orbitals, OrbitalState(env, orb_raw)
+        return orbitals
 
     def low_rank_update(
         self,
@@ -126,14 +128,14 @@ class Orbitals(nn.Module):
     ):
         # One could do better here by only recomputing the spins that have changed (instead of both and selecting with where)
         envelope_update = jnp.where(
-            idx_changed_el < self.n_up,
-            self.apply(params, electrons[idx_changed_el], method=self._get_envelopes_dn),  # type: ignore
+            (idx_changed_el < self.n_up)[:, None],
             self.apply(params, electrons[idx_changed_el], method=self._get_envelopes_up),  # type: ignore
+            self.apply(params, electrons[idx_changed_el], method=self._get_envelopes_dn),  # type: ignore
         )
         env = state.envelopes.at[idx_changed_el].set(envelope_update)
 
         orb_update = jnp.where(
-            idx_changed_h < self.n_up,
+            (idx_changed_h < self.n_up)[:, None],
             self.apply(params, embeddings[idx_changed_h], method=self._get_orbitals_up),  # type: ignore
             self.apply(params, embeddings[idx_changed_h], method=self._get_orbitals_dn),  # type: ignore
         )
@@ -142,12 +144,10 @@ class Orbitals(nn.Module):
         return orbitals, OrbitalState(env, orb_raw)
 
     def fwd_lap(self, params, electrons: Electrons, embeddings):
-        orbitals = self._orbitals_with_fwd_lap_folx(params, electrons, embeddings)
-
         r_up, r_dn = jnp.split(electrons, [self.n_up], axis=-2)
         env_up = jax.vmap(fwd_lap(lambda r: self.apply(params, r, method=self._get_envelopes_up)))(r_up)
         env_dn = jax.vmap(fwd_lap(lambda r: self.apply(params, r, method=self._get_envelopes_dn)))(r_dn)
-        envelopes = jtu.tree_map(lambda u, d: jnp.concatenate([u, d], axis=-2), env_up, env_dn)
+        envelopes = jtu.tree_map(lambda u, d: jnp.concatenate([u, d], axis=0), env_up, env_dn)
 
         if isinstance(embeddings, FwdLaplArray):
             # Use folx to compute the raw orbitals
@@ -158,16 +158,14 @@ class Orbitals(nn.Module):
             orbitals = jtu.tree_map(lambda u, d: jnp.concatenate([u, d], axis=-2), orb_raw_up, orb_raw_dn)
             orbitals = jax.vmap(
                 fwd_lap(lambda o, e: jnp.reshape(o * e, [self.n_determinants, self.n_electrons])),
-                in_axes=(-2, -2),
-                out_axes=-2,
             )(orbitals, envelopes)
         else:
             orb_raw_up = self.apply(params, embeddings, method=self._get_orbitals_up)
             orb_raw_dn = self.apply(params, embeddings, method=self._get_orbitals_dn)
-            orb_raw = merge_up_down(orb_raw_up, orb_raw_dn, self.n_up, self.n_electrons)
+            orb_raw = merge_up_down(orb_raw_up, orb_raw_dn, self.n_electrons, self.n_up)
             orbitals = multiply_with_1el_fn(orb_raw, envelopes)
             phi = einops.rearrange(orbitals.x, "el (det orb) -> det el orb", det=self.n_determinants)
             lap = einops.rearrange(orbitals.lap, "el (det orb) -> det el orb", det=self.n_determinants)
-            jac = einops.rearrange(orbitals.jac, "pair (det orb) -> det pair orb", det=self.n_determinants)
+            jac = einops.rearrange(orbitals.jac, "pair dim (det orb) -> det pair dim orb", det=self.n_determinants)
             orbitals = NodeWithFwdLap(phi, jac, lap, orbitals.idx_ctr, orbitals.idx_dep)
         return orbitals
