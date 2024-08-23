@@ -44,6 +44,30 @@ class NodeWithFwdLap(PyTreeNode):
         jac = jac.at[self.idx_dep, :, ...].add(self.jac, mode="drop")
         return FwdLaplArray(x, FwdJacobian(jac.reshape([n_el * 3, *feature_dims])), lap)
 
+    def sum_from_to(self, lower, upper) -> FwdLaplArray:
+        n_el = self.x.shape[0]
+        feature_dims = self.x.shape[1:]
+        x = jnp.sum(self.x, axis=0)
+        lap = jnp.sum(self.lap, axis=0)
+        # TODO: Should this be idx_dep or idx_ctr?
+        mask = jnp.logical_and(self.idx_ctr >= lower, self.idx_ctr < upper)
+        mask = mask[:, *[None] * (self.jac.ndim - 1)]
+        jac = jnp.zeros_like(self.jac, shape=[n_el, 3, *feature_dims])
+        jac = jac.at[self.idx_dep, :, ...].add(self.jac * mask, mode="drop")
+        return FwdLaplArray(x, FwdJacobian(jac.reshape([n_el * 3, *feature_dims])), lap)
+
+    def sum(self, axis):
+        assert isinstance(axis, int)
+        axis = axis % self.x.ndim
+        assert axis != 0, "Cannot sum over the first axis, use sum_over_nodes instead"
+        return NodeWithFwdLap(
+            jnp.sum(self.x, axis),
+            jnp.sum(self.jac, 1 + axis),
+            jnp.sum(self.lap, axis),
+            self.idx_ctr,
+            self.idx_dep,
+        )
+
     def to_folx(self):
         return FwdLaplArray(self.x, FwdJacobian(self.dense_jac()), self.lap)
 
@@ -62,7 +86,38 @@ class NodeWithFwdLap(PyTreeNode):
             raise TypeError(f"Unsupported type for addition with NodeWithFwdLap: {type(other)}")
 
     def __mul__(self, scalar: float) -> "NodeWithFwdLap":
+        if isinstance(scalar, NodeWithFwdLap):
+            # TODO: This only works if both have the same dependencies otherwise this will result in a wrong laplacian
+            y = self.x * scalar.x
+            jac = self.jac * scalar.x.at[self.idx_ctr, None].get(mode="fill", fill_value=0.0) + scalar.jac * self.x.at[
+                self.idx_ctr, None
+            ].get(mode="fill", fill_value=0.0)
+            lap = self.lap * scalar.x + self.x * scalar.lap
+            # TODO: Should this be idx_dep or idx_ctr?
+            lap = lap.at[self.idx_dep, ...].add(2 * jnp.sum(self.jac * scalar.jac, axis=1), mode="drop")
+            return NodeWithFwdLap(y, jac, lap, self.idx_ctr, self.idx_dep)
         return NodeWithFwdLap(self.x * scalar, self.jac * scalar, self.lap * scalar, self.idx_ctr, self.idx_dep)
+
+    def __getitem__(self, idx):
+        assert self.x[idx].shape[0] == self.x.shape[0], "Indexing must not change the number of elements"
+        return NodeWithFwdLap(
+            self.x[idx],
+            jax.vmap(lambda x: x[idx], in_axes=1, out_axes=1)(self.jac),
+            self.lap[idx],
+            self.idx_ctr,
+            self.idx_dep,
+        )
+
+    def reshape(self, *shape):
+        new_shape = self.x.reshape(shape).shape
+        assert new_shape[0] == self.x.shape[0]
+        return NodeWithFwdLap(
+            self.x.reshape(new_shape),
+            self.jac.reshape([*self.jac.shape[:2], *new_shape[1:]]),
+            self.lap.reshape(new_shape),
+            self.idx_ctr,
+            self.idx_dep,
+        )
 
     @property
     def dtype(self):

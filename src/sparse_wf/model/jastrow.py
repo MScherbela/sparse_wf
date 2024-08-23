@@ -11,7 +11,7 @@ from jaxtyping import Array, Float
 from sparse_wf.api import ElectronIdx, Electrons, SignedLogAmplitude
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.model.utils import MLP, get_dist_same_diff
-from sparse_wf.model.sparse_fwd_lap import SparseMLP
+from sparse_wf.model.sparse_fwd_lap import ElementWise, Linear, SparseMLP
 from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap
 
@@ -67,16 +67,16 @@ class GlobalAttentionJastrowAttentionValues(nn.Module):
     @nn.compact
     def __call__(self, h: Float[Array, "n_nodes feature_dim"]):
         register_keys = self.param("register_keys", nn.initializers.normal(1), (self.n_register, self.register_dim))
-        queries = nn.Dense(self.n_register * self.register_dim)(h).reshape(
+        queries = Linear(self.n_register * self.register_dim)(h).reshape(
             *h.shape[:-1], self.n_register, self.register_dim
         )
-        values = nn.Dense(self.n_register * self.register_dim)(h).reshape(
+        values = Linear(self.n_register * self.register_dim)(h).reshape(
             *h.shape[:-1], self.n_register, self.register_dim
         )
 
         # folx-friendly version of the inner product
-        attention = (register_keys * queries).sum(-1)
-        attention = jnp.exp(-attention / jnp.sqrt(self.register_dim))
+        attention = (queries * register_keys).sum(-1)
+        attention = ElementWise(lambda x: jnp.exp(-x / jnp.sqrt(self.register_dim)))(attention)
         return attention, attention[..., None] * values  # attention is el x reg, values is el x reg x dim
 
 
@@ -99,6 +99,11 @@ def att_to_mlp_inp(attention, values, n_up, dependencies=None):
         down_norm = sum_fwd_lap(jtu.tree_map(lambda x: x[..., n_up:, :], attention), dependencies[n_up:], n_el)
         up_values = sum_fwd_lap(jtu.tree_map(lambda x: x[..., :n_up, :, :], values), dependencies[:n_up], n_el)
         down_values = sum_fwd_lap(jtu.tree_map(lambda x: x[..., n_up:, :, :], values), dependencies[n_up:], n_el)
+    elif isinstance(attention, NodeWithFwdLap):
+        up_norm = attention.sum_from_to(0, n_up)
+        down_norm = attention.sum_from_to(n_up, n_el)
+        up_values = values.sum_from_to(0, n_up)
+        down_values = values.sum_from_to(n_up, n_el)
     else:
         up_norm, down_norm = attention[:n_up].sum(0), attention[n_up:].sum(0)
         up_values, down_values = values[:n_up].sum(0), values[n_up:].sum(0)
@@ -176,7 +181,8 @@ class Jastrow(nn.Module):
             jastrows_before_sum = self._apply_mlp(embeddings)
             jastrows_after_sum = jastrows_before_sum.sum(axis=0)
             J_attention, J_values = self._apply_att_jastrow_inp(embeddings)
-            jastrows_after_sum += self._apply_att_jastrow(*att_to_mlp_inp(J_attention, J_values, self.n_up))
+            if self.use_attention:
+                jastrows_after_sum += self._apply_att_jastrow(*att_to_mlp_inp(J_attention, J_values, self.n_up))
             J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum.sum(axis=0))
             sign *= J_sign
             logpsi += J_logpsi
@@ -212,7 +218,8 @@ class Jastrow(nn.Module):
                 J_attention, J_values = self._apply_att_jastrow_inp(embeddings[changed_embeddings])
                 J_attention = state.attention.at[changed_embeddings].set(J_attention)
                 J_values = state.values.at[changed_embeddings].set(J_values)
-                jastrows_after_sum += self._apply_att_jastrow(*att_to_mlp_inp(J_attention, J_values, self.n_up))
+                if self.use_attention:
+                    jastrows_after_sum += self._apply_att_jastrow(*att_to_mlp_inp(J_attention, J_values, self.n_up))
             else:
                 J_attention, J_values = jnp.zeros(()), jnp.zeros(())
             J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_after_sum)
@@ -231,9 +238,7 @@ class Jastrow(nn.Module):
         return jnp.zeros(()), jnp.zeros(())
 
     def _apply_att_jastrow(self, attention, values):
-        if self.att_out:
-            return self.att_out(attention, values)
-        return jnp.array([0, 1])
+        return self.att_out(attention, values)
 
     def _mlp_to_logpsi(self, jastrows):
         assert jastrows.shape == (2,)
@@ -280,7 +285,14 @@ class Jastrow(nn.Module):
                     jastrows = tree_add(jastrows, fwd_lap(_get_att_jastrow, argnums=(0, 1))(J_norm, J_vals))
             elif isinstance(embeddings, NodeWithFwdLap):
                 jastrows = cast(NodeWithFwdLap, _get_jastrows(embeddings)).sum_over_nodes()
-                # TODO: Implement attention for new sparse format
+
+                if self.use_attention:
+                    _get_att_inp = functools.partial(self.apply, params, method=self._apply_att_jastrow_inp)
+                    J_attention, J_values = _get_att_inp(embeddings)
+                    J_attention, J_values = att_to_mlp_inp(J_attention, J_values, self.n_up, dependencies)
+                    _get_att_out = functools.partial(self.apply, params, method=self._apply_att_jastrow)
+                    _get_att_out = fwd_lap(_get_att_out, argnums=(0, 1))
+                    jastrows = tree_add(jastrows, _get_att_out(J_attention, J_values))
             logpsi_jastrow = fwd_lap(lambda J: self._mlp_to_logpsi(J)[1])(jastrows)
             logpsi = tree_add(logpsi, logpsi_jastrow)
         return logpsi
