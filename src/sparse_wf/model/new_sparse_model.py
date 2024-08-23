@@ -2,7 +2,7 @@
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.struct import PyTreeNode
-from sparse_wf.api import ElectronIdx, Parameters, Int, Nuclei, Electrons, Charges, ScalingParam
+from sparse_wf.api import ElectronIdx, Parameters, Int, Nuclei, Electrons, Charges, ScalingParam, StaticInput
 from sparse_wf.static_args import round_with_padding
 from sparse_wf.model.utils import (
     GatedLinearUnit,
@@ -25,11 +25,13 @@ import functools
 from folx.api import FwdLaplArray, FwdJacobian
 from jaxtyping import Float, Array
 import jax.tree_util as jtu
+from flax import struct
 
 T = TypeVar("T", bound=int | Int)
 
 
-class StaticArgs(NamedTuple, Generic[T]):
+@struct.dataclass
+class StaticArgs(StaticInput, Generic[T]):
     n_pairs_same: T
     n_pairs_diff: T
     n_triplets: T
@@ -37,9 +39,6 @@ class StaticArgs(NamedTuple, Generic[T]):
     n_changed_hout: T
     n_changed_pair_same: T
     n_changed_pair_diff: T
-
-    def to_static(self):
-        return StaticArgs(jtu.tree_map(lambda x: int(jnp.max(x)), self))
 
     def get_max(self, n_el, n_up, n_nuc):
         n_dn = n_el - n_up
@@ -56,20 +55,10 @@ class StaticArgs(NamedTuple, Generic[T]):
             max_pairs_diff,
         )
 
+    # @override
     def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
         max_values = self.get_max(n_el, n_up, n_nuc)
         return jtu.tree_map(lambda x, max_x: round_with_padding(x, padding_factor, max_x), self, max_values)
-
-    def to_log_data(self):
-        return {
-            "static/rounded.n_pairs_same": self.n_pairs_same,
-            "static/rounded.n_pairs_diff": self.n_pairs_diff,
-            "static/rounded.n_triplets": self.n_triplets,
-            "static/rounded.n_neighbours_en": self.n_neighbours_en,
-            "static/rounded.n_changed_hout": self.n_changed_hout,
-            "static/rounded.n_changed_pair_same": self.n_changed_pair_same,
-            "static/rounded.n_changed_pair_diff": self.n_changed_pair_diff,
-        }
 
 
 def contract(h_residual, h_ct, h_nb, Gamma, edges, idx_ctr, idx_nb):

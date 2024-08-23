@@ -57,7 +57,12 @@ def convert_to_default_datatype(config_dict, default_dict):
     elif config_dict is None:
         pass
     else:
-        config_dict = type(default_dict)(config_dict)
+        target_type = type(default_dict)
+        if (target_type is bool) and isinstance(config_dict, str):
+            assert config_dict.lower() in ["true", "false", "0", "1"]
+            config_dict = config_dict.lower() in ["true", "1"]
+        else:
+            config_dict = target_type(config_dict)
     return config_dict
 
 
