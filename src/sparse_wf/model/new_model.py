@@ -22,7 +22,6 @@ from sparse_wf.model.graph_utils import (
 )
 from sparse_wf.model.moon import GatedLinearUnit
 from sparse_wf.model.utils import (
-    MLP,
     DynamicFilterParams,
     PairwiseFilter,
     ScalingParam,
@@ -167,81 +166,12 @@ class ElecUpdate(nn.Module):
         return out + h
 
 
-class ElecToRegister(nn.Module):
-    n_register: int
-    register_dim: int
-
-    @nn.compact
-    def __call__(
-        self,
-        h: Float[Array, "n_nodes feature_dim"],
-        spin: Integer[Array, " n_nodes"],
-    ):
-        # Inspired by https://openreview.net/forum?id=2dnO3LLiJ1
-        register_keys = self.param("register_keys", nn.initializers.normal(1), (self.n_register, self.register_dim))
-        queries = nn.Dense(self.n_register * self.register_dim)(h).reshape(-1, self.n_register, self.register_dim)
-        values = nn.Dense(self.n_register * self.register_dim)(h).reshape(-1, self.n_register, self.register_dim)
-
-        attention = jnp.einsum("rd,nrd->nr", register_keys, queries)
-        attention = jax.nn.softmax(attention / jnp.sqrt(self.register_dim), axis=0)
-        register_vals = jnp.einsum("nr,nrd->rd", attention, values)
-        # These registers we would have to treat as new particles for our jacobian.
-        register = register_vals.reshape(-1)
-        register = nn.LayerNorm()(register)
-        return register
-
-
-class RegisterToElec(nn.Module):
-    heads: int
-    out_dim: int
-
-    @nn.compact
-    def __call__(
-        self,
-        h: Float[Array, "n_nodes feature_dim"],
-        register: Float[Array, " reg_dim"],
-        spin: Integer[Array, " n_nodes"],
-    ):
-        att_dim = self.out_dim // self.heads
-        register = nn.LayerNorm()(register)
-        register = MLP([h.shape[-1]] * 2 + [self.heads * att_dim * 2])(register)
-        queries, values = jnp.split(register.reshape(2 * self.heads, att_dim), 2, 0)
-        keys = nn.Dense(self.heads * att_dim)(h).reshape(-1, self.heads, att_dim)
-        attention = jnp.einsum("nrd,rd->nr", keys, queries)
-        attention = jax.nn.softmax(attention / jnp.sqrt(att_dim), axis=1)
-        out = jnp.einsum("nr,rd->nrd", attention, values).reshape(-1, self.out_dim)
-
-        # This is from psiformer
-        h += out
-        h = nn.LayerNorm()(h)
-
-        mlp_out = nn.silu(nn.Dense(self.out_dim)(h))
-
-        h += mlp_out
-        h = nn.LayerNorm()(h)
-        return h
-
-
-class RegisterAttention(nn.Module):
-    out_dim: int
-    n_register: int = 4
-    register_dim: int = 4
-    heads: int = 4
-
-    @nn.compact
-    def __call__(self, h: Float[Array, "n_nodes feature_dim"], spin: Integer[Array, " n_nodes"]):
-        # register = ElecToRegister(self.n_register, self.register_dim)(h, spin)
-        # h = RegisterToElec(self.heads, self.out_dim)(h, register, spin)
-        return h
-
-
 class EmbeddingParams(NamedTuple):
     dynamic_params_en: NucleusDependentParams
     init_params: Parameters
     edge_params: Parameters
     update_params: tuple[Parameters, ...]
     scales: tuple[ScalingParam, ...]
-    register: Parameters
 
 
 class EmbeddingState(NamedTuple):
@@ -297,7 +227,6 @@ class NewEmbedding(struct.PyTreeNode, Embedding[EmbeddingParams, StaticInputNewM
     elec_init: ElecInit
     edge: ElecElecEdges
     updates: tuple[ElecUpdate, ...]
-    register: RegisterAttention
 
     @classmethod
     def create(
@@ -330,7 +259,6 @@ class NewEmbedding(struct.PyTreeNode, Embedding[EmbeddingParams, StaticInputNewM
             elec_init=ElecInit(cutoff_1el, pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
             edge=ElecElecEdges(cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
             updates=tuple(ElecUpdate() for _ in range(n_updates)),
-            register=RegisterAttention(feature_dim),
         )
 
     @property
@@ -386,7 +314,6 @@ class NewEmbedding(struct.PyTreeNode, Embedding[EmbeddingParams, StaticInputNewM
                 )
                 for upd in self.updates
             ),
-            register=self.register.init(next(rng_seq), features_nb_dummy, spin_nb_dummy),
             scales=(),
         )
         _, scales = self.apply(params, electrons, static, return_scales=True)
@@ -436,9 +363,6 @@ class NewEmbedding(struct.PyTreeNode, Embedding[EmbeddingParams, StaticInputNewM
             diff, new_scales.diff = normalize(diff, next(scale_seq), return_scale=True)
             h = fwd_fn(p, h, gamma, feat, same[ee_idx], diff[ee_idx], self.spins, s_nb)
             h, new_scales.h = normalize(h, next(scale_seq), return_scale=True)
-
-        # register attention
-        h = self.register.apply(params.register, h, self.spins)
 
         # return
         if return_state:
