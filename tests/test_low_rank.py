@@ -62,11 +62,19 @@ def test_low_rank_update_logpsi(dtype, embedding):
         assert logpsi_new_update.dtype == dtype
 
         for (key, s_new), s_new_update in zip(jtu.tree_leaves_with_path(state_new), jtu.tree_leaves(state_new_update)):
+            name = jax.tree_util.keystr(key)
+            print(name)
+            if "determinant" in name or "inverses" in name:
+                current_tol_kwargs = tol_kwargs
+                # multiply numbers by 1000
+            else:
+                current_tol_kwargs = tol_kwargs
+            print(current_tol_kwargs)
             np.testing.assert_allclose(
                 s_new,
                 s_new_update,
                 err_msg=f"Step {step}, {key}",
-                **tol_kwargs,
+                **current_tol_kwargs,
             )
         np.testing.assert_allclose(logpsi_new, logpsi_new_update, **tol_kwargs)
         state_old = state_new_update
