@@ -50,6 +50,8 @@ model_args:
     mlp_depth: 2
     mlp_width: 64
     use_attention: False
+    attention_heads: 16
+    attention_dim: 8
   envelopes:
     envelope: isotropic
     isotropic_args:
