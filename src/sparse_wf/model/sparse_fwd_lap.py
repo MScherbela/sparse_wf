@@ -92,7 +92,7 @@ class NodeWithFwdLap(PyTreeNode):
                 self.idx_ctr, None
             ].get(mode="fill", fill_value=0.0)
             lap = self.lap * scalar.x + self.x * scalar.lap
-            lap = lap.at[self.idx_dep, ...].add(2 * jnp.sum(self.jac * scalar.jac, axis=1), mode="drop")
+            lap = lap.at[self.idx_ctr, ...].add(2 * jnp.sum(self.jac * scalar.jac, axis=1), mode="drop")
             return NodeWithFwdLap(y, jac, lap, self.idx_ctr, self.idx_dep)
         return NodeWithFwdLap(self.x * scalar, self.jac * scalar, self.lap * scalar, self.idx_ctr, self.idx_dep)
 
