@@ -10,9 +10,9 @@ from jaxtyping import Array, Float
 
 from sparse_wf.api import ElectronIdx, Electrons, SignedLogAmplitude
 from sparse_wf.jax_utils import fwd_lap
-from sparse_wf.model.graph_utils import NO_NEIGHBOUR
+from sparse_wf.model.graph_utils import NO_NEIGHBOUR, sum_fwd_lap
 from sparse_wf.model.utils import MLP, get_dist_same_diff, get_logscaled_diff_features
-from sparse_wf.model.sparse_fwd_lap import ElementWise, Linear, SparseMLP, sum_fwd_lap
+from sparse_wf.model.sparse_fwd_lap import ElementWise, Linear, SparseMLP
 from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap
 from flax.struct import PyTreeNode

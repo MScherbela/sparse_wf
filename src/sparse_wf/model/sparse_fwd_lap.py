@@ -47,9 +47,8 @@ class NodeWithFwdLap(PyTreeNode):
     def sum_from_to(self, lower, upper) -> FwdLaplArray:
         n_el = self.x.shape[0]
         feature_dims = self.x.shape[1:]
-        x = jnp.sum(self.x, axis=0)
-        lap = jnp.sum(self.lap, axis=0)
-        # TODO: Should this be idx_dep or idx_ctr?
+        x = jnp.sum(self.x[lower:upper], axis=0)
+        lap = jnp.sum(self.lap[lower:upper], axis=0)
         mask = jnp.logical_and(self.idx_ctr >= lower, self.idx_ctr < upper)
         mask = mask[:, *[None] * (self.jac.ndim - 1)]
         jac = jnp.zeros_like(self.jac, shape=[n_el, 3, *feature_dims])
@@ -93,7 +92,6 @@ class NodeWithFwdLap(PyTreeNode):
                 self.idx_ctr, None
             ].get(mode="fill", fill_value=0.0)
             lap = self.lap * scalar.x + self.x * scalar.lap
-            # TODO: Should this be idx_dep or idx_ctr?
             lap = lap.at[self.idx_dep, ...].add(2 * jnp.sum(self.jac * scalar.jac, axis=1), mode="drop")
             return NodeWithFwdLap(y, jac, lap, self.idx_ctr, self.idx_dep)
         return NodeWithFwdLap(self.x * scalar, self.jac * scalar, self.lap * scalar, self.idx_ctr, self.idx_dep)
@@ -309,15 +307,3 @@ def get(x, idx, fill_value=0.0):
         return x.at[idx].get(mode="fill", fill_value=fill_value)
     else:
         return jtu.tree_map(lambda y: y.at[idx].get(mode="fill", fill_value=fill_value), x)
-
-
-def sum_fwd_lap(x: FwdLaplArray, dependencies, n_el: int) -> FwdLaplArray:
-    out_jac = jnp.zeros((n_el, 3, *x.shape[1:]), x.x.dtype)
-    jac = x.jacobian.data
-    jac = jac.reshape((n_el, 3, *jac.shape[1:]))
-    jac = jnp.swapaxes(jac, 1, 2)
-    out_jac = out_jac.at[dependencies.T].add(jac, mode="drop")
-    out_jac = out_jac.reshape(n_el * 3, *x.shape[1:])
-    y = x.x.sum(0)
-    y_lapl = x.laplacian.sum(0)
-    return FwdLaplArray(x=y, jacobian=FwdJacobian(out_jac), laplacian=y_lapl)
