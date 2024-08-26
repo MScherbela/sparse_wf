@@ -126,7 +126,8 @@ class Orbitals(nn.Module):
         idx_changed_h: ElectronIdx,
         state: OrbitalState,
     ):
-        # One could do better here by only recomputing the spins that have changed (instead of both and selecting with where)
+        # TODO: One could do better here by only recomputing the spins that have changed (instead of both and selecting with where)
+        # Requires introduction of new static variables (n_changed_hout_up, n_chainged_hout_dn)
         envelope_update = jnp.where(
             (idx_changed_el < self.n_up)[:, None],
             self.apply(params, electrons[idx_changed_el], method=self._get_envelopes_up),  # type: ignore

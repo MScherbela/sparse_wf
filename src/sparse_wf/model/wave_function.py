@@ -76,9 +76,6 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
     spin_restricted: bool
 
     # Submodules
-    # to_orbitals_up: nn.Dense | Linear
-    # to_orbitals_dn: Optional[nn.Dense | Linear]
-    # envelope: Envelope
     embedding: Embedding[T, S, ES]
     to_orbitals: Orbitals
     jastrow: Jastrow
@@ -195,11 +192,6 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         embeddings = self.embedding.apply(params.embedding, electrons, static)
         orbitals = self.to_orbitals.apply(params.to_orbitals, electrons, embeddings)
         return cast(SlaterMatrices, (orbitals,))
-
-    # def orbitals_with_fwd_lap(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> FwdLaplArray:
-    #     embeddings, dependencies = self.embedding.apply_with_fwd_lap(params.embedding, electrons, static)
-    #     orbitals = self._orbitals_with_fwd_lap_folx(params, electrons, embeddings)
-    #     return orbitals, dependencies
 
     def __call__(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LogAmplitude:
         return self.signed(params, electrons, static)[1]
