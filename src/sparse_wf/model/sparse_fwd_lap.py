@@ -309,3 +309,15 @@ def get(x, idx, fill_value=0.0):
         return x.at[idx].get(mode="fill", fill_value=fill_value)
     else:
         return jtu.tree_map(lambda y: y.at[idx].get(mode="fill", fill_value=fill_value), x)
+
+
+def sum_fwd_lap(x: FwdLaplArray, dependencies, n_el: int) -> FwdLaplArray:
+    out_jac = jnp.zeros((n_el, 3, *x.shape[1:]), x.x.dtype)
+    jac = x.jacobian.data
+    jac = jac.reshape((n_el, 3, *jac.shape[1:]))
+    jac = jnp.swapaxes(jac, 1, 2)
+    out_jac = out_jac.at[dependencies.T].add(jac, mode="drop")
+    out_jac = out_jac.reshape(n_el * 3, *x.shape[1:])
+    y = x.x.sum(0)
+    y_lapl = x.laplacian.sum(0)
+    return FwdLaplArray(x=y, jacobian=FwdJacobian(out_jac), laplacian=y_lapl)

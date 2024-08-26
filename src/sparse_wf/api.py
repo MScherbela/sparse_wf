@@ -439,6 +439,8 @@ class JastrowArgs(TypedDict):
     mlp_depth: int
     mlp_width: int
     use_attention: bool
+    attention_heads: int
+    attention_dim: int
 
 
 class IsotropicEnvelopeArgs(TypedDict):
