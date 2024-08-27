@@ -99,13 +99,13 @@ class GlobalAttentionJastrow(nn.Module):
         jastrow = self.out(values)
         return jastrow * self.scale + jnp.concatenate([jnp.zeros(1), self.bias])
 
+    @staticmethod
     def contract(
-        self,
         attention: Float[Array, "n_nodes n_reg"],
         values: Float[Array, "n_nodes n_reg feature_dim"],
+        n_up: int,
         dependencies=None,
     ):
-        n_up = self.n_up
         n_el = attention.shape[-2]
         if isinstance(attention, FwdLaplArray):
             # sparse folx fwd
@@ -152,7 +152,7 @@ class GlobalAttentionJastrow(nn.Module):
 
     def __call__(self, h: Float[Array, "n_nodes feature_dim"]):
         attention, values = self.attention_and_values(h)
-        return self.readout(*self.contract(attention, values))
+        return self.readout(*self.contract(attention, values, self.n_up))
 
 
 def get_all_pair_indices(n_el: int, n_up: int):
@@ -283,7 +283,7 @@ class Jastrow(nn.Module):
         # Attention Jastrow
         if self.att:
             attention, values = self._apply_attention_and_values(embeddings)
-            jastrows_after_sum += self._apply_attention_readout(*self.att.contract(attention, values))
+            jastrows_after_sum += self._apply_attention_readout(*self.att.contract(attention, values, self.n_up))
         else:
             attention, values = (
                 jnp.zeros((), electrons.dtype),
@@ -433,7 +433,7 @@ class Jastrow(nn.Module):
                     _get_att_inp = functools.partial(self.apply, params, method=self._apply_attention_and_values)
                     _get_att_inp = jax.vmap(fwd_lap(_get_att_inp, argnums=0), in_axes=-2, out_axes=(-2, -3))
                     attention, values = _get_att_inp(embeddings)
-                    norm, values = self.att.contract(attention, values, dependencies)
+                    norm, values = GlobalAttentionJastrow.contract(attention, values, self.n_up, dependencies)  # type: ignore
                     _get_att_jastrow = functools.partial(self.apply, params, method=self._apply_attention_readout)
                     jastrows = tree_add(
                         jastrows,
@@ -442,7 +442,7 @@ class Jastrow(nn.Module):
                 else:
                     _get_att_inp = functools.partial(self.apply, params, method=self._apply_attention_and_values)
                     attention, values = _get_att_inp(embeddings)
-                    norm, values = self.att.contract(attention, values, dependencies)
+                    norm, values = GlobalAttentionJastrow.contract(attention, values, self.n_up, dependencies)  # type: ignore
                     _get_att_out = functools.partial(self.apply, params, method=self._apply_attention_readout)
                     _get_att_out = fwd_lap(_get_att_out, argnums=(0, 1))
                     jastrows = tree_add(jastrows, _get_att_out(norm, values))
