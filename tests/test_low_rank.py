@@ -75,12 +75,9 @@ def test_low_rank_update_logpsi(dtype, embedding):
             )
         np.testing.assert_allclose(logpsi_new, logpsi_new_update, **tol_kwargs)
         state_old = state_new_update
-        logpsi_old = logpsi_new_update
 
 
 if __name__ == "__main__":
     for embedding in ["new_sparse", "moon", "new"]:
-        print("working on embedding", embedding)
         for dtype in [jnp.float64, jnp.float32]:
-            print("working on dtype", dtype)
             test_low_rank_update_logpsi(dtype, embedding)
