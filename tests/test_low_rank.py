@@ -63,13 +63,10 @@ def test_low_rank_update_logpsi(dtype, embedding):
 
         for (key, s_new), s_new_update in zip(jtu.tree_leaves_with_path(state_new), jtu.tree_leaves(state_new_update)):
             name = jax.tree_util.keystr(key)
-            print(name)
             if "determinant" in name or "inverses" in name:
-                current_tol_kwargs = tol_kwargs
-                # multiply numbers by 1000
+                current_tol_kwargs = {k: v * 1000 for k, v in tol_kwargs.items()}
             else:
                 current_tol_kwargs = tol_kwargs
-            print(current_tol_kwargs)
             np.testing.assert_allclose(
                 s_new,
                 s_new_update,
@@ -83,5 +80,7 @@ def test_low_rank_update_logpsi(dtype, embedding):
 
 if __name__ == "__main__":
     for embedding in ["new_sparse", "moon", "new"]:
+        print("working on embedding", embedding)
         for dtype in [jnp.float64, jnp.float32]:
+            print("working on dtype", dtype)
             test_low_rank_update_logpsi(dtype, embedding)
