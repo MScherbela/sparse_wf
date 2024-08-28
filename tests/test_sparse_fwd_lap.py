@@ -106,6 +106,7 @@ def test_energy(dtype):
 
 
 if __name__ == "__main__":
+    # add for loop over moon and new
     for dtype in [jnp.float32, jnp.float64]:
         test_embedding(dtype)
         test_orbitals(dtype)
