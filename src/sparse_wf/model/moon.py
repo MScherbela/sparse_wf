@@ -609,9 +609,11 @@ class MoonEmbedding(PyTreeNode, Embedding[MoonEmbeddingParams, StaticInputMoon, 
 
         @functools.partial(jax.vmap, in_axes=(0, None, None))  # vmap over centers
         def _get_neighbours(dist, cutoff, max_size: int):
-            neg_dists, indices = jax.lax.top_k(-dist, max_size)
-            indices = jnp.where(neg_dists > -cutoff, indices, NO_NEIGHBOUR)
-            return indices
+            # TODO: use this commented code but somehow let FOLX fwd_lap over it without crashing due to gradient of top_k operation
+            # neg_dists, indices = jax.lax.top_k(-dist, max_size)
+            # indices = jnp.where(neg_dists > -cutoff, indices, NO_NEIGHBOUR)
+            # return indices
+            return jnp.where(dist < cutoff, size=max_size, fill_value=NO_NEIGHBOUR)[0]
 
         # Neighbours
         return NeighbourIndices(
