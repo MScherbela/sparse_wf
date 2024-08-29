@@ -1,10 +1,9 @@
 # %%
-import functools
 import os
 import socket
 
 from sparse_wf.model.utils import get_relative_tolerance
-from utils import build_atom_chain, build_model, change_float_dtype
+from utils import setup_inputs
 
 # ruff: noqa: E402 # Allow setting environment variables before importing jax
 if socket.gethostname() == "gpu1-mat":
@@ -13,32 +12,16 @@ os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
 import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 import numpy as np
 import pytest
 from folx.api import FwdJacobian, FwdLaplArray
 from jax import config as jax_config
 from sparse_wf.jax_utils import fwd_lap
-from sparse_wf.mcmc import init_electrons
+
 from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap
 
 jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
-
-
-@functools.lru_cache()
-def setup_inputs(dtype, embedding):
-    rng = jax.random.PRNGKey(0)
-    rng_r, rng_params = jax.random.split(rng)
-    mol = build_atom_chain(10, 2)
-    model = build_model(mol, embedding)
-    model = jtu.tree_map(lambda x: change_float_dtype(x, dtype), model)
-    electrons = init_electrons(rng_r, mol, batch_size=1)[0]
-    params = model.init(rng_params, electrons)
-    # initialize the jastrow scales to 1
-    model, params, electrons = jtu.tree_map(lambda x: change_float_dtype(x, dtype), (model, params, electrons))
-    static_args = model.get_static_input(electrons).to_static()
-    return model, electrons, params, static_args
 
 
 def to_zero_padded(x, dependencies):
