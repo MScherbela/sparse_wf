@@ -50,6 +50,7 @@ def build_model(mol, embedding="moon"):
         envelopes=EnvelopeArgs(
             envelope="isotropic", glu_args=dict(width=32, depth=2, n_envelopes=32), isotropic_args=dict(n_envelopes=8)
         ),
+        spin_restricted=True,
     )
 
 

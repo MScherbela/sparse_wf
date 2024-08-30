@@ -89,7 +89,7 @@ def test_embedding(dtype):
 def test_orbitals(dtype):
     model, electrons, params, static_args = setup_inputs(dtype)
     embeddings = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
-    orbitals_int = model._orbitals_with_fwd_lap_sparse(params, electrons, embeddings)
+    orbitals_int = model.to_orbitals.fwd_lap(params.to_orbitals, electrons, embeddings)
     orbitals_ext = fwd_lap(lambda r: model.orbitals(params, r, static_args)[0])(electrons)
     orbitals_ext = fwd_lap(lambda x: jnp.moveaxis(x, 0, 1))(orbitals_ext)
     orbitals_int = NodeWithFwdLap(
