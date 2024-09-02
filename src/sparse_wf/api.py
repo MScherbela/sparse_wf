@@ -463,6 +463,7 @@ class ModelArgs(TypedDict):
     embedding: EmbeddingArgs
     jastrow: JastrowArgs
     n_determinants: int
+    spin_restricted: bool
     envelopes: EnvelopeArgs
 
 
