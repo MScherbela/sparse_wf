@@ -10,7 +10,6 @@ if socket.gethostname() == "gpu1-mat":
     os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Disable GPUs on the HGX, because otherwise it will use all GPUs
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -70,11 +69,13 @@ def test_embedding(dtype, embedding):
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
 def test_orbitals(dtype, embedding):
     model, electrons, params, static_args = setup_inputs(dtype, embedding)
+    orbitals_ext = fwd_lap(lambda r: model.orbitals(params, r, static_args)[0])(electrons)  # [det x n_el x n_orb]
+
     if embedding == "new_sparse":
+        # new_sparse orbitals have shape [dets, n_el, n_orb]
+        # Reorder to [n_el, dets, n_orb] such that the first dimension is the electron index, to allow to_folx()
         embeddings = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
-        orbitals_int = model._orbitals_with_fwd_lap_sparse(params, electrons, embeddings)
-        orbitals_ext = fwd_lap(lambda r: model.orbitals(params, r, static_args)[0])(electrons)
-        orbitals_ext = fwd_lap(lambda x: jnp.moveaxis(x, 0, 1))(orbitals_ext)
+        orbitals_int = model.to_orbitals.fwd_lap(params.to_orbitals, electrons, embeddings)
         orbitals_int = NodeWithFwdLap(
             jnp.moveaxis(orbitals_int.x, 0, 1),
             jnp.moveaxis(orbitals_int.jac, 0, 2),
@@ -82,10 +83,12 @@ def test_orbitals(dtype, embedding):
             orbitals_int.idx_ctr,
             orbitals_int.idx_dep,
         ).to_folx()
+        # Move the electron index back to the first dimension: [dets, n_el, n_orb]
+        orbitals_int = fwd_lap(lambda x: jnp.moveaxis(x, 1, 0))(orbitals_int)
     else:
-        orbitals_int, dependencies = model.orbitals_with_fwd_lap(params, electrons, static_args)
+        embeddings, dependencies = model.embedding.apply_with_fwd_lap(params.embedding, electrons, static_args)
+        orbitals_int = model.to_orbitals.fwd_lap(params.to_orbitals, electrons, embeddings)
         orbitals_int = to_zero_padded(orbitals_int, dependencies)
-        orbitals_ext = fwd_lap(lambda r: model.orbitals(params, r, static_args)[0])(electrons)
     assert orbitals_int.dtype == dtype
     assert orbitals_ext.dtype == dtype
     assert_close(orbitals_int, orbitals_ext)
@@ -111,8 +114,9 @@ def test_energy(dtype, embedding):
 
 
 if __name__ == "__main__":
-    for embedding in ["moon", "new", "new_sparse"]:
-        for dtype in [jnp.float64, jnp.float32]:
-            test_embedding(dtype, embedding)
-            test_orbitals(dtype, embedding)
-            test_energy(dtype, embedding)
+    test_orbitals(jnp.float32, "new_sparse")
+    # for embedding in ["moon", "new", "new_sparse"]:
+    #     for dtype in [jnp.float64, jnp.float32]:
+    #         test_embedding(dtype, embedding)
+    #         test_orbitals(dtype, embedding)
+    #         test_energy(dtype, embedding)

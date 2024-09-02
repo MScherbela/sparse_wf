@@ -10,6 +10,7 @@ import jax
 from typing import NamedTuple
 import einops
 import jax.tree_util as jtu
+import functools
 
 
 class OrbitalState(NamedTuple):
@@ -146,18 +147,19 @@ class Orbitals(nn.Module):
 
     def fwd_lap(self, params, electrons: Electrons, embeddings):
         r_up, r_dn = jnp.split(electrons, [self.n_up], axis=-2)
-        env_up = jax.vmap(fwd_lap(lambda r: self.apply(params, r, method=self._get_envelopes_up)))(r_up)
-        env_dn = jax.vmap(fwd_lap(lambda r: self.apply(params, r, method=self._get_envelopes_dn)))(r_dn)
-        envelopes = jtu.tree_map(lambda u, d: jnp.concatenate([u, d], axis=0), env_up, env_dn)
+        env_up = jax.vmap(fwd_lap(lambda r: self.apply(params, r, method=self._get_envelopes_up)), out_axes=-2)(r_up)
+        env_dn = jax.vmap(fwd_lap(lambda r: self.apply(params, r, method=self._get_envelopes_dn)), out_axes=-2)(r_dn)
+        envelopes = jtu.tree_map(lambda u, d: jnp.concatenate([u, d], axis=-2), env_up, env_dn)
 
         if isinstance(embeddings, FwdLaplArray):
             # Use folx to compute the raw orbitals
-            h_up, h_dn = jtu.tree_map(lambda h: jnp.split(h, [self.n_up], axis=-2), embeddings)
-            orb_raw_up = jax.vmap(fwd_lap(lambda h: self.apply(params, h, method=self._get_orbitals_up)))(h_up)
-            orb_raw_dn = jax.vmap(fwd_lap(lambda h: self.apply(params, h, method=self._get_orbitals_dn)))(h_dn)
+            h_up, h_dn = fwd_lap(lambda h: jnp.split(h, [self.n_up], axis=-2))(embeddings)
+            vmap_over_elec = functools.partial(jax.vmap, in_axes=-2, out_axes=-2)
+            orb_raw_up = vmap_over_elec(fwd_lap(lambda h: self.apply(params, h, method=self._get_orbitals_up)))(h_up)
+            orb_raw_dn = vmap_over_elec(fwd_lap(lambda h: self.apply(params, h, method=self._get_orbitals_dn)))(h_dn)
 
             orbitals = jtu.tree_map(lambda u, d: jnp.concatenate([u, d], axis=-2), orb_raw_up, orb_raw_dn)
-            orbitals = jax.vmap(
+            orbitals = vmap_over_elec(
                 fwd_lap(lambda o, e: jnp.reshape(o * e, [self.n_determinants, self.n_electrons])),
             )(orbitals, envelopes)
         else:

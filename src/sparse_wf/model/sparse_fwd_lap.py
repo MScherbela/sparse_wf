@@ -30,7 +30,7 @@ class NodeWithFwdLap(PyTreeNode):
     def dense_jac(self):
         n_el = self.x.shape[0]
         feature_dims = self.x.shape[1:]
-        J_dense = jnp.zeros((n_el, 3, n_el, *feature_dims))  # [dep, xyz, i, feature_dim]
+        J_dense = jnp.zeros_like(self.jac, shape=(n_el, 3, n_el, *feature_dims))  # [dep, xyz, i, feature_dim]
         J_dense = J_dense.at[self.idx_dep, :, self.idx_ctr, ...].set(self.jac, mode="drop")
         J_dense = J_dense.reshape([n_el * 3, n_el, *feature_dims])
         return J_dense
@@ -224,18 +224,17 @@ def sparse_slogdet_with_fwd_lap(A: NodeWithFwdLap, triplet_indices):
 
 def multiply_with_1el_fn(a: NodeWithFwdLap, b: FwdLaplArray) -> NodeWithFwdLap:
     n_el, n_features = a.x.shape
-    assert b.jacobian.data.shape == (n_el, 3, n_features)
+    jac_b = jnp.moveaxis(b.jacobian.data, 1, 0)  # [3 x n_el x n_features] -> [n_el x 3 x n_features]
+    assert jac_b.shape == (n_el, 3, n_features)
     idx_ctr = a.idx_ctr[n_el:]
 
     out = a.x * b.x
     jac_out = jnp.zeros_like(a.jac)
-    jac_out = jac_out.at[:n_el, :, :].add(
-        a.x[:, None, :] * b.jacobian.data + b.x[:, None, :] * a.jac[:n_el], mode="drop"
-    )
+    jac_out = jac_out.at[:n_el, :, :].add(a.x[:, None, :] * jac_b + b.x[:, None, :] * a.jac[:n_el], mode="drop")
     jac_out = jac_out.at[n_el:, :, :].add(
         b.x.at[idx_ctr, None, :].get(mode="fill", fill_value=0.0) * a.jac[n_el:], mode="drop"
     )
-    lap_out = a.lap * b.x + b.laplacian * a.x + 2 * jnp.sum(a.jac[:n_el] * b.jacobian.data, axis=1)
+    lap_out = a.lap * b.x + b.laplacian * a.x + 2 * jnp.sum(a.jac[:n_el] * jac_b, axis=1)
     return NodeWithFwdLap(out, jac_out, lap_out, a.idx_ctr, a.idx_dep)
 
 
