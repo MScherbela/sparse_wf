@@ -1,7 +1,12 @@
+import functools
+
+import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 import numpy as np
 from pyscf.gto import Mole
 
+from sparse_wf.mcmc import init_electrons
 from sparse_wf.api import EmbeddingArgs, MoonEmbeddingArgs, EnvelopeArgs, JastrowArgs, NewEmbeddingArgs
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
 
@@ -59,3 +64,26 @@ def change_float_dtype(x, dtype):
         return jnp.array(x, dtype)
     else:
         return x
+
+
+def change_jastrow_scales(key, param):
+    name = jtu.keystr(key)
+    if "jastrow" in name and "scale" in name:
+        return jnp.ones(param.shape)
+    else:
+        return param
+
+
+@functools.lru_cache()
+def setup_inputs(dtype, embedding):
+    rng = jax.random.PRNGKey(0)
+    rng_r, rng_params = jax.random.split(rng)
+    mol = build_atom_chain(10, 2)
+    model = build_model(mol, embedding)
+    model = jtu.tree_map(lambda x: change_float_dtype(x, dtype), model)
+    electrons = init_electrons(rng_r, mol, batch_size=1)[0]
+    params = model.init(rng_params, electrons)
+    params = jtu.tree_map_with_path(change_jastrow_scales, params)
+    model, params, electrons = jtu.tree_map(lambda x: change_float_dtype(x, dtype), (model, params, electrons))
+    static_args = model.get_static_input(electrons).to_static()
+    return model, electrons, params, static_args
