@@ -378,8 +378,8 @@ class DynamicFilterParams(NamedTuple):
 
 def scale_initializer(rng, cutoff, shape, dtype=jnp.float32):
     n_scales = shape[-1]
-    max_length_scale = min(20, cutoff)
-    scale = jnp.linspace(0, max_length_scale, n_scales, dtype=dtype)
+    max_length_scale = min(20, 0.75 * cutoff)
+    scale = jnp.linspace(0.5 * max_length_scale, max_length_scale, n_scales, dtype=dtype)
     scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
     return scale.astype(jnp.float32)
 
@@ -527,7 +527,7 @@ class FixedScalingFactor(nn.Module):
 
 
 def get_relative_tolerance(dtype):
-    return 1e-12 if (dtype == jnp.float64) else 1e-6
+    return 1e-12 if (dtype == jnp.float64) else 1e-6  # should be 12 and 6
 
 
 class NodeWithFwdLap(NamedTuple):

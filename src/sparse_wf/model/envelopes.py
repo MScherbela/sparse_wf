@@ -76,8 +76,10 @@ class EfficientIsotropicEnvelopes(nn.Module):
         env = jnp.exp(-scaled_dists)
         if self.cutoff is not None:
             env *= cutoff_function(dists / self.cutoff)
-        out = jnp.einsum("...nde,ndeo->...do", env, pi)
-        return out.reshape(*out.shape[:-2], -1)
+        out = jnp.einsum(
+            "...nde,ndeo->...do", env, pi
+        )  # ... = batch,electrons, n=nuclei, d=determinants, e=envelopes, o=orbitals
+        return out.reshape(*out.shape[:-2], -1)  # batch x electrons x (det * orb)
 
 
 class GLUEnvelopes(Envelope):

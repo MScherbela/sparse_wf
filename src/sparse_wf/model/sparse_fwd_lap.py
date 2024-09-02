@@ -30,7 +30,7 @@ class NodeWithFwdLap(PyTreeNode):
     def dense_jac(self):
         n_el = self.x.shape[0]
         feature_dims = self.x.shape[1:]
-        J_dense = jnp.zeros((n_el, 3, n_el, *feature_dims))  # [dep, xyz, i, feature_dim]
+        J_dense = jnp.zeros_like(self.jac, shape=(n_el, 3, n_el, *feature_dims))  # [dep, xyz, i, feature_dim]
         J_dense = J_dense.at[self.idx_dep, :, self.idx_ctr, ...].set(self.jac, mode="drop")
         J_dense = J_dense.reshape([n_el * 3, n_el, *feature_dims])
         return J_dense
@@ -73,28 +73,15 @@ class NodeWithFwdLap(PyTreeNode):
         return self.x.shape
 
 
-def to_slater_matrices(orbitals: NodeWithFwdLap, n_el: int, n_up):
-    n_dets = orbitals.x.shape[-1] // n_el
-
-    def reshape(X):
-        X = X.reshape([n_el, n_dets, n_el])  # [el x det x orbital]
-        X = jnp.moveaxis(X, 1, 0)  # [det x el x orbital]
-        # swap bottom spin blocks
-        top_block = X[:, :n_up, :]
-        bottom_block = jnp.concatenate([X[:, n_up:, n_up:], X[:, n_up:, :n_up]], axis=2)
-        X = jnp.concatenate([top_block, bottom_block], axis=1)
-        return X
-
-    phi = reshape(orbitals.x)
-    lap = reshape(orbitals.lap)
-    jac = orbitals.jac.reshape([-1, 3, n_dets, n_el])  # [pair(el,dep) x xyz x det x orb]
-    jac = jnp.moveaxis(jac, 2, 0)  # [det x pair(el,dep) x xyz x orb]
-    jac = jnp.where(
-        (orbitals.idx_ctr < n_up)[None, :, None, None],
-        jac,
-        jnp.concatenate([jac[:, :, :, n_up:], jac[:, :, :, :n_up]], axis=3),
-    )
-    return phi, jac, lap
+def merge_up_down(orb_up: NodeWithFwdLap, orb_dn: NodeWithFwdLap, n_el: int, n_up: int):
+    assert orb_up.x.shape == orb_dn.x.shape
+    assert orb_up.lap.shape == orb_dn.lap.shape
+    assert orb_up.jac.shape == orb_dn.jac.shape
+    assert orb_up.x.shape[0] == n_el
+    x = jnp.concatenate([orb_up.x[:n_up, ...], orb_dn.x[n_up:, ...]], axis=0)
+    lap = jnp.concatenate([orb_up.lap[:n_up, ...], orb_dn.lap[n_up:, ...]], axis=0)
+    jac = jnp.where((orb_up.idx_ctr < n_up)[:, None, None], orb_up.jac, orb_dn.jac)
+    return NodeWithFwdLap(x, jac, lap, orb_up.idx_ctr, orb_up.idx_dep)
 
 
 def get_pair_indices(r, n_up, cutoff, n_pairs_same: int, n_pairs_diff: int):
@@ -143,11 +130,13 @@ class Linear(nn.Module):
     @nn.compact
     def __call__(self, x, use_bias=True):
         if isinstance(x, NodeWithFwdLap):
+            # Forward-Laplacian pass with jacobian and laplacian
             y = self(x.x)
             jac = self(x.jac, use_bias=False)
             lap = self(x.lap, use_bias=False)
             return NodeWithFwdLap(y, jac, lap, x.idx_ctr, x.idx_dep)
         else:
+            # Regular forward pass
             kernel = self.param("kernel", self.kernel_init, (x.shape[-1], self.features), jnp.float32)
             y = x @ kernel
             if self.use_bias and use_bias:
@@ -234,18 +223,18 @@ def sparse_slogdet_with_fwd_lap(A: NodeWithFwdLap, triplet_indices):
 
 
 def multiply_with_1el_fn(a: NodeWithFwdLap, b: FwdLaplArray) -> NodeWithFwdLap:
-    n_el = a.x.shape[0]
+    n_el, n_features = a.x.shape
+    jac_b = jnp.moveaxis(b.jacobian.data, 1, 0)  # [3 x n_el x n_features] -> [n_el x 3 x n_features]
+    assert jac_b.shape == (n_el, 3, n_features)
     idx_ctr = a.idx_ctr[n_el:]
 
     out = a.x * b.x
     jac_out = jnp.zeros_like(a.jac)
-    jac_out = jac_out.at[:n_el, :, :].add(
-        a.x[:, None, :] * b.jacobian.data + b.x[:, None, :] * a.jac[:n_el], mode="drop"
-    )
+    jac_out = jac_out.at[:n_el, :, :].add(a.x[:, None, :] * jac_b + b.x[:, None, :] * a.jac[:n_el], mode="drop")
     jac_out = jac_out.at[n_el:, :, :].add(
         b.x.at[idx_ctr, None, :].get(mode="fill", fill_value=0.0) * a.jac[n_el:], mode="drop"
     )
-    lap_out = a.lap * b.x + b.laplacian * a.x + 2 * jnp.sum(a.jac[:n_el] * b.jacobian.data, axis=1)
+    lap_out = a.lap * b.x + b.laplacian * a.x + 2 * jnp.sum(a.jac[:n_el] * jac_b, axis=1)
     return NodeWithFwdLap(out, jac_out, lap_out, a.idx_ctr, a.idx_dep)
 
 

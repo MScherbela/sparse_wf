@@ -22,7 +22,7 @@ from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub
 P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
 
-def make_damping_scheduler(increase_factor=2.0, decay_factor=0.99, cond_max=1e7):
+def make_damping_scheduler(increase_factor=2.0, decay_factor=0.999, cond_max=1e7):
     def adjust_damping(damping, cond_nr, is_nan):
         return jnp.where(
             is_nan, damping * increase_factor, jnp.where(cond_nr < cond_max, damping * decay_factor, damping)
