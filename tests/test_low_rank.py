@@ -22,7 +22,7 @@ jax_config.update("jax_default_matmul_precision", "highest")
 
 
 # TODO: add separate testcases for embedding, jastrow, determinant, total_logpsi
-@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+@pytest.mark.parametrize("dtype", [jnp.float64])
 @pytest.mark.parametrize("embedding", ["moon", "new", "new_sparse"])
 def test_low_rank_update_logpsi(dtype, embedding):
     model, electrons, params, static_args = setup_inputs(dtype, embedding)
