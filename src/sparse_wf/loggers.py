@@ -36,7 +36,7 @@ class WandBLogger(Logger):
     @only_on_main_process
     def __init__(self, project: str, entity: str, name: str, comment: str, **_) -> None:
         wandb.init(project=project, entity=entity, name=name, notes=comment)
-        atexit.register(wandb.finish)
+        atexit.register(wandb.finish)  # type: ignore
 
     @only_on_main_process
     def log(self, data: dict) -> None:
@@ -44,7 +44,7 @@ class WandBLogger(Logger):
 
     @only_on_main_process
     def log_config(self, config: dict) -> None:
-        wandb.config.update(config)
+        wandb.config.update(config)  # type: ignore
 
 
 class PythonLogger(Logger):

@@ -207,6 +207,7 @@ class StaticInputNewModel(Generic[T]):
     def to_static(self):
         return jtu.tree_map(lambda x: int(jnp.max(x)), self)
 
+
 class NewEmbedding(struct.PyTreeNode, Embedding[EmbeddingParams, StaticInputNewModel, EmbeddingState]):
     # Molecule
     R: Nuclei

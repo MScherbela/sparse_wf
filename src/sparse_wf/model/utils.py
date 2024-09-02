@@ -527,7 +527,8 @@ class FixedScalingFactor(nn.Module):
 
 
 def get_relative_tolerance(dtype):
-    return 1e-12 if (dtype == jnp.float64) else 1e-6  # should be 12 and 6
+    # should be 12 and 5 - we are more tolerant in float32 due to many numerical issues
+    return 1e-12 if (dtype == jnp.float64) else 1e-5
 
 
 class NodeWithFwdLap(NamedTuple):
