@@ -53,7 +53,7 @@ def update_logging_configuration(
 ) -> LoggingArgs:
     folder_name = db_collection if db_collection else os.environ.get("USER", "default")
     updates: dict[str, Any] = {}
-    if logging_args.get("collection", None) is None:
+    if not logging_args.get("collection", None):
         updates["collection"] = folder_name
     if logging_args["wandb"].get("project", None) is None:
         updates["wandb"] = dict(project=folder_name)

@@ -182,3 +182,21 @@ def is_neighbour(electrons: Electrons, cutoff: float):
     dist = jnp.linalg.norm(electrons[:, None] - electrons[None], axis=-1)
     dist = dist.at[jnp.arange(n_electrons), jnp.arange(n_electrons)].set(jnp.inf)
     return dist < cutoff
+
+
+def sum_fwd_lap(x: FwdLaplArray, dependencies, n_el: int) -> FwdLaplArray:
+    """
+    Returns a FwdLaplArray where the electron dimension has been summed over. The function
+    takes a FwdLaplArray x where each electron may have different dependencies as provided by
+    dependencies. This is the same as pad_jacobian_to_dense(x, dependencies, n_el).sum(0) but
+    more efficient.
+    """
+    out_jac = jnp.zeros((n_el, 3, *x.shape[1:]), x.x.dtype)
+    jac = x.jacobian.data
+    jac = jac.reshape((jac.shape[0] // 3, 3, *jac.shape[1:]))
+    jac = jnp.swapaxes(jac, 1, 2)
+    out_jac = out_jac.at[dependencies.T].add(jac, mode="drop")
+    out_jac = out_jac.reshape(n_el * 3, *x.shape[1:])
+    y = x.x.sum(0)
+    y_lapl = x.laplacian.sum(0)
+    return FwdLaplArray(x=y, jacobian=FwdJacobian(out_jac), laplacian=y_lapl)
