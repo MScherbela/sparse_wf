@@ -92,10 +92,17 @@ def tree_zeros_like(tree, dtype=None, shape=None):
 
 
 def tree_to_flat_dict(tree: PyTree, prefix: str = "") -> dict:
+    def to_str(k):
+        if hasattr(k, "key"):
+            return k.key
+        elif hasattr(k, "idx"):
+            return str(k.idx)
+        elif hasattr(k, "name"):
+            return k.name
+        return str(k)
+
     out_dict = {}
     for key, v in jtu.tree_leaves_with_path(tree):
-        key_string = "".join([str(k) for k in key])
-        if key_string[0] == ".":
-            key_string = key_string[1:]
+        key_string = "/".join([to_str(k) for k in key])
         out_dict[prefix + key_string] = v
     return out_dict

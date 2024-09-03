@@ -24,8 +24,8 @@ def mcmc_to_log_data(data: MCMCStats):
     }
     if data.mean_cluster_size is not None:
         log_data["mcmc/mean_cluster_size"] = float(jnp.mean(data.mean_cluster_size))
-    log_data = log_data | to_log_data(data.static_mean, "static/mean.")
-    log_data = log_data | to_log_data(data.static_max, "static/max.")
+    log_data = log_data | to_log_data(data.static_mean, "static/mean/")
+    log_data = log_data | to_log_data(data.static_max, "static/max/")
     return log_data
 
 
