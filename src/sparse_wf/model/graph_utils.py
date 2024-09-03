@@ -193,7 +193,7 @@ def sum_fwd_lap(x: FwdLaplArray, dependencies, n_el: int) -> FwdLaplArray:
     """
     out_jac = jnp.zeros((n_el, 3, *x.shape[1:]), x.x.dtype)
     jac = x.jacobian.data
-    jac = jac.reshape((n_el, 3, *jac.shape[1:]))
+    jac = jac.reshape((jac.shape[0] // 3, 3, *jac.shape[1:]))
     jac = jnp.swapaxes(jac, 1, 2)
     out_jac = out_jac.at[dependencies.T].add(jac, mode="drop")
     out_jac = out_jac.reshape(n_el * 3, *x.shape[1:])

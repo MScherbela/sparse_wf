@@ -97,7 +97,7 @@ class GlobalAttentionJastrow(nn.Module):
     ):
         values = (values / normalizer[..., None]).reshape(-1)
         jastrow = self.out(values)
-        return jastrow * self.scale + jnp.concatenate([jnp.zeros(1), self.bias])
+        return jastrow * self.scale + jnp.concatenate([jnp.zeros(1, dtype=self.bias.dtype), self.bias])
 
     @staticmethod
     def contract(
@@ -281,7 +281,7 @@ class Jastrow(nn.Module):
 
         jastrows_after_sum = jnp.zeros((2,), electrons.dtype)
         # Attention Jastrow
-        if self.att:
+        if self.use_attention:
             attention, values = self._apply_attention_and_values(embeddings)
             jastrows_after_sum += self._apply_attention_readout(*self.att.contract(attention, values, self.n_up))
         else:
@@ -293,12 +293,12 @@ class Jastrow(nn.Module):
         # MLP
         if self.mlp:
             jastrows_before_sum = self._apply_mlp(embeddings)
-            jastrows_after_sum = jastrows_before_sum.sum(axis=0)
+            jastrows_after_sum += jastrows_before_sum.sum(axis=0)
         else:
             jastrows_before_sum = jnp.zeros((), electrons.dtype)
 
         # Apply jastrows
-        J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_before_sum.sum(axis=0))
+        J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_after_sum)
         sign *= J_sign
         logpsi += J_logpsi
 
@@ -344,8 +344,7 @@ class Jastrow(nn.Module):
             attention, values = self._apply_attention_and_values(embeddings[changed_embeddings])
             attention = state.attention.at[changed_embeddings].set(attention)
             values = state.values.at[changed_embeddings].set(values)
-            if self.use_attention:
-                jastrows_after_sum += self._apply_attention_readout(*self.att.contract(attention, values, self.n_up))
+            jastrows_after_sum += self._apply_attention_readout(*self.att.contract(attention, values, self.n_up))
         else:
             attention, values = jnp.zeros(()), jnp.zeros(())
 
@@ -369,8 +368,8 @@ class Jastrow(nn.Module):
     def _apply_attention_and_values(self, embeddings):
         return self.att.attention_and_values(embeddings)
 
-    def _apply_attention_readout(self, attention, values):
-        return self.att.readout(attention, values)
+    def _apply_attention_readout(self, norm, values):
+        return self.att.readout(norm, values)
 
     def _mlp_to_logpsi(self, jastrows):
         assert jastrows.shape == (2,)
@@ -419,12 +418,7 @@ class Jastrow(nn.Module):
         if self.use_mlp_jastrow or self.use_log_jastrow or self.use_attention:
             jastrows = FwdLaplArray(
                 jnp.zeros((2,), dtype=electrons.dtype),
-                FwdJacobian(
-                    data=jnp.zeros(
-                        (1, 2),
-                        dtype=electrons.dtype,
-                    )
-                ),
+                FwdJacobian(data=jnp.zeros((1, 2), dtype=electrons.dtype)),
                 jnp.zeros((2,), dtype=electrons.dtype),
             )
             # Attention
@@ -453,9 +447,9 @@ class Jastrow(nn.Module):
                 if isinstance(embeddings, FwdLaplArray):
                     _get_jastrows = fwd_lap(_get_jastrows, argnums=0)
                     _get_jastrows = jax.vmap(_get_jastrows, in_axes=-2, out_axes=-2)  # vmap over eletrons
-                    jastrows = _get_jastrows(embeddings)
+                    mlp_jastrows = _get_jastrows(embeddings)
                     n_el = electrons.shape[-2]
-                    jastrows = tree_add(jastrows, sum_fwd_lap(jastrows, dependencies, n_el))
+                    jastrows = tree_add(jastrows, sum_fwd_lap(mlp_jastrows, dependencies, n_el))
                 elif isinstance(embeddings, NodeWithFwdLap):
                     jastrows = tree_add(
                         jastrows,

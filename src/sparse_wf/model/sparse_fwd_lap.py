@@ -52,7 +52,7 @@ class NodeWithFwdLap(PyTreeNode):
         mask = jnp.logical_and(self.idx_ctr >= lower, self.idx_ctr < upper)
         mask = mask[:, *[None] * (self.jac.ndim - 1)]
         jac = jnp.zeros_like(self.jac, shape=[n_el, 3, *feature_dims])
-        jac = jac.at[self.idx_dep, :, ...].add(self.jac * mask, mode="drop")
+        jac = jac.at[self.idx_dep, ...].add(self.jac * mask, mode="drop")
         return FwdLaplArray(x, FwdJacobian(jac.reshape([n_el * 3, *feature_dims])), lap)
 
     def sum(self, axis):
@@ -99,9 +99,9 @@ class NodeWithFwdLap(PyTreeNode):
     def __getitem__(self, idx):
         assert self.x[idx].shape[0] == self.x.shape[0], "Indexing must not change the number of elements"
         return NodeWithFwdLap(
-            self.x[idx],
-            jax.vmap(lambda x: x[idx], in_axes=1, out_axes=1)(self.jac),
-            self.lap[idx],
+            self.x.at[idx].get(mode="fill", fill_value=0.0),
+            jax.vmap(lambda x: x.at[idx].get(mode="fill", fill_value=0.0), in_axes=1, out_axes=1)(self.jac),
+            self.lap.at[idx].get(mode="fill", fill_value=0.0),
             self.idx_ctr,
             self.idx_dep,
         )

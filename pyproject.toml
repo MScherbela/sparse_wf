@@ -47,6 +47,11 @@ disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.uv]
+dev-dependencies = [
+    "ipykernel>=6.29.5",
+]
+
 [project.scripts]
 sparse-wf-run = "sparse_wf.train_with_config:train_with_config"
 sparse-wf-setup = "sparse_wf.setup_calculations:setup_calculations"
