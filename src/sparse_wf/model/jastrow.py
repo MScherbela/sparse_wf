@@ -73,7 +73,7 @@ class GlobalAttentionJastrow(nn.Module):
     def setup(self):
         self.register_keys = self.param(
             "register_keys",
-            nn.initializers.normal(1),
+            nn.initializers.normal(1, jnp.float32),
             (self.n_register, self.register_dim),
         )
         self.Q_W = Linear(self.n_register * self.register_dim)
