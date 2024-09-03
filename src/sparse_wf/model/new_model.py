@@ -293,7 +293,7 @@ class NewEmbedding(struct.PyTreeNode, Embedding[EmbeddingParams, StaticInputNewM
         dtype = electrons.dtype
         rng_seq = iter(rng_sequence(rng))
         r_dummy = jnp.zeros([3], dtype)
-        r_nb_dummy = jnp.zeros([1, 3], dtype)
+        r_nb_dummy = jnp.ones([1, 3], dtype)
         spin_dummy = jnp.zeros([], dtype)
         spin_nb_dummy = jnp.zeros([1], dtype)
         features_dummy = jnp.zeros([self.feature_dim], dtype)
@@ -303,7 +303,9 @@ class NewEmbedding(struct.PyTreeNode, Embedding[EmbeddingParams, StaticInputNewM
         params = EmbeddingParams(
             dynamic_params_en=self._init_nuc_dependant_params(next(rng_seq)),
             init_params=self.elec_init.init(next(rng_seq), r_dummy, r_nb_dummy, dummy_dyn_param),
-            edge_params=self.edge.init(next(rng_seq), r_dummy, r_dummy, spin_dummy, spin_dummy, dummy_dyn_param.filter),
+            edge_params=self.edge.init(
+                next(rng_seq), r_dummy, r_dummy + 1.0, spin_dummy, spin_dummy, dummy_dyn_param.filter
+            ),
             update_params=tuple(
                 upd.init(
                     next(rng_seq),

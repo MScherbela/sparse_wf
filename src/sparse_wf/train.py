@@ -10,7 +10,6 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from sparse_wf.api import (
-    AuxData,
     LoggingArgs,
     ModelArgs,
     MoleculeArgs,
@@ -21,7 +20,7 @@ from sparse_wf.api import (
 )
 from sparse_wf.static_args import StaticScheduler
 from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replicate, pmap, pmax, get_from_main_process
-from sparse_wf.loggers import MultiLogger
+from sparse_wf.loggers import MultiLogger, to_log_data, mcmc_to_log_data
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 
@@ -35,12 +34,9 @@ from sparse_wf.spin_operator import make_spin_operator
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
 
+
 jax.config.update("jax_default_matmul_precision", "float32")
 jax.config.update("jax_enable_x64", True)
-
-
-def to_log_data(aux_data: AuxData) -> dict[str, float]:
-    return jtu.tree_map(lambda x: np.asarray(x).mean().item(), aux_data)
 
 
 @pmap(static_broadcasted_argnums=(0, 3))
@@ -163,7 +159,7 @@ def main(
         t0 = time.perf_counter()
         state, aux_data, mcmc_stats = pretrainer.step(state, static)
         static = static_scheduler(mcmc_stats.static_max)
-        log_data = to_log_data(aux_data) | mcmc_stats.to_log_data() | static.to_log_data("static/padded.")
+        log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded.")
         t1 = time.perf_counter()
         log_data["pretrain/t_step"] = t1 - t0
         log_data["pretrain/step"] = step
@@ -178,7 +174,7 @@ def main(
     for _ in range(optimization["burn_in"]):
         state, aux_data, mcmc_stats = trainer.sampling_step(state, static, False)
         static = static_scheduler(mcmc_stats.static_max)
-        log_data = to_log_data(aux_data) | mcmc_stats.to_log_data() | static.to_log_data("static/padded.")
+        log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded.")
         loggers.log(log_data)
 
     logging.info("Training")
@@ -186,7 +182,7 @@ def main(
         t0 = time.perf_counter()
         state, _, aux_data, mcmc_stats = trainer.step(state, static)
         static = static_scheduler(mcmc_stats.static_max)
-        log_data = to_log_data(aux_data) | mcmc_stats.to_log_data() | static.to_log_data("static/padded.")
+        log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded.")
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0
         log_data["opt/step"] = opt_step
@@ -203,7 +199,7 @@ def main(
         t0 = time.perf_counter()
         state, aux_data, mcmc_stats = trainer.sampling_step(state, static, evaluation["compute_energy"])
         static = static_scheduler(mcmc_stats.static_max)
-        log_data = to_log_data(aux_data) | mcmc_stats.to_log_data() | static.to_log_data("static/padded.")
+        log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded.")
         t1 = time.perf_counter()
         log_data["eval/t_step"] = t1 - t0
         log_data["eval/step"] = eval_step

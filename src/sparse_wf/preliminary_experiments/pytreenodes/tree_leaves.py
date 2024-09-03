@@ -32,7 +32,6 @@ def my_func(s):
 
 
 static: StaticInputDerived[int] = StaticInputDerived(1, 2, NrOfNeighbours(3, 4))
-print(static.to_log_data())
 y = my_func(static)
 print(static)
 

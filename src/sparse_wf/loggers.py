@@ -5,8 +5,28 @@ import logging
 import numpy as np
 
 import wandb
-from sparse_wf.api import Logger, LoggingArgs
+from sparse_wf.api import Logger, LoggingArgs, MCMCStats
 from sparse_wf.jax_utils import only_on_main_process, is_main_process
+import jax.tree_util as jtu
+from sparse_wf.tree_utils import tree_to_flat_dict
+import jax.numpy as jnp
+
+
+def to_log_data(data, prefix="") -> dict[str, float]:
+    data = jtu.tree_map(lambda x: x if isinstance(x, (int, float)) else float(np.mean(x)), data)
+    return tree_to_flat_dict(data, prefix)
+
+
+def mcmc_to_log_data(data: MCMCStats):
+    log_data = {
+        "mcmc/pmove": float(jnp.mean(data.pmove)),
+        "mcmc/stepsize": float(jnp.mean(data.stepsize)),
+    }
+    if data.mean_cluster_size is not None:
+        log_data["mcmc/mean_cluster_size"] = float(jnp.mean(data.mean_cluster_size))
+    log_data = log_data | to_log_data(data.static_mean, "static/mean.")
+    log_data = log_data | to_log_data(data.static_max, "static/max.")
+    return log_data
 
 
 class FileLogger(Logger):

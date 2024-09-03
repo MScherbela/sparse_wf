@@ -4,7 +4,6 @@ from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeA
 import jax
 import jax.tree_util as jtu
 import jax.numpy as jnp
-from sparse_wf.tree_utils import tree_to_flat_dict
 import numpy as np
 import optax
 from flax import struct
@@ -153,10 +152,6 @@ class ParameterizedWaveFunction(Protocol[P, S, MS]):
 # Seems a bit ugly to use to PyTreeNodes for some stuff and dataclasses for others, but here we go...
 @struct.dataclass
 class StaticInput:
-    def to_log_data(self, prefix="static/") -> dict:
-        data = jtu.tree_map(lambda x: x if isinstance(x, (int, float)) else float(np.mean(x)), self)
-        return tree_to_flat_dict(data, prefix)
-
     def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
         return jax.tree_map(lambda x: x * padding_factor, self)
 
@@ -175,17 +170,6 @@ class MCMCStats(NamedTuple):
     static_mean: StaticInput
     static_max: StaticInput
     mean_cluster_size: Optional[jax.Array] = None
-
-    def to_log_data(self) -> dict[str, float]:
-        log_data = {
-            "mcmc/pmove": float(jnp.mean(self.pmove)),
-            "mcmc/stepsize": float(jnp.mean(self.stepsize)),
-        }
-        if self.mean_cluster_size is not None:
-            log_data["mcmc/mean_cluster_size"] = float(jnp.mean(self.mean_cluster_size))
-        log_data = log_data | self.static_mean.to_log_data("static/mean.")
-        log_data = log_data | self.static_max.to_log_data("static/max.")
-        return log_data
 
 
 class ClosedLogLikelihood(Protocol):
