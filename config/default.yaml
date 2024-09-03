@@ -87,7 +87,7 @@ optimization:
       hyperbolic:
         init_value: 0.1
         decay: 1.0
-        delay: 1000
+        delay: 2000
     transformations:
       - name: clip_by_global_norm
         args: []
