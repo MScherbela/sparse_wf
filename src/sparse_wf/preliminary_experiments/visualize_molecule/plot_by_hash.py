@@ -1,19 +1,15 @@
 #%%
-import ase
+from sparse_wf.geometry import load_geometries
 from ase.visualize import view
 from ase.units import Bohr
 import json
 import numpy as np
 
-geom_db_fname = "../../../../data/geometries.json"
-with open(geom_db_fname) as f:
-    all_geoms = json.load(f)
+all_geoms = load_geometries()
+comment = "WG_09"
+geoms = [g for g in all_geoms.values() if g.comment == comment]
+g = geoms[0]
 
-# geom_hash = "ddc45f81176bdb177efef0fe3e87c4eb"
-geom_hash = "156ee3365b98696abc280b34aef5d7ca"
-g = all_geoms[geom_hash]
-
-atoms = ase.Atoms(positions=np.array(g["R"]), numbers=all_geoms[geom_hash]["Z"])
-view(atoms)
+view(g.as_ase())
 
 
