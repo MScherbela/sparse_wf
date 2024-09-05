@@ -29,7 +29,7 @@ from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
-from sparse_wf.scf import make_hf_logpsi, make_hf_orbitals
+from sparse_wf.scf import HFWavefunction
 from sparse_wf.spin_operator import make_spin_operator
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
@@ -138,17 +138,21 @@ def main(
             state = state.deserialize(f.read(), batch_size)
     assert_identical_copies(state.params)
 
-    hf_orbitals_fn = make_hf_orbitals(mol)
+    hf_wf = HFWavefunction(mol)
     match pretraining["sample_from"].lower():
         case "hf":
-            pretraining_mcmc_step = make_mcmc(make_hf_logpsi(hf_orbitals_fn), R, n_el, mcmc_args)[0]
+            pretrain_mcmc_step = make_mcmc(hf_wf, R, n_el, mcmc_args, wf.get_static_input)[0]  # type: ignore
         case "wf":
-            pretraining_mcmc_step = mcmc_step
+            pretrain_mcmc_step = mcmc_step
         case _:
             raise ValueError(f"Invalid pretraining sample_from: {pretraining['sample_from']}")
 
     pretrainer = make_pretrainer(
-        wf, pretraining_mcmc_step, mcmc_width_scheduler, hf_orbitals_fn, make_optimizer(**pretraining["optimizer_args"])
+        wf,
+        pretrain_mcmc_step,
+        mcmc_width_scheduler,
+        hf_wf.hf_orbitals,
+        make_optimizer(**pretraining["optimizer_args"]),
     )
     state = pretrainer.init(state)
     model_static = pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons)
