@@ -14,9 +14,9 @@ class HFWavefunction:
         with only_on_main_process():
             mf = mol.RHF()
             mf.kernel()
-            coeffs = jnp.asarray(mf.mo_coeff)
+            self.coeffs = jnp.asarray(mf.mo_coeff)
         # We first copy for each local device and then synchronize across processes
-        self.coeffs = copy_from_main(replicate(coeffs))[0]
+        self.coeffs = copy_from_main(replicate(self.coeffs))[0]
 
     def _cpu_atomic_orbitals(self, electrons: np.ndarray):
         batch_shape = electrons.shape[:-1]
