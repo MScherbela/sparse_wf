@@ -33,6 +33,7 @@ from sparse_wf.scf import HFWavefunction
 from sparse_wf.spin_operator import make_spin_operator
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
+import functools
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -176,7 +177,7 @@ def main(
 
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
-        state, aux_data, mcmc_stats = trainer.sampling_step(state, static, False)
+        state, aux_data, mcmc_stats = trainer.sampling_step(state, static, False, None)
         static = static_scheduler(mcmc_stats.static_max)
         log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
         loggers.log(log_data)
@@ -199,9 +200,14 @@ def main(
     loggers.store_blob(state.serialize(), "chkpt_final.msgpk")
 
     logging.info("Evaluation")
+    overlap_fn = (
+        functools.partial(hf_wf.excited_signed_logpsi, jnp.array(evaluation["overlap_states"]))
+        if evaluation["overlap_states"]
+        else None
+    )
     for eval_step in range(evaluation["steps"]):
         t0 = time.perf_counter()
-        state, aux_data, mcmc_stats = trainer.sampling_step(state, static, evaluation["compute_energy"])
+        state, aux_data, mcmc_stats = trainer.sampling_step(state, static, evaluation["compute_energy"], overlap_fn)
         static = static_scheduler(mcmc_stats.static_max)
         log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
         t1 = time.perf_counter()

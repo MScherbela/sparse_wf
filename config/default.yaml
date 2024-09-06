@@ -140,6 +140,9 @@ load_checkpoint: ""
 evaluation:
   steps: 0
   compute_energy: True
+  compute_overlaps: False
+  overlap_states: []
+
 
 batch_size: 512
 

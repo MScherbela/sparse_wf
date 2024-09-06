@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import TypeVar
+from typing import TypeVar, Callable
 
 import jax
 import jax.numpy as jnp
@@ -95,8 +95,10 @@ def make_trainer(
             spin_state=replicate(spin_operator.init_state()),
         )
 
-    @pmap(static_broadcasted_argnums=(1, 2))
-    def sampling_step(state: TrainingState[P, SS], static: StaticInput, compute_energy: bool):
+    @pmap(static_broadcasted_argnums=(1, 2, 3))
+    def sampling_step(
+        state: TrainingState[P, SS], static: StaticInput, compute_energy: bool, overlap_fn: Callable | None = None
+    ):
         key, subkey = jax.random.split(state.key)
         electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, stats.pmove)
@@ -110,6 +112,14 @@ def make_trainer(
             E_std = pmean(((E_loc - E_mean) ** 2).mean()) ** 0.5
             aux_data["eval/E"] = E_mean
             aux_data["eval/E_std"] = E_std
+        if overlap_fn is not None:
+            signpsi, logpsi = jax.vmap(wave_function.signed, in_axes=(None, 0, None))(state.params, electrons, static)
+            signphi, logphi = jax.vmap(overlap_fn)(electrons)
+            ratio = jnp.exp(logphi - logpsi[:, None]) * signphi * signpsi[:, None]
+            overlaps = pmean(jnp.mean(ratio, axis=0))
+            for i, o in enumerate(overlaps):
+                aux_data[f"eval/overlap_{i}"] = o
+
         return state, aux_data, stats
 
     @pmap(static_broadcasted_argnums=1)

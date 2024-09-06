@@ -23,18 +23,39 @@ class HFWavefunction:
         ao_values = self.mol.eval_gto("GTOval_sph", electrons.reshape(-1, 3)).astype(electrons.dtype)
         return ao_values.reshape(*batch_shape, self.mol.nao)
 
-    def hf_orbitals(self, electrons: Electrons) -> HFOrbitals:
-        ao_orbitals = jax.pure_callback(  # type: ignore
+    def _eval_ao_orbitals(self, electrons: Electrons):
+        return jax.pure_callback(  # type: ignore
             self._cpu_atomic_orbitals,
             jax.ShapeDtypeStruct((*electrons.shape[:-1], self.mol.nao), electrons.dtype),
             electrons,
             vectorized=True,
         )
-        mo_values = jnp.array(ao_orbitals @ self.coeffs, electrons.dtype)
+
+    def hf_orbitals(self, electrons: Electrons) -> HFOrbitals:
+        ao_orbitals = self._eval_ao_orbitals(electrons)
+        coeffs_occ = self.coeffs[:, : max(self.n_up, self.n_down)]
+        mo_values = jnp.array(ao_orbitals @ coeffs_occ, electrons.dtype)
 
         up_orbitals = mo_values[..., : self.n_up, : self.n_up]
         down_orbitals = mo_values[..., self.n_up :, : self.n_down]
         return up_orbitals, down_orbitals
+
+    def excited_signed_logpsi(self, mo_indices: jnp.ndarray, electrons: Electrons):
+        n_states, n_orb = mo_indices.shape
+        assert n_orb == electrons.shape[-2]
+
+        ao_orbitals = self._eval_ao_orbitals(electrons)
+        mos = jnp.array(ao_orbitals @ self.coeffs, electrons.dtype)
+        mo_up = mos[..., : self.n_up, mo_indices[:, : self.n_up]]  # [batch x el x state x orb]
+        mo_dn = mos[..., self.n_up :, mo_indices[:, self.n_up :]]
+        mo_up = jnp.moveaxis(mo_up, -2, -3)  # [batch x state x el x orb]
+        mo_dn = jnp.moveaxis(mo_dn, -2, -3)
+
+        sign_up, logdet_up = jnp.linalg.slogdet(mo_up)
+        sign_dn, logdet_dn = jnp.linalg.slogdet(mo_dn)
+        logpsi = logdet_up + logdet_dn
+        sign = sign_up * sign_dn
+        return sign, logpsi
 
     def __call__(self, params, electrons: Electrons, static):
         """Compute log|psi| for the Hartree-Fock wavefunction."""
