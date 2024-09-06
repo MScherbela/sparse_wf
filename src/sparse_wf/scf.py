@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pyscf
+import pyscf.scf
 from sparse_wf.api import Electrons, HFOrbitals
 from sparse_wf.jax_utils import replicate, copy_from_main, only_on_main_process
 
@@ -13,6 +14,13 @@ class HFWavefunction:
         self.coeffs = jnp.zeros((mol.nao, mol.nao))
         with only_on_main_process():
             mf = mol.RHF()
+            # Run a few steps with smeared orbital occupation to avoid local minima
+            mf = pyscf.scf.addons.smearing_(mf, sigma=0.1, method="fermi")
+            mf.max_cycle = 10
+            mf.kernel()
+            # Run without smearing to get actual ground state
+            mf.sigma = 1e-9
+            mf.max_cycle = 50
             mf.kernel()
             self.coeffs = jnp.asarray(mf.mo_coeff)
         # We first copy for each local device and then synchronize across processes
@@ -36,9 +44,15 @@ class HFWavefunction:
         coeffs_occ = self.coeffs[:, : max(self.n_up, self.n_down)]
         mo_values = jnp.array(ao_orbitals @ coeffs_occ, electrons.dtype)
 
-        up_orbitals = mo_values[..., : self.n_up, : self.n_up]
-        down_orbitals = mo_values[..., self.n_up :, : self.n_down]
-        return up_orbitals, down_orbitals
+        # TODO: revert!!
+        idx_occ = np.arange(self.n_up)
+        idx_occ[-1] += 1  # use LUMO instad of HOMO
+
+        # up_orbitals = mo_values[..., : self.n_up, : self.n_up]
+        # down_orbitals = mo_values[..., self.n_up :, : self.n_down]
+        up_orbitals = mo_values[..., : self.n_up, idx_occ]
+        dn_orbitals = mo_values[..., self.n_up :, idx_occ]
+        return up_orbitals, dn_orbitals
 
     def excited_signed_logpsi(self, mo_indices: jnp.ndarray, electrons: Electrons):
         n_states, n_orb = mo_indices.shape
