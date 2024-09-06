@@ -43,12 +43,6 @@ class HFWavefunction:
         ao_orbitals = self._eval_ao_orbitals(electrons)
         coeffs_occ = self.coeffs[:, : max(self.n_up, self.n_down)]
         mo_values = jnp.array(ao_orbitals @ coeffs_occ, electrons.dtype)
-
-        # idx_occ = np.arange(self.n_up)
-        # idx_occ[-1] += 1  # use LUMO instad of HOMO
-        # up_orbitals = mo_values[..., : self.n_up, idx_occ]
-        # dn_orbitals = mo_values[..., self.n_up :, idx_occ]
-
         up_orbitals = mo_values[..., : self.n_up, : self.n_up]
         dn_orbitals = mo_values[..., self.n_up :, : self.n_down]
         return up_orbitals, dn_orbitals
