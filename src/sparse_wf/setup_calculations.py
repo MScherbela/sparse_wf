@@ -47,13 +47,18 @@ def update_dict(original, update, allow_new_keys):
     return original
 
 
-def convert_to_default_datatype(config_dict, default_dict):
+def convert_to_default_datatype(config_dict, default_dict, allow_new_keys=False):
     if isinstance(config_dict, dict):
         for key, value in config_dict.items():
-            config_dict[key] = convert_to_default_datatype(value, default_dict[key])
+            if key not in default_dict:
+                if allow_new_keys:
+                    continue
+                else:
+                    raise KeyError(f"Key {key} not found in default dict.")
+            config_dict[key] = convert_to_default_datatype(value, default_dict[key], allow_new_keys)
     elif isinstance(config_dict, list):
         for i, value in enumerate(config_dict):
-            config_dict[i] = convert_to_default_datatype(value, default_dict[0])
+            config_dict[i] = convert_to_default_datatype(value, default_dict[0], allow_new_keys=True)
     elif config_dict is None:
         pass
     else:

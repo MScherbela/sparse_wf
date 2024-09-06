@@ -1,4 +1,4 @@
-from typing import TypeVar, Callable
+from typing import TypeVar, Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -36,6 +36,7 @@ P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
 def mcmc_steps_all_electron(
     logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    get_static_fn: Callable,
     steps: int,
     key: PRNGKeyArray,
     params: P,
@@ -59,7 +60,7 @@ def mcmc_steps_all_electron(
         new_log_prob = log_prob_fn(new_electrons)
 
         # Track actual static neigbour counts
-        actual_static = logpsi_fn.get_static_input(electrons, new_electrons, np.arange(n_el))
+        actual_static = get_static_fn(electrons, new_electrons, np.arange(n_el))
         static_mean = tree_add(static_mean, actual_static)
         static_max = tree_maximum(static_max, actual_static)
 
@@ -74,7 +75,7 @@ def mcmc_steps_all_electron(
 
     local_batch_size = electrons.shape[0]
     logprob = jax.vmap(log_prob_fn)(electrons)
-    actual_static = jax.vmap(logpsi_fn.get_static_input)(electrons)
+    actual_static = jax.vmap(get_static_fn)(electrons)
     x0 = (
         jax.random.split(key, local_batch_size),
         electrons,
@@ -151,6 +152,7 @@ def proposal_cluster_update(
 
 def mcmc_steps_low_rank(
     logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    get_static_fn: Callable,
     proposal_fn: Callable,
     steps: int,
     key: PRNGKeyArray,
@@ -180,7 +182,7 @@ def mcmc_steps_low_rank(
         )
 
         # Track actual static neigbour counts
-        actual_static = logpsi_fn.get_static_input(electrons, proposed_electrons, idx_el_changed)
+        actual_static = get_static_fn(electrons, proposed_electrons, idx_el_changed)
         static_mean = tree_add(static_mean, actual_static)
         static_max = tree_maximum(static_max, actual_static)
 
@@ -198,7 +200,7 @@ def mcmc_steps_low_rank(
         return key, electrons, log_prob, model_state, static_mean, static_max, num_accept, mean_cluster_size
 
     local_batch_size = electrons.shape[0]
-    actual_static = jax.vmap(logpsi_fn.get_static_input)(electrons)
+    actual_static = jax.vmap(get_static_fn)(electrons)
     x0 = (
         jax.random.split(key, local_batch_size),
         electrons,
@@ -225,23 +227,29 @@ def make_mcmc(
     R: Nuclei,
     n_el: int,
     mcmc_args: MCMCArgs,
+    get_static_fn: Optional[Callable] = None,
 ) -> tuple[MCStep[P, S], jax.Array]:
     proposal = mcmc_args["proposal"]
     proposal_args = dict(**mcmc_args[f"{proposal.replace('-', '_')}_args"])  # type: ignore
     init_width = proposal_args["init_width"]
+
+    get_static_fn = get_static_fn or logpsi_fn.get_static_input
+
     match proposal.lower():
         case "all-electron":
             steps = proposal_args["steps"]
-            mcmc_step = functools.partial(mcmc_steps_all_electron, logpsi_fn, steps)
+            mcmc_step = functools.partial(mcmc_steps_all_electron, logpsi_fn, get_static_fn, steps)
         case "single-electron":
             steps = proposal_args["sweeps"] * n_el
-            mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, proposal_single_electron, steps)
+            mcmc_step = functools.partial(
+                mcmc_steps_low_rank, logpsi_fn, get_static_fn, proposal_single_electron, steps
+            )
         case "cluster-update":
             proposal_fn = functools.partial(
                 proposal_cluster_update, proposal_args["max_cluster_size"], proposal_args["max_cluster_radius"]
             )
             steps = proposal_args["sweeps"] * n_el
-            mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, proposal_fn, steps)
+            mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, get_static_fn, proposal_fn, steps)
         case _:
             raise ValueError(f"Invalid proposal: {proposal}")
     return mcmc_step, jnp.array(init_width, dtype=jnp.float32)

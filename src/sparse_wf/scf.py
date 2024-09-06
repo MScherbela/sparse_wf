@@ -2,47 +2,44 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pyscf
-from sparse_wf.api import Electrons, HFOrbitalFn, HFOrbitals
+from sparse_wf.api import Electrons, HFOrbitals
 from sparse_wf.jax_utils import replicate, copy_from_main, only_on_main_process
 
 
-def make_hf_orbitals(mol: pyscf.gto.Mole) -> HFOrbitalFn:
-    coeffs = jnp.zeros((mol.nao, mol.nao))
-    with only_on_main_process():
-        mf = mol.RHF()
-        mf.kernel()
-        coeffs = jnp.asarray(mf.mo_coeff)
-    # We first copy for each local device and then synchronize across processes
-    coeffs = copy_from_main(replicate(coeffs))[0]
-    n_up, n_down = mol.nelec
+class HFWavefunction:
+    def __init__(self, mol: pyscf.gto.Mole):
+        self.mol = mol
+        self.n_up, self.n_down = mol.nelec
+        self.coeffs = jnp.zeros((mol.nao, mol.nao))
+        with only_on_main_process():
+            mf = mol.RHF()
+            mf.kernel()
+            self.coeffs = jnp.asarray(mf.mo_coeff)
+        # We first copy for each local device and then synchronize across processes
+        self.coeffs = copy_from_main(replicate(self.coeffs))[0]
 
-    def cpu_atomic_orbitals(electrons: np.ndarray):
+    def _cpu_atomic_orbitals(self, electrons: np.ndarray):
         batch_shape = electrons.shape[:-1]
-        ao_values = mol.eval_gto("GTOval_sph", electrons.reshape(-1, 3)).astype(electrons.dtype)
-        return ao_values.reshape(*batch_shape, mol.nao)
+        ao_values = self.mol.eval_gto("GTOval_sph", electrons.reshape(-1, 3)).astype(electrons.dtype)
+        return ao_values.reshape(*batch_shape, self.mol.nao)
 
-    def hf_orbitals(electrons: Electrons) -> HFOrbitals:
+    def hf_orbitals(self, electrons: Electrons) -> HFOrbitals:
         ao_orbitals = jax.pure_callback(  # type: ignore
-            cpu_atomic_orbitals,
-            jax.ShapeDtypeStruct((*electrons.shape[:-1], mol.nao), electrons.dtype),
+            self._cpu_atomic_orbitals,
+            jax.ShapeDtypeStruct((*electrons.shape[:-1], self.mol.nao), electrons.dtype),
             electrons,
             vectorized=True,
         )
-        mo_values = jnp.array(ao_orbitals @ coeffs, electrons.dtype)
+        mo_values = jnp.array(ao_orbitals @ self.coeffs, electrons.dtype)
 
-        up_orbitals = mo_values[..., :n_up, :n_up]
-        down_orbitals = mo_values[..., n_up:, :n_down]
+        up_orbitals = mo_values[..., : self.n_up, : self.n_up]
+        down_orbitals = mo_values[..., self.n_up :, : self.n_down]
         return up_orbitals, down_orbitals
 
-    return hf_orbitals
-
-
-def make_hf_logpsi(hf_orbitals: HFOrbitalFn):
-    def logpsi(params, electrons: Electrons, static):
-        up_orbitals, dn_orbitals = hf_orbitals(electrons)
+    def __call__(self, params, electrons: Electrons, static):
+        """Compute log|psi| for the Hartree-Fock wavefunction."""
+        up_orbitals, dn_orbitals = self.hf_orbitals(electrons)
         up_logdet = jnp.linalg.slogdet(up_orbitals)[1]
         dn_logdet = jnp.linalg.slogdet(dn_orbitals)[1]
         logpsi = up_logdet + dn_logdet
         return logpsi
-
-    return logpsi

@@ -314,8 +314,9 @@ class Jastrow(nn.Module):
         changed_embeddings: ElectronIdx,
         state: JastrowState,
     ) -> tuple[SignedLogAmplitude, JastrowState]:
+        zeros = jnp.zeros((), electrons.dtype)
+        logpsi = zeros
         sign = jnp.ones((), electrons.dtype)
-        logpsi = jnp.zeros([], electrons.dtype)
         n_el = electrons.shape[-2]
         if self.pairwise_cusps:
             # TODO: one could do low-rank updates on the cusps, though they should be cheap anyway.
@@ -333,10 +334,7 @@ class Jastrow(nn.Module):
             )
             logpsi += jnp.sum(jastrow_same) + jnp.sum(jastrow_diff)
         else:
-            jastrow_same, jastrow_diff = (
-                jnp.zeros([], electrons.dtype),
-                jnp.zeros([], electrons.dtype),
-            )
+            jastrow_same, jastrow_diff = zeros, zeros
 
         jastrows_after_sum = jnp.zeros((2,), electrons.dtype)
         # Attention jastrow
@@ -346,7 +344,7 @@ class Jastrow(nn.Module):
             values = state.values.at[changed_embeddings].set(values)
             jastrows_after_sum += self._apply_attention_readout(*self.att.contract(attention, values, self.n_up))
         else:
-            attention, values = jnp.zeros(()), jnp.zeros(())
+            attention, values = zeros, zeros
 
         # Elementwise MLP jastrow
         if self.mlp:
@@ -354,7 +352,7 @@ class Jastrow(nn.Module):
             jastrows_before_sum = state.one_el.at[changed_embeddings].set(jastrows_before_sum)
             jastrows_after_sum += jastrows_before_sum.sum(axis=0)
         else:
-            jastrows_before_sum = jnp.zeros(())
+            jastrows_before_sum = zeros
 
         # Apply jastrows
         J_sign, J_logpsi = self._mlp_to_logpsi(jastrows_after_sum)
