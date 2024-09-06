@@ -12,7 +12,9 @@ all_geoms = load_geometries()
 geom = [g for g in all_geoms.values() if g.comment == 'cumulene_C2H4_90deg']
 assert len(geom) == 1
 geom = geom[0]
-basis_set = "sto-6g"
+# basis_set = "sto-6g"
+basis_set = "cc-pvdz"
+
 mol = geom.as_pyscf_molecule(basis_set)
 
 def run_hf(smearing):
