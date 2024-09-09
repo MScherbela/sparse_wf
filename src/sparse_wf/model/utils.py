@@ -367,7 +367,8 @@ def hf_orbitals_to_fulldet_orbitals(hf_orbitals: HFOrbitals) -> SlaterMatrices:
         axis=-2,
     )
     # Add broadcast dimension for many determinants
-    return (full_det[..., None, :, :],)
+    return (full_det,)
+    # return (full_det[..., None, :, :],)
 
 
 class DynamicFilterParams(NamedTuple):

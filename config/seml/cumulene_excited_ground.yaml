@@ -1,0 +1,64 @@
+seml:
+  executable: train_with_seml.py
+  project_root_dir: ../../
+  output_dir: ~/slurm-output/
+
+slurm:
+  # - sbatch_options:
+  #     gres: gpu:2
+  #     cpus-per-task: 8
+  #     partition: gpu_h100
+  #     mem: 32G
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:8
+      cpus-per-task: 16
+      mem: 64G
+      partition: mcml-dgx-a100-40x8
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:4
+      cpus-per-task: 16
+      mem: 64G
+      partition: mcml-hgx-a100-80x4
+
+fixed:
+  molecule_args:
+    method: database
+    database_args.name: cumulene_C2H4_90deg
+  batch_size: 2048
+  optimization:
+    steps: 20_000
+    energy_operator: sparse
+  mcmc_args:
+    proposal: all-electron
+  logging_args.name_keys:
+    - pretraining.steps
+    - optimization.spin_operator_args.operator
+
+grid:
+  optimization.spin_operator_args.operator:
+    type: choice
+    options:
+      # - splus
+      - none
+
+excited:
+  fixed:
+    pretraining:
+      steps: 5000
+      optimizer_args.transformations:
+        - name: clip_by_global_norm
+          args: []
+          kwargs: { max_norm: 1.0 }
+        - name: scale_by_adam
+          args: []
+          kwargs: {}
+        - name: scale_by_trust_ratio
+          args: []
+          kwargs: {}
+    optimization.preconditioner_args.spring_dense_args.damping: 0.001
+
+ground:
+  fixed:
+    optimization.preconditioner_args.spring_dense_args.damping: 1

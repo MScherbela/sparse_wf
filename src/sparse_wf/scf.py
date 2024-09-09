@@ -9,8 +9,16 @@ from sparse_wf.jax_utils import replicate, copy_from_main, only_on_main_process
 def make_hf_orbitals(mol: pyscf.gto.Mole) -> HFOrbitalFn:
     coeffs = jnp.zeros((mol.nao, mol.nao))
     with only_on_main_process():
-        mf = mol.RHF()
-        mf.kernel()
+        best_mf = mol.RHF()
+        best_mf.kernel()
+        best_energy = best_mf.e_tot
+        for _ in range(30):
+            mf = mol.RHF()
+            mf.kernel()
+            if mf.e_tot < best_energy:
+                best_mf = mf
+                best_energy = mf.e_tot
+        mf = best_mf
         coeffs = jnp.asarray(mf.mo_coeff)
     # We first copy for each local device and then synchronize across processes
     coeffs = copy_from_main(replicate(coeffs))[0]
@@ -30,8 +38,13 @@ def make_hf_orbitals(mol: pyscf.gto.Mole) -> HFOrbitalFn:
         )
         mo_values = jnp.array(ao_orbitals @ coeffs, electrons.dtype)
 
-        up_orbitals = mo_values[..., :n_up, :n_up]
-        down_orbitals = mo_values[..., n_up:, :n_down]
+        orbitals = np.arange(n_up)
+        up_orbitals = mo_values[..., None, :n_up, orbitals]
+        down_orbitals = mo_values[..., None, n_up:, orbitals]
+        up_orbitals_excited = mo_values[..., None, :n_up, orbitals]
+        down_orbitals_excited = mo_values[..., None, n_up:, orbitals]
+        up_orbitals = (up_orbitals + up_orbitals_excited) / jnp.sqrt(2)
+        down_orbitals = (down_orbitals + down_orbitals_excited) / jnp.sqrt(2)
         return up_orbitals, down_orbitals
 
     return hf_orbitals
