@@ -550,10 +550,19 @@ class OptimizationArgs(TypedDict):
     energy_operator: Literal["dense", "sparse"]
 
 
+class CASArgs(TypedDict):
+    active_orbitals: int
+    active_electrons: int
+    det_threshold: float
+    s2: float
+
+
 class PretrainingArgs(TypedDict):
     steps: int
     optimizer_args: OptimizerArgs
     sample_from: Literal["hf", "wf"]
+    reference: Literal["hf", "cas"]
+    cas: CASArgs
 
 
 class EvaluationArgs(TypedDict):

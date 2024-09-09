@@ -7,43 +7,20 @@ import numpy as np
 from pyscf.fci.cistring import _gen_occslst
 import pyscf.ci
 import pyscf.scf
+import pyscf.mcscf
 
 all_geoms = load_geometries()
-geom = [g for g in all_geoms.values() if g.comment == 'cumulene_C2H4_90deg']
-assert len(geom) == 1
-geom = geom[0]
-# basis_set = "sto-6g"
-basis_set = "cc-pvdz"
+geoms = [g for g in all_geoms.values() if g.comment == 'cumulene_C4H4_90deg']
+assert len(geoms) == 1
+geom = geoms[0]
+basis_set = "sto-6g"
 
 mol = geom.as_pyscf_molecule(basis_set)
-
-def run_hf(smearing):
-    mol = geom.as_pyscf_molecule(basis_set)
-    mol.output = "/dev/null"
-    hf = pyscf.scf.RHF(mol)
-    hf.verbose = 0
-    if smearing:
-        hf = pyscf.scf.addons.smearing_(hf, sigma=smearing, method='fermi')
-        hf.sigma = 0.05
-        hf.max_cycle = 5
-        hf.kernel()
-
-    hf.sigma = 1e-6
-    hf.max_cycle = 50
-    hf.kernel()
-    return hf.e_tot
-
-
-for smearing in [True, False]:
-    for i in range(10):
-        energy = run_hf(smearing)
-        print(f"Smearing: {smearing:<5}, Energy: {energy:.3f}")
-# print("Running Hartree-Fock...")
+mol.output = "/dev/null"
 hf = pyscf.scf.RHF(mol)
-hf = pyscf.scf.addons.smearing_(hf, sigma=.1, method='fermi')
-
-hf.sigma = .1
-hf.max_cycle = 10
+hf.verbose = 0
+hf = pyscf.scf.addons.smearing_(hf, sigma=0.05, method='fermi')
+hf.max_cycle = 5
 hf.kernel()
 
 hf.sigma = 1e-6
@@ -52,30 +29,24 @@ hf.kernel()
 
 print(f"Finished HF: {hf.e_tot:.3f}")
 
-# print("Running CAS...")
-# cas = hf.CASSCF(4, 4).run()
-# cas.fix_spin_(ss=0.0)
-# print("Finished running CAS.")
+print("Running CAS...")
+cas = hf.CASSCF(4, 4)
+cas.fix_spin_(ss=0)
+cas.kernel()
+print("Finished running CAS.")
 
-#%%
-ci_coeffs = cas.ci.flatten()
-idx_sorted = np.argsort(ci_coeffs**2)[::-1]
-n_coeffs_max = 5
+is_large = (cas.ci**2) > 0.05
+ind_large = np.where(is_large)
+ind_large = np.array(ind_large).T
+large_ci_coeffs = cas.ci[ind_large[:, 0], ind_large[:, 1]]
+idx_sort = np.argsort(large_ci_coeffs**2)[::-1]
+ind_large = ind_large[idx_sort]
 
-assert cas.ci.shape[0] == cas.ci.shape[1]
-n_dets_per_spin = cas.ci.shape[0]
-
-weights_cum = 0
-print("i, idx_up, idx_dn, coeff, weight, weights_cum")
-print("=============================================")
-for i in range(min(n_coeffs_max, len(ci_coeffs))):
-    coeff = ci_coeffs[idx_sorted[i]]
-    weight = ci_coeffs[idx_sorted[i]]**2
-    weights_cum += weight
-    idx_det_up, idx_det_dn = np.divmod(idx_sorted[i], n_dets_per_spin)
-    print(f"{i:2d} | {idx_det_up:3d},{idx_det_dn:3d} |    {coeff:+.3f}   {weight:.3f}, {weights_cum:.3f}")
-
-
+det_strings = [f"{coeff:+.2f}|{u},{d}>" for (u,d), coeff in zip(ind_large, large_ci_coeffs)]
+state_string = " ".join(det_strings)
+s2 = pyscf.mcscf.spin_square(cas)[0]
+print(f"S2={s2:.1f}, {state_string}")
+print(f"E(CAS) = {cas.e_tot:.4f}")
 
 
 

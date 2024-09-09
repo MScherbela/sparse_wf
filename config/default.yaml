@@ -134,6 +134,12 @@ pretraining:
       - name: scale_by_adam
         args: []
         kwargs: {}
+  reference: cas
+  cas:
+    active_orbitals: 8
+    active_electrons: 8
+    det_threshold: 0.05
+    s2: -1
 
 load_checkpoint: ""
 

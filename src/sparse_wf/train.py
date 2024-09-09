@@ -152,7 +152,7 @@ def main(
         wf,
         pretrain_mcmc_step,
         mcmc_width_scheduler,
-        hf_wf.hf_orbitals,
+        hf_wf.orbitals,
         make_optimizer(**pretraining["optimizer_args"]),
     )
     state = pretrainer.init(state)
