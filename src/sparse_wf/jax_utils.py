@@ -322,5 +322,5 @@ def plogsumexp(a, b, axis=0):
 
     sum_exp = psum(jnp.sum(exp_a, axis=axis, keepdims=True))
     sign = jnp.sign(sum_exp).squeeze(axis)
-    logsumexp = (jnp.log(sum_exp) + max_a).squeeze(axis)
+    logsumexp = (jnp.log(jnp.abs(sum_exp)) + max_a).squeeze(axis)
     return logsumexp, sign
