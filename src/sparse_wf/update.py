@@ -21,7 +21,7 @@ from sparse_wf.api import (
     WidthScheduler,
     StaticInput,
 )
-from sparse_wf.jax_utils import pgather, pmap, pmean, replicate
+from sparse_wf.jax_utils import pgather, pmap, pmean, replicate, plogsumexp
 from sparse_wf.tree_utils import tree_dot
 
 from folx import batched_vmap
@@ -115,10 +115,12 @@ def make_trainer(
         if overlap_fn is not None:
             signpsi, logpsi = jax.vmap(wave_function.signed, in_axes=(None, 0, None))(state.params, electrons, static)
             signphi, logphi = jax.vmap(overlap_fn)(electrons)
-            ratio = jnp.exp(logphi - logpsi[:, None]) * signphi * signpsi[:, None]
-            overlaps = pmean(jnp.mean(ratio, axis=0))
-            for i, o in enumerate(overlaps):
-                aux_data[f"eval/overlap_{i}"] = o
+            overlap_signs = signphi * signpsi[:, None]
+            log_overlap_ratios = logphi - logpsi[:, None]
+            log_overlap, sign_overlap = plogsumexp(log_overlap_ratios, overlap_signs)
+            for i, (o, s) in enumerate(zip(log_overlap, sign_overlap)):
+                aux_data[f"eval/log_overlap_{i}"] = o
+                aux_data[f"eval/sign_overlap_{i}"] = s
 
         return state, aux_data, stats
 

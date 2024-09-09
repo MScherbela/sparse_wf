@@ -313,3 +313,14 @@ def rng_sequence(key):
     while True:
         key, subkey = jax.random.split(key)
         yield subkey
+
+
+def plogsumexp(a, b, axis=0):
+    """Parallel logsumexp with sign, summing over specified axis and device axis."""
+    max_a = pmax(jnp.max(a, axis=axis, keepdims=True))
+    exp_a = jnp.exp(a - max_a) * b
+
+    sum_exp = psum(jnp.sum(exp_a, axis=axis, keepdims=True))
+    sign = jnp.sign(sum_exp).squeeze(axis)
+    logsumexp = (jnp.log(sum_exp) + max_a).squeeze(axis)
+    return logsumexp, sign
