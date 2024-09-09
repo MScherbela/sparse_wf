@@ -25,7 +25,7 @@ slurm:
 fixed:
   molecule_args:
     method: database
-    database_args.name: cumulene_C2H4_90deg
+    database_args.name: cumulene_C8H4_90deg
   batch_size: 2048
   optimization:
     steps: 20_000
