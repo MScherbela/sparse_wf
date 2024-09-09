@@ -41,6 +41,7 @@ def make_hf_orbitals(mol: pyscf.gto.Mole) -> HFOrbitalFn:
         orbitals = np.arange(n_up)
         up_orbitals = mo_values[..., None, :n_up, orbitals]
         down_orbitals = mo_values[..., None, n_up:, orbitals]
+        orbitals[-1] += 1
         up_orbitals_excited = mo_values[..., None, :n_up, orbitals]
         down_orbitals_excited = mo_values[..., None, n_up:, orbitals]
         up_orbitals = (up_orbitals + up_orbitals_excited) / jnp.sqrt(2)
