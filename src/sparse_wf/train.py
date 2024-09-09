@@ -29,7 +29,7 @@ from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
-from sparse_wf.scf import HFWavefunction
+from sparse_wf.scf import HFWavefunction, CASWavefunction
 from sparse_wf.spin_operator import make_spin_operator
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
@@ -137,9 +137,18 @@ def main(
     if load_checkpoint:
         with open(load_checkpoint, "rb") as f:
             state = state.deserialize(f.read(), batch_size)
+
     assert_identical_copies(state.params)
 
-    hf_wf = HFWavefunction(mol)
+    # Build pre-training wavefunction and sampling step
+    match pretraining["reference"].lower():
+        case "hf":
+            hf_wf = HFWavefunction(mol)
+        case "cas":
+            hf_wf = CASWavefunction(mol, model_args["n_determinants"], **pretraining["cas"])
+        case _:
+            raise ValueError(f"Invalid pretraining reference: {pretraining['reference']}")
+
     match pretraining["sample_from"].lower():
         case "hf":
             pretrain_mcmc_step = make_mcmc(hf_wf, R, n_el, mcmc_args, wf.get_static_input)[0]  # type: ignore

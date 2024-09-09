@@ -8,6 +8,7 @@ from sparse_wf.jax_utils import replicate, copy_from_main, is_main_process
 from typing import NamedTuple
 from pyscf.fci.cistring import _gen_occslst
 import pyscf.mcscf
+import logging
 
 
 class CASResult(NamedTuple):
@@ -76,11 +77,13 @@ def get_most_important_determinants(cas: CASResult, n_dets, threshold=0.05):
 
 
 def split_large_determinants(idx_orbitals, ci_coeffs, n_dets):
-    while len(ci_coeffs) < n_dets:
-        idx_max = np.argmax(ci_coeffs**2)
-        ci_coeffs[idx_max] /= 2
-        ci_coeffs = np.append(ci_coeffs, ci_coeffs[idx_max])
-        idx_orbitals = np.concatenate([idx_orbitals, idx_orbitals[idx_max, None]], axis=0)
+    multiplicities = np.ones(len(ci_coeffs), dtype=int)
+    while np.sum(multiplicities) < n_dets:
+        idx_max = np.argmax(np.abs(ci_coeffs))
+        ci_coeffs[idx_max] *= multiplicities[idx_max] / (multiplicities[idx_max] + 1)
+        multiplicities[idx_max] += 1
+    ci_coeffs = np.repeat(ci_coeffs, multiplicities)
+    idx_orbitals = np.repeat(idx_orbitals, multiplicities, axis=0)
     return idx_orbitals, ci_coeffs
 
 
@@ -167,9 +170,14 @@ class CASWavefunction(HFWavefunction):
         self.ci_coeffs = jnp.zeros([n_determinants], dtype=jnp.float32)
 
         if is_main_process():
-            cas_result = run_cas(self.hf, active_orbitals, active_electrons, s2)
+            cas_result = run_cas(self.hf, active_orbitals, min(active_electrons, sum(mol.nelec)), s2)
+            logging.info(f"CASCI energy: {cas_result.energy}")
             idx_orbitals, ci_coeffs = get_most_important_determinants(cas_result, n_determinants, det_threshold)
+            logging.info(f"Selected {len(idx_orbitals)} determinants; sum of ci^2: {np.sum(ci_coeffs**2)}")
             self.idx_orbitals, self.ci_coeffs = split_large_determinants(idx_orbitals, ci_coeffs, n_determinants)
+            logging.info("Final determinants:")
+            for i, (idx, ci) in enumerate(zip(self.idx_orbitals, self.ci_coeffs)):
+                logging.info(f"CAS determinant {i:2d}: {ci:.5f}: {list(idx)}")
         self.idx_orbitals = copy_from_main(replicate(self.idx_orbitals))[0]
         self.ci_coeffs = copy_from_main(replicate(self.ci_coeffs))[0]
 
@@ -187,6 +195,6 @@ class CASWavefunction(HFWavefunction):
 
         # adjust the sign of the first orbital to yield the correct sign of the determinant
         ci_signs = np.sign(self.ci_coeffs)
-        mo_up = mo_up.at[..., 0].multiply(ci_signs[:, None, None])
+        mo_up = mo_up.at[..., 0].multiply(ci_signs[:, None])
         # do NOT adjust the sign of the down orbitals as well, because the sign would then cancel
         return mo_up, mo_dn
