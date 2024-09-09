@@ -4,7 +4,7 @@ import numpy as np
 import pyscf
 import pyscf.scf
 from sparse_wf.api import Electrons, HFOrbitals
-from sparse_wf.jax_utils import replicate, copy_from_main, is_main_process
+from sparse_wf.jax_utils import replicate, copy_from_main, only_on_main_process
 from typing import NamedTuple
 from pyscf.fci.cistring import _gen_occslst
 import pyscf.mcscf
@@ -117,7 +117,7 @@ class HFWavefunction:
         self.n_up, self.n_dn = mol.nelec
         self.n_el = self.n_up + self.n_dn
         self.mo_coeffs = jnp.zeros((mol.nao, mol.nao))
-        if is_main_process():
+        with only_on_main_process():
             self.hf = run_hf(mol)
             self.mo_coeffs = jnp.asarray(self.hf.mo_coeff)  # type: ignore
         # We first copy for each local device and then synchronize across processes
@@ -169,7 +169,7 @@ class CASWavefunction(HFWavefunction):
         self.idx_orbitals = jnp.zeros([n_determinants, self.n_el], dtype=jnp.int32)
         self.ci_coeffs = jnp.zeros([n_determinants], dtype=jnp.float32)
 
-        if is_main_process():
+        with only_on_main_process():
             cas_result = run_cas(self.hf, active_orbitals, min(active_electrons, sum(mol.nelec)), s2)
             logging.info(f"CASCI energy: {cas_result.energy}")
             idx_orbitals, ci_coeffs = get_most_important_determinants(cas_result, n_determinants, det_threshold)
@@ -178,6 +178,8 @@ class CASWavefunction(HFWavefunction):
             logging.info("Final determinants:")
             for i, (idx, ci) in enumerate(zip(self.idx_orbitals, self.ci_coeffs)):
                 logging.info(f"CAS determinant {i:2d}: {ci:.5f}: {list(idx)}")
+            self.idx_orbitals = jnp.asarray(self.idx_orbitals, dtype=jnp.int32)
+            self.ci_coeffs = jnp.asarray(self.ci_coeffs, dtype=jnp.float32)
         self.idx_orbitals = copy_from_main(replicate(self.idx_orbitals))[0]
         self.ci_coeffs = copy_from_main(replicate(self.ci_coeffs))[0]
 
@@ -190,8 +192,8 @@ class CASWavefunction(HFWavefunction):
         mo_dn = jnp.moveaxis(mo_dn[..., idx_dn], -2, -3)
 
         ci_weights = np.abs(self.ci_coeffs) ** (1 / n_el)
-        mo_up *= mo_up * ci_weights[:, None, None]
-        mo_dn *= mo_dn * ci_weights[:, None, None]
+        mo_up = mo_up * ci_weights[:, None, None]
+        mo_dn = mo_dn * ci_weights[:, None, None]
 
         # adjust the sign of the first orbital to yield the correct sign of the determinant
         ci_signs = np.sign(self.ci_coeffs)
