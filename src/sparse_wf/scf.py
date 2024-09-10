@@ -69,6 +69,7 @@ def get_most_important_determinants(cas: CASResult, n_dets, threshold=0.05):
     ci_coeffs_large = cas.ci_coeffs[idx_large[:, 0], idx_large[:, 1]]
     idx_sort = np.argsort(ci_coeffs_large**2)[::-1]
     idx_large = idx_large[idx_sort]
+    ci_coeffs_large = ci_coeffs_large[idx_sort]
     if len(idx_large) > n_dets:
         idx_large = idx_large[:n_dets]
         ci_coeffs_large = ci_coeffs_large[:n_dets]
@@ -171,6 +172,7 @@ class CASWavefunction(HFWavefunction):
 
         with only_on_main_process():
             cas_result = run_cas(self.hf, active_orbitals, min(active_electrons, sum(mol.nelec)), s2)
+            self.cas_result = cas_result
             logging.info(f"CASCI energy: {cas_result.energy}")
             idx_orbitals, ci_coeffs = get_most_important_determinants(cas_result, n_determinants, det_threshold)
             logging.info(f"Selected {len(idx_orbitals)} determinants; sum of ci^2: {np.sum(ci_coeffs**2)}")
