@@ -172,6 +172,7 @@ class CASWavefunction(HFWavefunction):
 
         with only_on_main_process():
             cas_result = run_cas(self.hf, active_orbitals, min(active_electrons, sum(mol.nelec)), s2)
+            self.cas_result = cas_result
             logging.info(f"CASCI energy: {cas_result.energy}")
             idx_orbitals, ci_coeffs = get_most_important_determinants(cas_result, n_determinants, det_threshold)
             logging.info(f"Selected {len(idx_orbitals)} determinants; sum of ci^2: {np.sum(ci_coeffs**2)}")
