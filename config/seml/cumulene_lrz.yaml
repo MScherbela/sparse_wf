@@ -18,6 +18,8 @@ slurm:
       partition: mcml-hgx-a100-80x4
 
 fixed:
+  logging_args.wandb.project: ngao_cumulene_jastrow
+  molecule_args.method: database
   model_args.embedding:
     embedding: new
     new.cutoff: 3.0
