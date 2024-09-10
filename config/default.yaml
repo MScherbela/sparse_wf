@@ -24,7 +24,7 @@ model: moon
 
 model_args:
   n_determinants: 16
-  spin_restricted: true
+  spin_restricted: false
   embedding:
     embedding: new_sparse
     new:
@@ -90,7 +90,7 @@ optimization:
       hyperbolic:
         init_value: 0.1
         decay: 1.0
-        delay: 2000
+        delay: 1000
     transformations:
       - name: clip_by_global_norm
         args: []
@@ -98,18 +98,18 @@ optimization:
   preconditioner_args:
     preconditioner: spring_dense
     spring_args:
-      damping: 1.0
+      damping: 1.0e-4
       decay_factor: 0.99
     spring_dense_args:
-      damping: 1.0
+      damping: 1.0e-4
       decay_factor: 0.99
       max_batch_size: 128
       use_float64: true
     cg_args:
-      damping: 1.0
+      damping: 1.0e-4
       maxiter: 100
     svd_args:
-      damping: 1.0
+      damping: 1.0e-4
       ema_natgrad: 0.9
       ema_S: 0.9
       history_length: 200
@@ -121,7 +121,7 @@ optimization:
     grad_scale: 1.e-4
 
 pretraining:
-  steps: 1_000
+  steps: 5_000
   sample_from: wf
   optimizer_args:
     lr_schedule: hyperbolic
@@ -131,7 +131,13 @@ pretraining:
         decay: 1.0
         delay: 1000
     transformations:
+      - name: clip_by_global_norm
+        args: []
+        kwargs: { max_norm: 1.0 }
       - name: scale_by_adam
+        args: []
+        kwargs: {}
+      - name: scale_by_trust_ratio
         args: []
         kwargs: {}
   reference: cas
@@ -150,10 +156,10 @@ evaluation:
   overlap_states: []
 
 
-batch_size: 512
+batch_size: 2048
 
 mcmc_args:
-  proposal: "all-electron"
+  proposal: "cluster-update"
   all_electron_args:
     steps: 20
     init_width: 0.1
@@ -162,6 +168,6 @@ mcmc_args:
     init_width: 0.5
   cluster_update_args:
     sweeps: 1
-    init_width: 0.2
+    init_width: 0.1
     max_cluster_radius: 2.0
     max_cluster_size: 5
