@@ -69,6 +69,7 @@ def get_most_important_determinants(cas: CASResult, n_dets, threshold=0.05):
     ci_coeffs_large = cas.ci_coeffs[idx_large[:, 0], idx_large[:, 1]]
     idx_sort = np.argsort(ci_coeffs_large**2)[::-1]
     idx_large = idx_large[idx_sort]
+    ci_coeffs_large = ci_coeffs_large[idx_sort]
     if len(idx_large) > n_dets:
         idx_large = idx_large[:n_dets]
         ci_coeffs_large = ci_coeffs_large[:n_dets]
