@@ -6,7 +6,7 @@ seml:
 slurm:
   - experiments_per_job: 1
     sbatch_options:
-      gres: gpu:8
+      gres: gpu:4
       cpus-per-task: 16
       mem: 64G
       partition: mcml-dgx-a100-40x8
@@ -18,28 +18,9 @@ slurm:
       partition: mcml-hgx-a100-80x4
 
 fixed:
-  pretraining:
-    steps: 10_000
-  logging_args.wandb.project: "ngao_cumulene"
-  molecule_args:
-    method: database
-  batch_size: 2048
-  optimization:
-    max_batch_size: 1
-    steps: 100_000
-    energy_operator: sparse
-    preconditioner_args:
-      spring_dense_args:
-        max_batch_size: 32
-  mcmc_args:
-    proposal: single-electron
-  logging_args.name_keys:
-    - molecule_args.database_args.name
   model_args.embedding:
     embedding: new
-    new:
-      n_updates: 1
-      cutoff: 6.0
+    new.cutoff: 3.0
 
 grid:
   molecule_args:
@@ -49,13 +30,30 @@ grid:
         options:
           # - cumulene_C4H4_0deg
           # - cumulene_C4H4_90deg
-          # - cumulene_C5H4_0deg
-          # - cumulene_C5H4_90deg
+          - cumulene_C6H4_0deg
+          - cumulene_C6H4_90deg
           # - cumulene_C10H4_0deg
           # - cumulene_C10H4_90deg
           # - cumulene_C20H4_0deg
           # - cumulene_C20H4_90deg
-          - cumulene_C30H4_0deg
-          - cumulene_C30H4_90deg
-          - cumulene_C40H4_0deg
-          - cumulene_C40H4_90deg
+          # - cumulene_C30H4_0deg
+          # - cumulene_C30H4_90deg
+          # - cumulene_C40H4_0deg
+          # - cumulene_C40H4_90deg
+
+no_jastrow:
+  fixed:
+    model_args.jastrow.use_attention: False
+
+attention:
+  fixed:
+    model_args.jastrow.use_attention: True
+
+pair:
+  fixed:
+    model_args.jastrow.use_e_e_mlp: True
+
+both:
+  fixed:
+    model_args.jastrow.use_attention: True
+    model_args.jastrow.use_e_e_mlp: True
