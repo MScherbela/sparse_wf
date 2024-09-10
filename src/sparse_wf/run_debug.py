@@ -1,5 +1,6 @@
 from sparse_wf.train_with_config import train_with_config
 from sparse_wf.setup_calculations import DEFAULT_CONFIG_PATH, update_dict, load_yaml, save_yaml
+import chex  # noqa
 
 if __name__ == "__main__":
     default_config = load_yaml(DEFAULT_CONFIG_PATH)

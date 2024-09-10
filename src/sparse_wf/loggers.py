@@ -169,7 +169,9 @@ class MultiLogger(Logger):
             f.write(data)
 
     def store_checkpoint(self, step, state, prefix=""):
-        if (step == 0) or (step % self.checkpoint_every):
+        if step % self.checkpoint_every:
+            return
+        if step == 0:
             return
         state = state.serialize()
         if not is_main_process():

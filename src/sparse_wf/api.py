@@ -10,7 +10,7 @@ from flax import struct
 from flax.serialization import to_bytes, from_bytes
 from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree
 from pyscf.scf.hf import SCF
-from typing import Literal
+from typing import Literal, Callable
 import logging
 
 AnyArray = Array | list | np.ndarray
@@ -308,7 +308,7 @@ class VMCStepFn(Protocol[P, S_contra, SS]):
 
 class SamplingStepFn(Protocol[P, S_contra, SS]):
     def __call__(
-        self, state: TrainingState[P, SS], static: S_contra, compute_energy: bool
+        self, state: TrainingState[P, SS], static: S_contra, compute_energy: bool, overlap_fn: Callable | None
     ) -> tuple[TrainingState[P, SS], AuxData, MCMCStats]: ...
 
 
@@ -550,15 +550,26 @@ class OptimizationArgs(TypedDict):
     energy_operator: Literal["dense", "sparse"]
 
 
+class CASArgs(TypedDict):
+    active_orbitals: int
+    active_electrons: int
+    det_threshold: float
+    s2: float
+
+
 class PretrainingArgs(TypedDict):
     steps: int
     optimizer_args: OptimizerArgs
     sample_from: Literal["hf", "wf"]
+    reference: Literal["hf", "cas"]
+    cas: CASArgs
 
 
 class EvaluationArgs(TypedDict):
     steps: int
     compute_energy: bool
+    compute_overlap: bool
+    overlap_states: list[list[int]]
 
 
 MCMC_proposal_type = Literal["all-electron", "single-electron", "cluster-update"]

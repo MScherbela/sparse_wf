@@ -58,7 +58,8 @@ def convert_to_default_datatype(config_dict, default_dict, allow_new_keys=False)
             config_dict[key] = convert_to_default_datatype(value, default_dict[key], allow_new_keys)
     elif isinstance(config_dict, list):
         for i, value in enumerate(config_dict):
-            config_dict[i] = convert_to_default_datatype(value, default_dict[0], allow_new_keys=True)
+            if len(default_dict) != 0:
+                config_dict[i] = convert_to_default_datatype(value, default_dict[0], allow_new_keys=True)
     elif config_dict is None:
         pass
     else:
