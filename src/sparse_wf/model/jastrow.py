@@ -373,9 +373,9 @@ class Jastrow(nn.Module):
         assert jastrows.shape == (2,)
         logpsi = jnp.zeros((), dtype=jastrows.dtype)
         sign = jnp.ones((), dtype=jastrows.dtype)
-        if self.use_mlp_jastrow:
+        if self.use_mlp_jastrow or self.use_attention:
             logpsi += jastrows[0]
-        if self.use_log_jastrow:
+        if self.use_log_jastrow or self.use_attention:
             log_J = jastrows[1]
             sign *= jnp.sign(log_J).prod()
             logpsi += jnp.log(jnp.abs(log_J))

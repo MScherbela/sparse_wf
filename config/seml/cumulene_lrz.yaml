@@ -53,7 +53,11 @@ attention:
     model_args:
       jastrow:
         attention_heads: 16
-        attention_dim: 64
+        attention_dim: 16
+        use_mlp_jastrow: False
+        use_log_jastrow: False
+        mlp_width: 1024
+        mlp_depth: 3
 # pair:
 #   fixed:
 #     model_args.jastrow.use_e_e_mlp: True
