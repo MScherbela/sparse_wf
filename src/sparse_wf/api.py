@@ -257,6 +257,7 @@ class TrainingState(Generic[P, SS], struct.PyTreeNode):  # the order of inherita
     opt_state: OptState[P]
     width_state: WidthSchedulerState
     spin_state: SS
+    step: Int
 
     def serialize(self):
         from sparse_wf.jax_utils import instance, pmap, pgather
@@ -349,6 +350,7 @@ class PretrainState(TrainingState[P, SS]):
             opt_state=self.opt_state,
             width_state=self.width_state,
             spin_state=self.spin_state,
+            step=self.step,
         )
 
 
@@ -568,7 +570,7 @@ class PretrainingArgs(TypedDict):
 class EvaluationArgs(TypedDict):
     steps: int
     compute_energy: bool
-    compute_overlap: bool
+    compute_overlaps: bool
     overlap_states: list[list[int]]
 
 

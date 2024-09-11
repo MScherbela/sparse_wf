@@ -9,6 +9,13 @@
 #SBATCH --time {time}
 #SBATCH --gres=gpu:{n_gpus}
 #SBATCH --mem={n_gpus*100_000}
+#SBATCH --signal=USR1@300
+#SBATCH --export=NONE
+SLURM_EXPORT_ENV=ALL
+# The export=None ensures that no environment variables from submission are inherited by the job
+# The SLURM_EXPORT_ENV=ALL ensures that all environment variables present in this file
+# (and the ones set by SLURM) are exported to the srun tasks
+
 
 source /opt/anaconda3/etc/profile.d/conda.sh
 conda activate sparse_wf

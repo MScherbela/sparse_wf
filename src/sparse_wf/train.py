@@ -34,6 +34,7 @@ from sparse_wf.spin_operator import make_spin_operator
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
 import functools
+import sparse_wf.auto_requeue
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -68,6 +69,7 @@ def main(
     seed: int,
     logging_args: LoggingArgs,
     load_checkpoint: str,
+    auto_requeue: int = 0,
     metadata: Optional[dict[str, Any]] = None,
 ):
     config = locals()
@@ -139,51 +141,55 @@ def main(
             state = state.deserialize(f.read(), batch_size)
 
     assert_identical_copies(state.params)
-
-    # Build pre-training wavefunction and sampling step
-    match pretraining["reference"].lower():
-        case "hf":
-            hf_wf = HFWavefunction(mol)
-        case "cas":
-            hf_wf = CASWavefunction(mol, model_args["n_determinants"], **pretraining["cas"])
-        case _:
-            raise ValueError(f"Invalid pretraining reference: {pretraining['reference']}")
-
-    match pretraining["sample_from"].lower():
-        case "hf":
-            pretrain_mcmc_step = make_mcmc(hf_wf, R, n_el, mcmc_args, wf.get_static_input)[0]  # type: ignore
-        case "wf":
-            pretrain_mcmc_step = mcmc_step
-        case _:
-            raise ValueError(f"Invalid pretraining sample_from: {pretraining['sample_from']}")
-
-    pretrainer = make_pretrainer(
-        wf,
-        pretrain_mcmc_step,
-        mcmc_width_scheduler,
-        hf_wf.orbitals,
-        make_optimizer(**pretraining["optimizer_args"]),
-    )
-    state = pretrainer.init(state)
     model_static = pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons)
     static = static_scheduler(model_static)
 
-    logging.info("Pretraining")
-    for step in range(pretraining["steps"]):
-        t0 = time.perf_counter()
-        state, aux_data, mcmc_stats = pretrainer.step(state, static)
-        static = static_scheduler(mcmc_stats.static_max)
-        log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
-        t1 = time.perf_counter()
-        log_data["pretrain/t_step"] = t1 - t0
-        log_data["pretrain/step"] = step
-        loggers.log(log_data)
-        if np.isnan(log_data["pretrain/loss"]):
-            raise ValueError("NaN in pretraining loss")
+    # Build pre-training wavefunction and sampling step
+    if (pretraining["steps"] > 0) or evaluation["overlap_states"]:
+        match pretraining["reference"].lower():
+            case "hf":
+                hf_wf = HFWavefunction(mol)
+            case "cas":
+                hf_wf = CASWavefunction(mol, model_args["n_determinants"], **pretraining["cas"])
+            case _:
+                raise ValueError(f"Invalid pretraining reference: {pretraining['reference']}")
 
-    state = state.to_train_state()
-    assert_identical_copies(state.params)
+    # Pretraining
+    if pretraining["steps"] > 0:
+        match pretraining["sample_from"].lower():
+            case "hf":
+                pretrain_mcmc_step = make_mcmc(hf_wf, R, n_el, mcmc_args, wf.get_static_input)[0]  # type: ignore
+            case "wf":
+                pretrain_mcmc_step = mcmc_step
+            case _:
+                raise ValueError(f"Invalid pretraining sample_from: {pretraining['sample_from']}")
 
+        pretrainer = make_pretrainer(
+            wf,
+            pretrain_mcmc_step,
+            mcmc_width_scheduler,
+            hf_wf.orbitals,
+            make_optimizer(**pretraining["optimizer_args"]),
+        )
+        state = pretrainer.init(state)
+
+        logging.info("Pretraining")
+        for step in range(pretraining["steps"]):
+            t0 = time.perf_counter()
+            state, aux_data, mcmc_stats = pretrainer.step(state, static)
+            static = static_scheduler(mcmc_stats.static_max)
+            log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
+            t1 = time.perf_counter()
+            log_data["pretrain/t_step"] = t1 - t0
+            log_data["pretrain/step"] = step
+            loggers.log(log_data)
+            if np.isnan(log_data["pretrain/loss"]):
+                raise ValueError("NaN in pretraining loss")
+
+        state = state.to_train_state()
+        assert_identical_copies(state.params)
+
+    # Variational optimization
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
         state, aux_data, mcmc_stats = trainer.sampling_step(state, static, False, None)
@@ -192,7 +198,13 @@ def main(
         loggers.log(log_data)
 
     logging.info("Training")
-    for opt_step in range(optimization["steps"]):
+    n_steps_prev = int(state.step[0])
+    for opt_step in range(n_steps_prev + 1, optimization["steps"]):
+        loggers.store_checkpoint(opt_step, state, "opt")
+        if auto_requeue and sparse_wf.auto_requeue.SPARSEWF_ABORT_CALCULATION:
+            chkpt_fname = loggers.store_checkpoint(opt_step, state, "opt", force=True)
+            sparse_wf.auto_requeue.requeue_and_exit(opt_step, chkpt_fname)
+
         t0 = time.perf_counter()
         state, _, aux_data, mcmc_stats = trainer.step(state, static)
         static = static_scheduler(mcmc_stats.static_max)
@@ -201,13 +213,13 @@ def main(
         log_data["opt/t_step"] = t1 - t0
         log_data["opt/step"] = opt_step
         loggers.log(log_data)
-        loggers.store_checkpoint(opt_step, state, "opt")
         if isnan(log_data):
             raise ValueError("NaN")
 
     assert_identical_copies(state.params)
     loggers.store_blob(state.serialize(), "chkpt_final.msgpk")
 
+    # Evaluation / Inference
     logging.info("Evaluation")
     overlap_fn = (
         functools.partial(hf_wf.excited_signed_logpsi, jnp.array(evaluation["overlap_states"]))

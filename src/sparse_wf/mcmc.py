@@ -246,7 +246,9 @@ def make_mcmc(
             )
         case "cluster-update":
             proposal_fn = functools.partial(
-                proposal_cluster_update, proposal_args["max_cluster_size"], proposal_args["max_cluster_radius"]
+                proposal_cluster_update,
+                min(proposal_args["max_cluster_size"], n_el),
+                proposal_args["max_cluster_radius"],
             )
             steps = proposal_args["sweeps"] * n_el
             mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, get_static_fn, proposal_fn, steps)
