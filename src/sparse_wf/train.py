@@ -199,7 +199,7 @@ def main(
 
     logging.info("Training")
     n_steps_prev = int(state.step[0])
-    for opt_step in range(n_steps_prev + 1, optimization["steps"]):
+    for opt_step in range(n_steps_prev, optimization["steps"] + 1):
         loggers.store_checkpoint(opt_step, state, "opt")
         if auto_requeue and sparse_wf.auto_requeue.SPARSEWF_ABORT_CALCULATION:
             chkpt_fname = loggers.store_checkpoint(opt_step, state, "opt", force=True)
