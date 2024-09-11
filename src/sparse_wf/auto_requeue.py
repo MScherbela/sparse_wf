@@ -4,8 +4,6 @@ import shutil
 import yaml
 import subprocess
 from sparse_wf.jax_utils import only_on_main_process
-import logging
-import sys
 import re
 import os
 
@@ -25,8 +23,6 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 def requeue_and_exit(opt_step, chkpt_fname):
     with only_on_main_process():
-        logging.info(f"Requeueing with checkpoint: {chkpt_fname}")
-
         # Create new run directory
         chkpt_fname = Path(chkpt_fname)
         run_dir = chkpt_fname.resolve().parent
@@ -49,4 +45,4 @@ def requeue_and_exit(opt_step, chkpt_fname):
         shutil.copy("job.sh", new_run_dir / "job.sh")
         env = {k: v for k, v in os.environ.items() if not k.startswith("SLURM_")}
         subprocess.call(["sbatch", "job.sh"], cwd=new_run_dir, env=env)
-    sys.exit(0)
+    raise SystemExit(0)

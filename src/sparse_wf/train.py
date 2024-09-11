@@ -203,6 +203,7 @@ def main(
         loggers.store_checkpoint(opt_step, state, "opt")
         if auto_requeue and sparse_wf.auto_requeue.SPARSEWF_ABORT_CALCULATION:
             chkpt_fname = loggers.store_checkpoint(opt_step, state, "opt", force=True)
+            logging.info(f"Requeueing with checkpoint: {chkpt_fname}")
             sparse_wf.auto_requeue.requeue_and_exit(opt_step, chkpt_fname)
 
         t0 = time.perf_counter()
