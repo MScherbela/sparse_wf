@@ -6,6 +6,7 @@ import subprocess
 from sparse_wf.jax_utils import only_on_main_process
 import re
 import os
+import logging
 
 global SPARSEWF_ABORT_CALCULATION
 SPARSEWF_ABORT_CALCULATION = False
@@ -16,7 +17,9 @@ def signal_handler(signum, frame):
     SPARSEWF_ABORT_CALCULATION = True
 
 
-signal.signal(signal.SIGUSR1, signal_handler)
+def register_signal_handler():
+    signal.signal(signal.SIGUSR1, signal_handler)
+    logging.info("Registered signal handler for SIGUSR1")
 
 
 def requeue_and_exit(opt_step, chkpt_fname):

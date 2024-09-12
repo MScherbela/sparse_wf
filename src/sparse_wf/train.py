@@ -123,6 +123,8 @@ def main(
     n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params))
     loggers.log_config(dict(n_params=n_params))
 
+    sparse_wf.auto_requeue.register_signal_handler()
+
     trainer = make_trainer(
         wf,
         mcmc_step,
