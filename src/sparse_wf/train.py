@@ -23,8 +23,6 @@ from sparse_wf.jax_utils import assert_identical_copies, copy_from_main, replica
 from sparse_wf.loggers import MultiLogger, to_log_data, mcmc_to_log_data
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
-
-# from sparse_wf.model.moon_old import SparseMoonWavefunction  # noqa: F401
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
@@ -39,17 +37,6 @@ import functools
 
 jax.config.update("jax_default_matmul_precision", "float32")
 jax.config.update("jax_enable_x64", True)
-
-
-@pmap(static_broadcasted_argnums=(0, 3))
-def get_gradients(logpsi_func, params, electrons, static):
-    def get_grad(r):
-        g = jax.grad(logpsi_func)(params, r, static)
-        g = jtu.tree_flatten(g)[0]
-        g = jnp.concatenate([x.flatten() for x in g])
-        return g
-
-    return jax.vmap(get_grad)(electrons)
 
 
 def isnan(args):
