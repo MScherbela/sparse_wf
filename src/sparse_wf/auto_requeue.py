@@ -1,4 +1,3 @@
-import signal
 from pathlib import Path
 import shutil
 import yaml
@@ -6,30 +5,10 @@ import subprocess
 from sparse_wf.jax_utils import only_on_main_process
 import re
 import os
-import logging
-
-global SPARSEWF_ABORT_CALCULATION
-SPARSEWF_ABORT_CALCULATION = False
 
 
-def signal_handler(signum, frame):
-    global SPARSEWF_ABORT_CALCULATION
-    SPARSEWF_ABORT_CALCULATION = True
-
-
-def register_signal_handler():
-    old_handler = signal.getsignal(signal.SIGUSR1)
-    if old_handler == signal.SIG_IGN:
-        logging.warning("SIGUSR1 was ignored")
-    if old_handler == signal.SIG_DFL:
-        logging.warning("SIGUSR1 was set to default")
-    if old_handler is None:
-        logging.warning("SIGUSR1 was not set")
-    else:
-        logging.warning(f"Existing handler for SIGUSR1: {str(old_handler)}")
-
-    signal.signal(signal.SIGUSR1, signal_handler)
-    logging.info("Registered signal handler for SIGUSR1")
+def should_abort():
+    return Path("SPARSEWF_ABORT").is_file()
 
 
 def requeue_and_exit(opt_step, chkpt_fname):

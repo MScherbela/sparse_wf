@@ -33,8 +33,8 @@ from sparse_wf.scf import HFWavefunction, CASWavefunction
 from sparse_wf.spin_operator import make_spin_operator
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
+from sparse_wf.auto_requeue import should_abort, requeue_and_exit
 import functools
-import sparse_wf.auto_requeue
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -123,8 +123,6 @@ def main(
     n_params = sum(jnp.size(p) for p in jtu.tree_leaves(params))
     loggers.log_config(dict(n_params=n_params))
 
-    sparse_wf.auto_requeue.register_signal_handler()
-
     trainer = make_trainer(
         wf,
         mcmc_step,
@@ -203,10 +201,10 @@ def main(
     n_steps_prev = int(state.step[0])
     for opt_step in range(n_steps_prev, optimization["steps"] + 1):
         loggers.store_checkpoint(opt_step, state, "opt")
-        if auto_requeue and sparse_wf.auto_requeue.SPARSEWF_ABORT_CALCULATION:
+        if auto_requeue and should_abort():
             chkpt_fname = loggers.store_checkpoint(opt_step, state, "opt", force=True)
             logging.info(f"Requeueing with checkpoint: {chkpt_fname}")
-            sparse_wf.auto_requeue.requeue_and_exit(opt_step, chkpt_fname)
+            requeue_and_exit(opt_step, chkpt_fname)
 
         t0 = time.perf_counter()
         state, _, aux_data, mcmc_stats = trainer.step(state, static)
