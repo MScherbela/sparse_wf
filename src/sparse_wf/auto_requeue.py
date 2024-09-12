@@ -13,12 +13,10 @@ SPARSEWF_ABORT_CALCULATION = False
 
 def signal_handler(signum, frame):
     global SPARSEWF_ABORT_CALCULATION
-    if (signum == signal.SIGUSR1) or (signum == signal.SIGTERM):
-        SPARSEWF_ABORT_CALCULATION = True
+    SPARSEWF_ABORT_CALCULATION = True
 
 
 signal.signal(signal.SIGUSR1, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
 
 
 def requeue_and_exit(opt_step, chkpt_fname):
