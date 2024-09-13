@@ -38,6 +38,7 @@ def make_pretrainer(
             training_state.opt_state,
             training_state.width_state,
             training_state.spin_state,
+            training_state.step,
             pre_opt_state=pmap(optimizer.init)(training_state.params),
         )
 

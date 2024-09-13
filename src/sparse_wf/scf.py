@@ -171,7 +171,7 @@ class CASWavefunction(HFWavefunction):
         self.ci_coeffs = jnp.zeros([n_determinants], dtype=jnp.float32)
 
         with only_on_main_process():
-            cas_result = run_cas(self.hf, active_orbitals, min(active_electrons, sum(mol.nelec)), s2)
+            cas_result = run_cas(self.hf, min(active_orbitals, mol.nao), min(active_electrons, sum(mol.nelec)), s2)
             self.cas_result = cas_result
             logging.info(f"CASCI energy: {cas_result.energy}")
             idx_orbitals, ci_coeffs = get_most_important_determinants(cas_result, n_determinants, det_threshold)

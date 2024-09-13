@@ -93,6 +93,7 @@ def make_trainer(
             electrons=electrons.reshape(jax.local_device_count(), -1, *electrons.shape[1:]),
             width_state=replicate(width_scheduler.init(init_width)),
             spin_state=replicate(spin_operator.init_state()),
+            step=replicate(jnp.zeros([], jnp.int32)),
         )
 
     @pmap(static_broadcasted_argnums=(1, 2, 3))
@@ -164,6 +165,7 @@ def make_trainer(
                 opt_state=OptState(opt, precond_state),
                 width_state=width_state,
                 spin_state=spin_state,
+                step=state.step + 1,
             ),
             energy,
             aux_data,

@@ -168,13 +168,15 @@ class MultiLogger(Logger):
         with open(os.path.join(self.run_directory, file_name), "wb") as f:
             f.write(data)
 
-    def store_checkpoint(self, step, state, prefix=""):
-        if step % self.checkpoint_every:
-            return
-        if step == 0:
-            return
+    def store_checkpoint(self, step, state, prefix="", force=False):
+        if not force:
+            if step % self.checkpoint_every:
+                return
+            if step == 0:
+                return
         state = state.serialize()
         if not is_main_process():
             return
         fname = f"{prefix}chkpt{step:06d}.msgpk"
         self.store_blob(state, fname)
+        return fname

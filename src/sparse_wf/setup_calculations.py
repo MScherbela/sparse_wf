@@ -137,6 +137,8 @@ def submit_to_slurm(run_dir, slurm_config, dry_run=False):
     slurm_template = get_slurm_template(cluster)
     slurm_defaults = get_slurm_defaults(cluster, slurm_config.get("queue"))
     slurm_config = slurm_defaults | slurm_config
+    if "n_gpus" in slurm_config:
+        slurm_config["n_gpus"] = int(slurm_config["n_gpus"])
     job_file = eval('f"""' + slurm_template + '"""', None, slurm_config)
     with open("job.sh", "w") as f:
         f.write(job_file)

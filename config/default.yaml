@@ -148,11 +148,11 @@ pretraining:
     s2: -1
 
 load_checkpoint: ""
+auto_requeue: 0
 
 evaluation:
   steps: 0
   compute_energy: True
-  compute_overlaps: False
   overlap_states: []
 
 
