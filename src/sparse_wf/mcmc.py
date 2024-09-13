@@ -1,4 +1,4 @@
-from typing import TypeVar, Callable, Optional
+from typing import TypeVar, Callable, Optional, Literal
 
 import jax
 import jax.numpy as jnp
@@ -121,6 +121,7 @@ def _is_same_set(idx_a, idx_b):
 def proposal_cluster_update(
     max_cluster_size: int,
     max_cluster_radius: float,
+    sweep_type: Literal["sequential", "random"],
     idx_step: int,
     key: PRNGKeyArray,
     electrons: Electrons,
@@ -128,7 +129,14 @@ def proposal_cluster_update(
 ) -> tuple[Electrons, ElectronIdx, jax.Array, Int]:
     dtype = electrons.dtype
     n_el = electrons.shape[-2]
-    idx_center = idx_step % n_el
+
+    if sweep_type == "random":
+        key, key_select = jax.random.split(key)
+        idx_center = jax.random.randint(key_select, [], 0, n_el, jnp.int32)
+    elif sweep_type == "sequential":
+        idx_center = jnp.array(idx_step, jnp.int32) % n_el
+    else:
+        raise ValueError(f"Invalid sweep_type: {sweep_type}")
 
     dist_before_move = jnp.linalg.norm(electrons - electrons[idx_center], axis=-1)
     idx_el_changed = _get_closest_k(dist_before_move, max_cluster_radius, max_cluster_size)
@@ -249,8 +257,12 @@ def make_mcmc(
                 proposal_cluster_update,
                 min(proposal_args["max_cluster_size"], n_el),
                 proposal_args["max_cluster_radius"],
+                proposal_args["sweep_type"],
             )
-            steps = proposal_args["sweeps"] * n_el
+            steps = int(proposal_args["sweeps"] * n_el)
+            if proposal_args["sweep_type"] == "sequential":
+                assert steps % n_el == 0, "Number of sweeps must be integer for sequential sweep"
+            assert steps > 0, "Number of steps (sweeps * n_el) must be greater than 0"
             mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, get_static_fn, proposal_fn, steps)
         case _:
             raise ValueError(f"Invalid proposal: {proposal}")

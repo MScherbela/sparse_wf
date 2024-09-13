@@ -167,7 +167,8 @@ mcmc_args:
     sweeps: 1
     init_width: 0.5
   cluster_update_args:
-    sweeps: 1
+    sweeps: 1.0
+    sweep_type: "sequential"
     init_width: 0.1
     max_cluster_radius: 2.0
     max_cluster_size: 5
