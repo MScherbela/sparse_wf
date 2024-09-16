@@ -343,13 +343,23 @@ def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> E
         local_batch_size = (batch_size // jax.device_count()) * jax.local_device_count()
     else:
         local_batch_size = batch_size
-    electrons = jax.random.normal(key, (local_batch_size, mol.nelectron, 3), dtype=jnp.float32)
+    key, subkey = jax.random.split(key)
+    electrons = jax.random.normal(subkey, (local_batch_size, mol.nelectron, 3), dtype=jnp.float32)
 
     R = np.array(mol.atom_coords(), dtype=jnp.float32)
     n_atoms = len(R)
     if n_atoms > 1:
         assert mol.charge == 0, "Only atoms or neutral molecules are supported"
-        assert abs(mol.spin) < 2, "Only atoms or singlet and doublet molecules are supported"  # type: ignore
+        # assert abs(mol.spin) < 2, "Only atoms or singlet and doublet molecules are supported"  # type: ignore
         ind_atom = assign_spins_to_atoms(R, mol.atom_charges())
-        electrons += R[ind_atom]
+        # Here we randomly change the order within up and down indices
+        # This is only important if we're in a triplet state because then each sample takes a random down electron
+        # and marks it as up. Otherwise, we would always take the same one which is most likely wrong.
+        n_up, n_dn = mol.nelec
+        keys = jax.random.split(key, local_batch_size * 2)
+        up_keys, dn_keys = keys[:local_batch_size], keys[local_batch_size:]
+        up_idx = jax.vmap(jax.random.permutation, in_axes=(0, None))(up_keys, jnp.arange(n_up))
+        dn_idx = jax.vmap(jax.random.permutation, in_axes=(0, None))(dn_keys, jnp.arange(n_up, n_up + n_dn))
+        idx = jnp.concatenate([up_idx, dn_idx], axis=-1)
+        electrons += R[ind_atom[idx]]
     return electrons

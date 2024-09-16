@@ -14,7 +14,9 @@ def from_str(atom: str, spin: int = 0, **_):
     return pyscf.gto.M(atom=atom, spin=spin, unit="bohr")
 
 
-def database(hash: str | None = None, name: str | None = None, comment: str | None = None, **_):
+def database(
+    hash: str | None = None, name: str | None = None, comment: str | None = None, spin: int | None = None, **_
+):
     assert hash or name or comment
     from os import path
 
@@ -44,7 +46,9 @@ def database(hash: str | None = None, name: str | None = None, comment: str | No
         raise ValueError("No hash, name, or comment provided")
 
     atom = "; ".join([f"{charge} {x} {y} {z}" for charge, (x, y, z) in zip(geom["Z"], geom["R"])])
-    return pyscf.gto.M(atom=atom, spin=geom.get("spin", 0), charge=geom.get("charge", 0), unit="bohr")
+    if spin is None:
+        spin = geom.get("spin", 0)
+    return pyscf.gto.M(atom=atom, spin=spin, charge=geom.get("charge", 0), unit="bohr")
 
 
 def get_molecule(molecule_args: MoleculeArgs) -> pyscf.gto.Mole:
