@@ -21,11 +21,12 @@ fixed:
   logging_args.wandb.project: ngao_cumulene_jastrow
   molecule_args.method: database
   model_args:
-    spin_restricted: True
+    # spin_restricted: True
     embedding:
       embedding: new
       new.cutoff: 3.0
   pretraining.reference: hf
+  optimization.steps: 50000
 
 grid:
   molecule_args:
@@ -33,7 +34,7 @@ grid:
       spin:
         type: choice
         options:
-          - 0
+          # - 0
           - 2
       name:
         type: choice
