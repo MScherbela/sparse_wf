@@ -18,8 +18,13 @@ SLURM_EXPORT_ENV=ALL
 
 trap 'touch SPARSEWF_ABORT && wait' SIGUSR1
 
-source /opt/anaconda3/etc/profile.d/conda.sh
-conda activate sparse_wf
+# if $HOME/develop/sparse_wf/.venv exists, activate it, else fall back to conda
+if [ -d $HOME/develop/sparse_wf/.venv ]; then
+    source $HOME/develop/sparse_wf/.venv/bin/activate
+else
+    source /opt/anaconda3/etc/profile.d/conda.sh
+    conda activate sparse_wf
+fi
 export OMP_NUM_THREADS=10
 export MKL_NUM_THREADS=10
 export NVIDIA_TF32_OVERRIDE=0
