@@ -1,6 +1,5 @@
 from typing import NamedTuple, Optional, TypeVar
 
-import numpy as np
 import jax
 import jax.flatten_util as jfu
 import jax.numpy as jnp
@@ -100,14 +99,14 @@ def make_cg_preconditioner(
     return Preconditioner(init, precondition)
 
 
-def get_jacjacT(local_jac, param_block_size=32768):
+def get_jacjacT(local_jac, param_block_size=8192):
     """Compute jac @ jac.T from local/sharded jacobians.
 
     This function transposes the local jaobians across devices, such that all devices have all samples,
     but only a subset of parameters.
     From these sharded transposed jacobians the full jac @ jac.T is computed.
     To do this memory efficiently we split the parameters into blocks of size param_block_size, and transpose block-by-block.
-    The jacobian is zero-padded as needed to make the number of parameters a multiple of the number of devices and param_block_size.
+    We loop over and aggregate all blocks using scan, and finally add the (non-full) block of leftover params.
 
     Args:
         local_jac: Jacobian, shape (n_samples_per_device, n_params)
@@ -116,19 +115,25 @@ def get_jacjacT(local_jac, param_block_size=32768):
     """
     n_devices = jax.device_count()
     n_samples_local, n_params = local_jac.shape
-    n_samples = n_samples_local * n_devices
-    n_blocks = int(np.ceil(n_params / (param_block_size * n_devices)))
-    n_params_padded = n_blocks * param_block_size * n_devices
+    global_block_size = param_block_size * n_devices
+    n_full_blocks = n_params // global_block_size
+    n_fullblock_params = n_full_blocks * global_block_size
 
-    local_jac_T = jnp.pad(local_jac.T, ((0, n_params_padded - n_params), (0, 0)))
-    local_jac_T = local_jac_T.reshape([n_blocks, param_block_size * n_devices, n_samples_local])
+    # Compute jac @ jac.T for left-over parameters
+    leftover_jac = local_jac[:, n_fullblock_params:]
+    leftover_jac_global = pgather(leftover_jac, axis=0, tiled=True)  # [n_samples_global x n_leftover_params]
+    T = leftover_jac_global @ leftover_jac_global.T
 
-    def scan_func(T, loc_jac_T):
+    # Compute jac @ jac.T for full blocks by scanning over blocks
+    local_jac_T = local_jac[:, :n_fullblock_params].T
+    local_jac_T = local_jac_T.reshape([n_full_blocks, global_block_size, n_samples_local])
+
+    def scan_func(T_carry, loc_jac_T):
         jac_T = pall_to_all(loc_jac_T, split_axis=0, concat_axis=1, tiled=True)
-        T += psum(jac_T.T @ jac_T)
-        return T, None
+        T_carry += psum(jac_T.T @ jac_T)
+        return T_carry, None
 
-    T, _ = jax.lax.scan(scan_func, jnp.zeros([n_samples, n_samples], dtype=local_jac_T.dtype), local_jac_T)
+    T, _ = jax.lax.scan(scan_func, T, local_jac_T)
     T = (T + T.T) / 2  # Not required, but potentially better numerics
     return T
 
