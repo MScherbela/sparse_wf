@@ -17,8 +17,13 @@ SLURM_EXPORT_ENV=ALL
 trap 'touch SPARSEWF_ABORT && wait' SIGUSR1
 
 module purge
-source /gpfs/opt/sw/spack-0.17.1/opt/spack/linux-almalinux8-zen3/gcc-11.2.0/miniconda3-4.12.0-ap65vga66z2rvfcfmbqopba6y543nnws/etc/profile.d/conda.sh
-conda activate sparse_wf
+# if $HOME/develop/sparse_wf/.venv exists, activate it, else fall back to conda
+if [ -d $HOME/develop/sparse_wf/.venv ]; then
+    source $HOME/develop/sparse_wf/.venv/bin/activate
+else
+    source /gpfs/opt/sw/spack-0.17.1/opt/spack/linux-almalinux8-zen3/gcc-11.2.0/miniconda3-4.12.0-ap65vga66z2rvfcfmbqopba6y543nnws/etc/profile.d/conda.sh
+    conda activate sparse_wf
+fi
 export OMP_NUM_THREADS=10
 export MKL_NUM_THREADS=10
 export NVIDIA_TF32_OVERRIDE=0
