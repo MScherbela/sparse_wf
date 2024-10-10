@@ -471,7 +471,7 @@ wheels = [
 [[package]]
 name = "folx"
 version = "0.2.12"
-source = { editable = "../folx" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
     { name = "jaxlib" },
@@ -480,15 +480,9 @@ dependencies = [
     { name = "parameterized" },
     { name = "pytest" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "jax" },
-    { name = "jaxlib" },
-    { name = "jaxtyping" },
-    { name = "numpy" },
-    { name = "parameterized" },
-    { name = "pytest" },
+sdist = { url = "https://files.pythonhosted.org/packages/a7/05/074f60b2c2489f281163cb754a5f9b0cb2278399b9909ffc8b84b17fe19b/folx-0.2.12.tar.gz", hash = "sha256:0a7d4ef3e96cd0ccde43fd1159495bc424bf1d663265afb8df89f73c61c1064f", size = 42498 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a6/80/8d60c843cf4d261848fea03c1815b12a6902679ba329d905d1ce5c12ba90/folx-0.2.12-py3-none-any.whl", hash = "sha256:1c59acd153d23d4b9ba0b928f4f6552e7d1c2e288e3d4781120ed0e0dc40e57f", size = 45193 },
 ]
 
 [[package]]
@@ -710,10 +704,6 @@ dependencies = [
     { name = "scipy" },
 ]
 wheels = [
-    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp311-cp311-manylinux2014_aarch64.whl" },
-    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp311-cp311-manylinux2014_x86_64.whl" },
-    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp312-cp312-manylinux2014_aarch64.whl" },
-    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp312-cp312-manylinux2014_x86_64.whl" },
     { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp311-cp311-manylinux2014_aarch64.whl" },
     { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp311-cp311-manylinux2014_x86_64.whl" },
     { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp312-cp312-manylinux2014_aarch64.whl" },
@@ -1842,7 +1832,7 @@ wheels = [
 [[package]]
 name = "seml"
 version = "0.5.3"
-source = { editable = "../seml" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "debugpy" },
     { name = "deepdiff" },
@@ -1862,52 +1852,15 @@ dependencies = [
     { name = "typer" },
     { name = "typing-extensions" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/b0/cd/0a72caea4615a2ccd6922a15de2d7ea460cd0b2ef914fc54e1ad9d3eb433/seml-0.5.3.tar.gz", hash = "sha256:0791aa87917c86cf09dedf6c2c448051a65efec44fbc16a186a58776314bbdf8", size = 474618 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/98/a0d226e6fb3fef6e67a9482a2fa98fb1988db5a23b28c774ff287f660ed5/seml-0.5.3-py3-none-any.whl", hash = "sha256:38cc1343ab039f4c5643d933f50d3fb3d3102c9f924a0fe2b65a6dd2d87f7676", size = 120155 },
+]
 
 [package.optional-dependencies]
 ssh-forward = [
     { name = "filelock" },
     { name = "sshtunnel" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "debugpy", specifier = ">=1.2.1" },
-    { name = "deepdiff", specifier = ">=7.0.1" },
-    { name = "filelock", marker = "extra == 'dev'", specifier = ">=3.15.4" },
-    { name = "filelock", marker = "extra == 'ssh-forward'", specifier = ">=3.13.3" },
-    { name = "gitignore-parser", specifier = ">=0.1.11" },
-    { name = "importlib-resources", specifier = ">=5.7.0" },
-    { name = "jsonpickle", specifier = ">=2.2" },
-    { name = "munch", specifier = ">=4.0" },
-    { name = "numpy", specifier = ">=1.15" },
-    { name = "omegaconf", specifier = ">=2.3.0" },
-    { name = "pandas", specifier = ">=2.2" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.8.0" },
-    { name = "pymongo", specifier = ">=4.1" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.2" },
-    { name = "pyyaml", specifier = ">=5.1" },
-    { name = "requests", specifier = ">=2.28.1" },
-    { name = "rich", specifier = ">=13.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.1" },
-    { name = "sacred", specifier = ">=0.8.4" },
-    { name = "setuptools", specifier = ">=69.2.0" },
-    { name = "sshtunnel", marker = "extra == 'dev'", specifier = ">=0.4.0" },
-    { name = "sshtunnel", marker = "extra == 'ssh-forward'", specifier = ">=0.4.0" },
-    { name = "typer", specifier = ">=0.12" },
-    { name = "typing-extensions", specifier = ">=4.10" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "backports-tarfile", specifier = ">=1.2.0" },
-    { name = "build", specifier = ">=1.2.1" },
-    { name = "filelock", specifier = ">=3.15.4" },
-    { name = "pre-commit", specifier = ">=3.8.0" },
-    { name = "pytest", specifier = ">=8.3.2" },
-    { name = "ruff", specifier = ">=0.6.1" },
-    { name = "sshtunnel", specifier = ">=0.4.0" },
-    { name = "tuna", specifier = ">=0.5.11" },
-    { name = "twine", specifier = ">=5.1.1" },
 ]
 
 [[package]]
@@ -2031,7 +1984,7 @@ requires-dist = [
     { name = "chex" },
     { name = "einops" },
     { name = "flax" },
-    { name = "folx", editable = "../folx" },
+    { name = "folx" },
     { name = "jax", extras = ["cuda12-pip"], specifier = "==0.4.24" },
     { name = "matplotlib" },
     { name = "numpy", specifier = "<2.0.0" },
@@ -2041,7 +1994,7 @@ requires-dist = [
     { name = "pyscf" },
     { name = "pytest" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "seml", extras = ["ssh-forward"], editable = "../seml" },
+    { name = "seml", extras = ["ssh-forward"] },
     { name = "tqdm" },
     { name = "wandb" },
     { name = "wonderwords" },
