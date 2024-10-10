@@ -17,7 +17,7 @@ SLURM_EXPORT_ENV=ALL
 
 trap 'touch SPARSEWF_ABORT && wait' SIGUSR1
 
-source $HOME/venv/sparse_wf/bin/activate
+source $HOME/develop/sparse_wf/.venv/bin/activate
 export OMP_NUM_THREADS=10
 export MKL_NUM_THREADS=10
 export NVIDIA_TF32_OVERRIDE=0
