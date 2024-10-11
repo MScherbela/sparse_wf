@@ -172,8 +172,6 @@ class MultiLogger(Logger):
         if not force:
             if step % self.checkpoint_every:
                 return
-            if step == 0:
-                return
         state = state.serialize()
         if not is_main_process():
             return

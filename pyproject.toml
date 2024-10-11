@@ -3,11 +3,12 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
+requires-python = ">=3.11"
 name = "sparse_wf"
 version = "0.0.1"
 readme = "README.md"
 dependencies = [
-    "jax[cuda12]==0.4.24",
+    "jax[cuda12-pip]==0.4.24",
     "flax",
     "optax",
     "chex",
@@ -48,8 +49,9 @@ disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 testpaths = ["tests"]
 
 [tool.uv]
-dev-dependencies = [
-    "ipykernel>=6.29.5",
+dev-dependencies = ["ipykernel>=6.29.5"]
+find-links = [
+    "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html",
 ]
 
 [project.scripts]
@@ -57,5 +59,6 @@ sparse-wf-run = "sparse_wf.train_with_config:train_with_config"
 sparse-wf-setup = "sparse_wf.setup_calculations:setup_calculations"
 
 [tool.uv.sources]
-seml = { editable = true, path = "../seml" }
-folx = { editable = true, path = "../folx" }
+# folx = { editable = true, path = "../folx" }
+# seml = { editable = true, path = "../seml" }
+sparse_wf = { editable = true, path = "." }

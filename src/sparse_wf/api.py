@@ -590,7 +590,8 @@ class MCMCSingleElectronArgs(MCMCProposalArg):
 
 
 class MCMCClusterUpdateArgs(MCMCProposalArg):
-    sweeps: int
+    sweeps: float
+    sweep_type: Literal["random", "sequential"]
     cluster_radius: float
 
 

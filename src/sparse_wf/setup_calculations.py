@@ -153,12 +153,15 @@ def get_slurm_defaults(cluster, queue):
         defaults = dict(time="30-00:00:00", n_gpus=1, qos="normal")
     elif cluster == "vsc5":
         defaults = dict(time="3-00:00:00", n_gpus=2)
+        queue = queue or "a40"
         if queue == "a100":
             defaults["partition"] = "zen3_0512_a100x2"
             defaults["qos"] = "zen3_0512_a100x2"
         elif queue == "a40":
             defaults["partition"] = "zen2_0256_a40x2"
             defaults["qos"] = "zen2_0256_a40x2"
+        else:
+            raise ValueError("Unknown queue: {queue}")
     elif cluster == "leonardo":
         defaults = dict(time="1-00:00:00", n_gpus=4)
     return defaults

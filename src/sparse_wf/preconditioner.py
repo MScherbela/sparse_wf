@@ -1,6 +1,5 @@
 from typing import NamedTuple, Optional, TypeVar
 
-import numpy as np
 import jax
 import jax.flatten_util as jfu
 import jax.numpy as jnp
@@ -100,14 +99,14 @@ def make_cg_preconditioner(
     return Preconditioner(init, precondition)
 
 
-def get_jacjacT(local_jac, param_block_size=32768):
+def get_jacjacT(local_jac, param_block_size=65536):
     """Compute jac @ jac.T from local/sharded jacobians.
 
     This function transposes the local jaobians across devices, such that all devices have all samples,
     but only a subset of parameters.
     From these sharded transposed jacobians the full jac @ jac.T is computed.
     To do this memory efficiently we split the parameters into blocks of size param_block_size, and transpose block-by-block.
-    The jacobian is zero-padded as needed to make the number of parameters a multiple of the number of devices and param_block_size.
+    We loop over and aggregate all blocks using scan, and finally add the (non-full) block of leftover params.
 
     Args:
         local_jac: Jacobian, shape (n_samples_per_device, n_params)
@@ -115,20 +114,37 @@ def get_jacjacT(local_jac, param_block_size=32768):
         T: Jacobian times Jacobian transposed, shape (n_samples_total, n_samples_total)
     """
     n_devices = jax.device_count()
+    global_block_size = param_block_size * n_devices
     n_samples_local, n_params = local_jac.shape
-    n_samples = n_samples_local * n_devices
-    n_blocks = int(np.ceil(n_params / (param_block_size * n_devices)))
-    n_params_padded = n_blocks * param_block_size * n_devices
 
-    local_jac_T = jnp.pad(local_jac.T, ((0, n_params_padded - n_params), (0, 0)))
-    local_jac_T = local_jac_T.reshape([n_blocks, param_block_size * n_devices, n_samples_local])
+    # Step 1: take care of all leftover params, which are not divisible by the nr of devices (leftovers = n_params % n_devices)
+    #         since this is not divisible by n_devices, we cannot use pall_to_all
+    n_params = (n_params // n_devices) * n_devices
+    local_jac, leftover_jac = jnp.split(local_jac, [n_params], axis=1)
+    leftover_jac_global = pgather(leftover_jac, axis=0, tiled=True)  # [n_samples_global x n_leftover_params]
+    # Final T will be a psum across devices, so we need to normalize here, where we have the same T across all devices
+    leftover_jac_global = leftover_jac_global / jnp.sqrt(n_devices)
+    T = leftover_jac_global @ leftover_jac_global.T
 
-    def scan_func(T, loc_jac_T):
+    # Step 2: Take care of all leftover params, which are not divisible by the global block size
+    #         The leftovers are guaranteed to be divisible by the number of devices, so we can use pall_to_all
+    n_params = (n_params // global_block_size) * global_block_size
+    local_jac, leftover_jac = jnp.split(local_jac, [n_params], axis=1)
+    # all_to_all:  [n_samples_local x n_leftover_params] -> [n_samples_global x (n_leftover_params / n_devices)]
+    leftover_jac = pall_to_all(leftover_jac, split_axis=1, concat_axis=0, tiled=True)
+    T += leftover_jac @ leftover_jac.T
+
+    # Step 3: Take care of all full blocks, which are divisible by the global block size
+    n_blocks = n_params // global_block_size
+    local_jac_T = local_jac.T.reshape([n_blocks, global_block_size, n_samples_local])
+
+    def scan_func(T_carry, loc_jac_T):
         jac_T = pall_to_all(loc_jac_T, split_axis=0, concat_axis=1, tiled=True)
-        T += psum(jac_T.T @ jac_T)
-        return T, None
+        T_carry += jac_T.T @ jac_T
+        return T_carry, None
 
-    T, _ = jax.lax.scan(scan_func, jnp.zeros([n_samples, n_samples], dtype=local_jac_T.dtype), local_jac_T)
+    T, _ = jax.lax.scan(scan_func, T, local_jac_T)
+    T = psum(T)
     T = (T + T.T) / 2  # Not required, but potentially better numerics
     return T
 

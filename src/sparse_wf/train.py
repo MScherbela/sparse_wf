@@ -31,7 +31,7 @@ from sparse_wf.scf import HFWavefunction, CASWavefunction
 from sparse_wf.spin_operator import make_spin_operator
 from sparse_wf.system import get_molecule
 from sparse_wf.update import make_trainer
-from sparse_wf.auto_requeue import should_abort, requeue_and_exit
+from sparse_wf.auto_requeue import should_abort, requeue_job
 import functools
 
 
@@ -188,10 +188,12 @@ def main(
     n_steps_prev = int(state.step[0])
     for opt_step in range(n_steps_prev, optimization["steps"] + 1):
         loggers.store_checkpoint(opt_step, state, "opt")
-        if auto_requeue and should_abort():
+        if should_abort():
             chkpt_fname = loggers.store_checkpoint(opt_step, state, "opt", force=True)
             logging.info(f"Requeueing with checkpoint: {chkpt_fname}")
-            requeue_and_exit(opt_step, chkpt_fname)
+            if auto_requeue:
+                requeue_job(opt_step, chkpt_fname)
+            raise SystemExit(0)
 
         t0 = time.perf_counter()
         state, _, aux_data, mcmc_stats = trainer.step(state, static)
