@@ -46,13 +46,13 @@ model_args:
   jastrow:
     e_e_cusps: psiformer
     use_e_e_mlp: False
-    use_log_jastrow: True
-    use_mlp_jastrow: True
+    use_mlp_jastrow: False
+    use_log_jastrow: False
+    mlp_width: 256
     mlp_depth: 2
-    mlp_width: 64
     use_attention: False
     attention_heads: 16
-    attention_dim: 8
+    attention_dim: 16
   envelopes:
     envelope: isotropic
     isotropic_args:
@@ -154,7 +154,6 @@ evaluation:
   steps: 0
   compute_energy: True
   overlap_states: []
-
 
 batch_size: 2048
 
