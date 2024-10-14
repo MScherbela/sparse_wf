@@ -1,4 +1,5 @@
 import json
+import numpy as np
 import pyscf
 from sparse_wf.api import MoleculeArgs
 
@@ -56,5 +57,13 @@ def get_molecule(molecule_args: MoleculeArgs) -> pyscf.gto.Mole:
         case "database":
             molecule = database(**molecule_args["database_args"])
     molecule.basis = molecule_args["basis"]
+    if molecule_args["pseudopotentials"]:
+        molecule.ecp = {atom: "ccecp" for atom in molecule_args["pseudopotentials"]}
     molecule.build()
     return molecule
+
+
+def get_atomic_numbers(mol: pyscf.gto.Mole):
+    # mol.atom_charges() will have the core electrons subtracted, if we want the actual
+    # element we need to convert the symbols
+    return np.array([pyscf.lib.parameters.ELEMENTS_PROTON[mol.atom_symbol(i)] for i in range(len(mol.atom_charges()))])

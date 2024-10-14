@@ -19,6 +19,7 @@ molecule_args:
     distance: 2.0
     n: 10
   basis: sto-6g
+  pseudopotentials: [] # list of elements for which to use pseudopotentials
 
 model: moon
 

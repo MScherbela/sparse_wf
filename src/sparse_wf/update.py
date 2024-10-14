@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import TypeVar, Callable
+from typing import Literal, Sequence, TypeVar, Callable
 
 import jax
 import jax.numpy as jnp
@@ -19,8 +19,8 @@ from sparse_wf.api import (
     TrainingState,
     Width,
     WidthScheduler,
-    StaticInput,
 )
+from sparse_wf.hamiltonian import make_local_energy
 from sparse_wf.jax_utils import pgather, pmap, pmean, replicate, plogsumexp
 from sparse_wf.tree_utils import tree_dot
 
@@ -59,7 +59,10 @@ def local_energy_diff(e_loc: LocalEnergy, clip_local_energy: float, stat: str | 
     return e_loc
 
 
-P, S, MS, SS = TypeVar("P"), TypeVar("S"), TypeVar("MS"), TypeVar("SS")
+P = TypeVar("P")
+S = TypeVar("S")
+MS = TypeVar("MS")
+SS = TypeVar("SS")
 
 
 def make_trainer(
@@ -71,15 +74,11 @@ def make_trainer(
     clipping_args: ClippingArgs,
     max_batch_size: int,
     spin_operator: SpinOperator[P, S, SS],
-    energy_operator: str,
+    energy_operator: Literal["sparse", "dense"],
+    pseudopotentials: Sequence[str],
 ):
-    match energy_operator.lower():
-        case "dense":
-            energy_fn = wave_function.local_energy_dense
-        case "sparse":
-            energy_fn = wave_function.local_energy
-        case _:
-            raise ValueError(f"Unknown energy operator: {energy_operator}")
+    energy_fn = make_local_energy(wave_function, energy_operator, pseudopotentials)
+    batched_energy_fn = batched_vmap(energy_fn, in_axes=(0, None, 0, None), max_batch_size=max_batch_size)
 
     def init(key: PRNGKeyArray, params: P, electrons: Electrons, init_width: Width):
         params = replicate(params)
@@ -97,18 +96,17 @@ def make_trainer(
         )
 
     @pmap(static_broadcasted_argnums=(1, 2, 3))
-    def sampling_step(
-        state: TrainingState[P, SS], static: StaticInput, compute_energy: bool, overlap_fn: Callable | None = None
-    ):
+    def sampling_step(state: TrainingState[P, SS], static: S, compute_energy: bool, overlap_fn: Callable | None = None):
+        batch_size = state.electrons.shape[0]
         key, subkey = jax.random.split(state.key)
         electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, stats.pmove)
         state = state.replace(key=key, electrons=electrons, width_state=width_state)
         aux_data = {}
         if compute_energy:
-            E_loc = batched_vmap(energy_fn, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
-                state.params, electrons, static
-            )
+            key, subkey = jax.random.split(key)
+            keys = jax.random.split(subkey, batch_size)
+            E_loc = batched_energy_fn(keys, state.params, electrons, static)
             E_mean = pmean(E_loc.mean())
             E_std = pmean(((E_loc - E_mean) ** 2).mean()) ** 0.5
             aux_data["eval/E"] = E_mean
@@ -126,13 +124,14 @@ def make_trainer(
         return state, aux_data, stats
 
     @pmap(static_broadcasted_argnums=1)
-    def step(state: TrainingState[P, SS], static: StaticInput):
+    def step(state: TrainingState[P, SS], static: S):
+        batch_size = state.electrons.shape[0]
         key, subkey = jax.random.split(state.key)
         electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, stats.pmove)
-        energy = batched_vmap(energy_fn, in_axes=(None, 0, None), max_batch_size=max_batch_size)(
-            state.params, electrons, static
-        )
+        key, subkey = jax.random.split(key)
+        keys = jax.random.split(subkey, batch_size)
+        energy = batched_energy_fn(keys, state.params, electrons, static)
         energy_diff = local_energy_diff(energy, **clipping_args)
 
         E_mean = pmean(energy.mean())
