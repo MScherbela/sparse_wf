@@ -20,9 +20,11 @@ slurm:
 fixed:
   logging_args.wandb.project: ngao_cumulene_jastrow
   molecule_args.method: database
-  model_args.embedding:
-    embedding: new
-    new.cutoff: 3.0
+  logging_args.name_keys:
+    - molecule_args.database_args.name
+    - molecule_args.pseudopotentials
+    - model_args.jastrow.use_mlp_jastrow
+  model_args.embedding.new.cutoff: 3.0
 
 grid:
   molecule_args:
@@ -30,35 +32,18 @@ grid:
       name:
         type: choice
         options:
-          # - cumulene_C4H4_0deg
-          # - cumulene_C4H4_90deg
-          - cumulene_C6H4_0deg
-          - cumulene_C6H4_90deg
-          # - cumulene_C10H4_0deg
-          # - cumulene_C10H4_90deg
-          # - cumulene_C20H4_0deg
-          # - cumulene_C20H4_90deg
-          # - cumulene_C30H4_0deg
-          # - cumulene_C30H4_90deg
-          # - cumulene_C40H4_0deg
-          # - cumulene_C40H4_90deg
+          - cumulene_C16H4_0deg_singlet
+          - cumulene_C16H4_90deg_triplet
 
-# no_jastrow:
-#   fixed:
-#     model_args.jastrow.use_attention: False
-
-attention:
+default:
   fixed:
-    model_args.jastrow.use_attention: True
-    model_args:
-      jastrow:
-        attention_heads: 16
-        attention_dim: 64
-# pair:
-#   fixed:
-#     model_args.jastrow.use_e_e_mlp: True
+    molecule_args.pseudopotentials: []
 
-# both:
-#   fixed:
-#     model_args.jastrow.use_attention: True
-#     model_args.jastrow.use_e_e_mlp: True
+pp:
+  fixed:
+    molecule_args.pseudopotentials: ["C"]
+
+jastrow:
+  fixed:
+    model_args.jastrow.use_mlp_jastrow: True
+    model_args.jastrow.use_log_jastrow: True
