@@ -18,7 +18,7 @@ slurm:
       partition: mcml-hgx-a100-80x4
 
 fixed:
-  logging_args.wandb.project: ngao_cumulene_jastrow
+  logging_args.wandb.project: ngao_cumulene_pp
   molecule_args.method: database
   logging_args.name_keys:
     - molecule_args.database_args.name
