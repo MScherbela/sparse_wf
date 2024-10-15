@@ -51,7 +51,7 @@ model_args:
     use_log_jastrow: False
     mlp_width: 256
     mlp_depth: 2
-    use_attention: False
+    use_attention: True
     attention_heads: 16
     attention_dim: 16
   envelopes:
@@ -141,7 +141,7 @@ pretraining:
       - name: scale_by_trust_ratio
         args: []
         kwargs: {}
-  reference: cas
+  reference: hf
   cas:
     active_orbitals: 8
     active_electrons: 8
@@ -156,7 +156,7 @@ evaluation:
   compute_energy: True
   overlap_states: []
 
-batch_size: 2048
+batch_size: 4096
 
 mcmc_args:
   proposal: "cluster-update"
