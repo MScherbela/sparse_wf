@@ -187,7 +187,11 @@ class CASWavefunction(HFWavefunction):
         self.ci_coeffs = copy_from_main(replicate(self.ci_coeffs))[0]
 
     def sanity_check_active_space(self, active_orb, active_el):
-        n_el = sum(self.mol.nelec)
+        # All nrs of electrons/orbitals in this function refer to the number per spin
+        assert (
+            self.mol.nelec[0] == self.mol.nelec[1]
+        ), "CASCI currently only supports equal number of spin-up and spin-down electrons"
+        n_el = self.mol.nelec[0]
         active_el = min(active_el, n_el)
         n_core = n_el - active_el
         active_orb = min(active_orb, self.mol.nao - n_core)
