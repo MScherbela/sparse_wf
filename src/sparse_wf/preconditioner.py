@@ -182,6 +182,19 @@ def make_dense_spring_preconditioner(
         def log_p(params: jax.Array, electrons: Electrons, static: S):
             return wave_function(unravel(params), electrons, static) * normalization  # type: ignore
 
+        def log_p_closed(params: P):
+            return jax.vmap(lambda r: log_p(params, r, static))(electrons)  # type: ignore
+
+        logpsi, vjp = jax.vjp(log_p_closed, flat_params)
+
+        def centered_jvp(x):
+            uncentered = jax.jvp(log_p_closed, (flat_params,), (x.astype(flat_params.dtype),))[1]
+            return uncentered - psum(uncentered.sum()) / N
+
+        def centered_vjp(x):
+            x_centered = x - psum(x.sum()) / N
+            return psum(vjp(x_centered.astype(logpsi.dtype)))[0]
+
         jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), max_batch_size=max_batch_size)
         jacobian = jac_fn(flat_params, electrons, static)
         if use_float64:
@@ -194,12 +207,12 @@ def make_dense_spring_preconditioner(
         decayed_last_grad = decay_factor * last_grad
         decayed_last_grad += jfu.ravel_pytree(aux_grad)[0] / natgrad_state.damping
         cotangent = dE_dlogpsi.reshape(-1) * normalization
-        cotangent -= jacobian @ decayed_last_grad
+        cotangent -= centered_jvp(decayed_last_grad)
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
         precond_cotangents = jnp.linalg.solve(T, cotangent)  # T^(-1)@contangent for all samples
         local_precond_cotangents = precond_cotangents.reshape(n_dev, -1)[pidx()]  # T^(-1)@cotangent for local samples
-        local_natgrad = local_precond_cotangents @ jacobian
+        local_natgrad = centered_vjp(local_precond_cotangents)
         natgrad = psum(local_natgrad)
         natgrad += decayed_last_grad
 
