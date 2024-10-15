@@ -102,8 +102,8 @@ def test_energy(dtype, embedding):
     rtol = get_relative_tolerance(dtype) * 1e3
     model, electrons, params, static_args = setup_inputs(dtype, embedding)
 
-    E_dense = model.local_energy_dense(params, electrons, static_args)
-    E_sparse = model.local_energy(params, electrons, static_args)
+    E_dense = model.kinetic_energy_dense(params, electrons, static_args)
+    E_sparse = model.kinetic_energy(params, electrons, static_args)
     for E, label in zip([E_sparse, E_dense], ["sparse", "dense"]):
         assert E.dtype == dtype, f"energy {label}: {E.dtype} != {dtype}"
         assert np.isfinite(E), f"energy {label}: {E} != {dtype}"
