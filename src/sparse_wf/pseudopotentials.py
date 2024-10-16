@@ -8,7 +8,13 @@ import numpy as np
 import pyscf
 from jaxtyping import ArrayLike, Float, Array, Bool, Integer
 
-from sparse_wf.api import ParameterizedWaveFunction, Electrons, Nuclei, Charges, StaticInput
+from sparse_wf.api import (
+    ParameterizedWaveFunction,
+    Electrons,
+    Nuclei,
+    Charges,
+    StaticInput,
+)
 from sparse_wf.tree_utils import tree_maximum
 from sparse_wf.jax_utils import vmap_reduction
 
@@ -149,7 +155,10 @@ def eval_leg(x: Float[ArrayLike, "..."], angular: Integer[ArrayLike, ""]) -> Flo
 
 def project_legendre(
     direction: Float[Array, "3"],
-    low_rank_f: Callable[[Float[Array, "3"], Integer[Array, ""]], tuple[Float[Array, ""], Float[Array, ""]]],
+    low_rank_f: Callable[
+        [Float[Array, "3"], Integer[Array, ""]],
+        tuple[Float[Array, ""], Float[Array, ""]],
+    ],
     static_f: Callable[[Float[Array, "3"], Integer[Array, ""]], StaticInput],
     denom_sign: Float[Array, ""],
     denom_logpsi: Float[Array, ""],
@@ -219,7 +228,11 @@ def make_spherical_integral(quad_degree: int):
             )[0]
 
         def static_f(electron, i):
-            return logpsi_fn.get_static_input(electrons, electrons.at[i].set(electron), jnp.array([i], dtype=jnp.int32))
+            return logpsi_fn.get_static_input(
+                electrons,
+                electrons.at[i].set(electron),
+                jnp.array([i], dtype=jnp.int32),
+            )
 
         def _body_fun(i, vals: tuple[Array, S]):
             val, static = vals
@@ -247,7 +260,11 @@ def make_spherical_integral(quad_degree: int):
 
 
 def make_nonlocal_pseudopotential(
-    r_grid: EcpGrid, v_grid_nonloc: EcpValues, ecp_mask: EcpMask, cutoffs: EcpCutoffs, quad_degree: int
+    r_grid: EcpGrid,
+    v_grid_nonloc: EcpValues,
+    ecp_mask: EcpMask,
+    cutoffs: EcpCutoffs,
+    quad_degree: int,
 ):
     """Creates callable for evaluating the non-local pseudopotential."""
 
@@ -334,7 +351,7 @@ def make_nonlocal_pseudopotential(
 
         v_grid_nonloc_closest = v_grid_nonloc[closest_atom]
 
-        keys = jax.random.split(key, n_elec).reshape(n_elec, *key.shape)
+        keys = jax.random.split(key, static.n_pp_elecs).reshape(static.n_pp_elecs, *key.shape)
 
         pp, new_static = vmap_pp_nonloc(
             keys,
