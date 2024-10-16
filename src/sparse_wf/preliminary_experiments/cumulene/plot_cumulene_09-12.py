@@ -67,7 +67,7 @@ plt.close("all")
 n_carbon = sorted(df_final.n_carbon.unique())
 n_panels = len(n_carbon)
 fig, axes = plt.subplot_mosaic(
-    [[f"{n}" for n in n_carbon], 
+    [[f"{n}" for n in n_carbon],
     [f"{n}rel" for n in n_carbon],
     ["final"]*n_panels],
     figsize=(15, 10),
