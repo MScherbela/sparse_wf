@@ -159,6 +159,7 @@ batch_size: 2048
 
 mcmc_args:
   proposal: "cluster-update"
+  acceptance_target: 0.5
   all_electron_args:
     steps: 20
     init_width: 0.1

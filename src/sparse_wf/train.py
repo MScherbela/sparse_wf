@@ -98,7 +98,7 @@ def main(
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
     mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
-    mcmc_width_scheduler = make_width_scheduler()
+    mcmc_width_scheduler = make_width_scheduler(target_pmove=mcmc_args["acceptance_target"])
     static_scheduler = StaticScheduler(n_el, n_up, len(R))
 
     # We want the parameters to be identical so we use the main_key here
