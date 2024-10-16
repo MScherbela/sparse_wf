@@ -301,18 +301,19 @@ class TrainingState(Generic[P, SS], struct.PyTreeNode):  # the order of inherita
         return result
 
 
-class VMCStepFn(Protocol[P, S_contra, SS]):
+class VMCStepFn(Protocol[P, S, SS]):
     def __call__(
         self,
         state: TrainingState[P, SS],
-        static: S_contra,
-    ) -> tuple[TrainingState[P, SS], LocalEnergy, AuxData, MCMCStats]: ...
+        static: S,
+        pp_static: S,
+    ) -> tuple[TrainingState[P, SS], LocalEnergy, AuxData, MCMCStats, S]: ...
 
 
-class SamplingStepFn(Protocol[P, S_contra, SS]):
+class SamplingStepFn(Protocol[P, S, SS]):
     def __call__(
-        self, state: TrainingState[P, SS], static: S_contra, compute_energy: bool, overlap_fn: Callable | None
-    ) -> tuple[TrainingState[P, SS], AuxData, MCMCStats]: ...
+        self, state: TrainingState[P, SS], static: S, pp_static: S, compute_energy: bool, overlap_fn: Callable | None
+    ) -> tuple[TrainingState[P, SS], AuxData, MCMCStats, S]: ...
 
 
 class InitTrainState(Protocol[P, SS]):

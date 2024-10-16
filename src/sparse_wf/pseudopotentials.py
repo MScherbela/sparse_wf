@@ -1,15 +1,19 @@
-from typing import Callable, Sequence, TypeVar
+import functools
+from typing import Any, Callable, Sequence, TypeVar
 
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 import numpy as np
 import pyscf
-from jaxtyping import ArrayLike, Float, Array, Bool
+from jaxtyping import ArrayLike, Float, Array, Bool, Integer
 
-from sparse_wf.api import ParameterizedWaveFunction, Electrons, Nuclei, Charges
+from sparse_wf.api import ParameterizedWaveFunction, Electrons, Nuclei, Charges, StaticInput
+from sparse_wf.tree_utils import tree_maximum
+from sparse_wf.jax_utils import vmap_reduction
 
 P = TypeVar("P")
-S = TypeVar("S")
+S = TypeVar("S", bound=StaticInput)
 MS = TypeVar("MS")
 
 
@@ -19,31 +23,14 @@ MS = TypeVar("MS")
 # The two floats in the end are linear and exponential coefficients
 EcpData = tuple[int, list[tuple[int, list[list[tuple[float, float]]]]]]
 EcpValues = Float[Array, "n_ecp n_l n_grid"]
-EcpMask = Bool[np.ndarray, "n_ecp"]
+EcpMask = Bool[np.ndarray, "n_atoms"]
 AtomEcpValues = Float[Array, "n_l n_grid"]
 EcpGrid = Float[Array, "n_grid"]  # Radial grid distances
+EcpCutoffs = Float[Array, "n_ecp"]  # for each ECP atom, the cutoff distance
 
 
 def vmap_sum(f, *vmap_args, **vmap_kwargs):
-    """Decorator for nested vmaps where the result should be summed anyways.
-
-    Performs intermediate sums to reduce size of final array. Note that all axes
-    of the result are summed over.
-
-    Args:
-      f: function to vmap and reduce.
-      *vmap_args: args to pass to vmap.
-      **vmap_kwargs: kwargs to pass to vmap.
-
-    Returns:
-      callable which applies f and sums over the vmapped axis.
-    """
-    vmapped_f = jax.vmap(f, *vmap_args, **vmap_kwargs)
-
-    def vmap_summed_f(*args, **kwargs):
-        return jnp.sum(vmapped_f(*args, **kwargs), axis=0)
-
-    return vmap_summed_f
+    return vmap_reduction(f, functools.partial(jnp.sum, axis=0), *vmap_args, **vmap_kwargs)
 
 
 def eval_ecp(radius: EcpGrid, coeffs: list[list[tuple[float, float]]]):
@@ -153,7 +140,7 @@ def leg_l3(x):
     return 0.5 * (5 * x**3 - 3 * x)
 
 
-def eval_leg(x: Float[ArrayLike, "..."], angular: int) -> Float[Array, "..."]:
+def eval_leg(x: Float[ArrayLike, "..."], angular: Integer[ArrayLike, ""]) -> Float[Array, "..."]:
     """
     Evaluate the Legendre polynomial of degree `l` at point `x`.
     """
@@ -162,14 +149,15 @@ def eval_leg(x: Float[ArrayLike, "..."], angular: int) -> Float[Array, "..."]:
 
 def project_legendre(
     direction: Float[Array, "3"],
-    low_rank_f: Callable[[Float[Array, "3"], int], tuple[Float[Array, ""], Float[Array, ""]]],
+    low_rank_f: Callable[[Float[Array, "3"], Integer[Array, ""]], tuple[Float[Array, ""], Float[Array, ""]]],
+    static_f: Callable[[Float[Array, "3"], Integer[Array, ""]], StaticInput],
     denom_sign: Float[Array, ""],
     denom_logpsi: Float[Array, ""],
     electron_distance_i: Float[Array, ""],
     electron_vector_i: Float[Array, "3"],
-    index: int,
+    index: Integer[Array, ""],
     atom_vector: Float[Array, "3"],
-    angular_momentum: int,
+    angular_momentum: Integer[Array, ""],
 ):
     """Projects the Legrende polynomials."""
     cos = direction @ electron_vector_i / electron_distance_i
@@ -179,7 +167,7 @@ def project_legendre(
 
     sign, logpsi = low_rank_f(e, index)
     f_ratio = sign / denom_sign * jnp.exp(logpsi - denom_logpsi)
-    return jnp.squeeze(leg * f_ratio)
+    return jnp.squeeze(leg * f_ratio), static_f(e, index)
 
 
 def make_spherical_integral(quad_degree: int):
@@ -212,9 +200,9 @@ def make_spherical_integral(quad_degree: int):
         static: S,
         electron_atom_distance: Float[Array, ""],
         electron_atom_vector: Float[Array, "3"],
-        electron_index: int,
+        electron_index: Integer[Array, ""],
         atom_position: Float[Array, "3"],
-        angular_momentum: int,
+        angular_momentum: Integer[Array, ""],
     ):
         # randomly rotate the integration grid
         rot_mat = random_rot_mat(key)
@@ -230,10 +218,15 @@ def make_spherical_integral(quad_degree: int):
                 state,
             )[0]
 
-        def _body_fun(i, val):
-            return val + weights[i] * project_legendre(
+        def static_f(electron, i):
+            return logpsi_fn.get_static_input(electrons, electrons.at[i].set(electron), jnp.array([i], dtype=jnp.int32))
+
+        def _body_fun(i, vals: tuple[Array, S]):
+            val, static = vals
+            legendre_val, new_static = project_legendre(
                 aligned_points[i],
                 low_rank_f,
+                static_f,
                 sign,
                 logpsi,
                 electron_atom_distance,
@@ -242,15 +235,20 @@ def make_spherical_integral(quad_degree: int):
                 atom_position,
                 angular_momentum,
             )
+            return val + weights[i] * legendre_val, tree_maximum(static, new_static)
 
         init_loop = jnp.zeros_like(logpsi)
         # TODO: I guess we could use vmap_sum or vmap_sum + folx.batched_vmap here
-        return (2 * angular_momentum + 1) * jax.lax.fori_loop(0, n_points, _body_fun, init_loop)
+        new_static = jtu.tree_map(jnp.asarray, static)
+        legendre, new_static = jax.lax.fori_loop(0, n_points, _body_fun, (init_loop, new_static))
+        return (2 * angular_momentum + 1) * legendre, new_static
 
     return spherical_integral
 
 
-def make_nonlocal_pseudopotential(r_grid: EcpGrid, v_grid_nonloc: EcpValues, ecp_mask: EcpMask, quad_degree: int):
+def make_nonlocal_pseudopotential(
+    r_grid: EcpGrid, v_grid_nonloc: EcpValues, ecp_mask: EcpMask, cutoffs: EcpCutoffs, quad_degree: int
+):
     """Creates callable for evaluating the non-local pseudopotential."""
 
     def pp_nonloc(
@@ -261,12 +259,12 @@ def make_nonlocal_pseudopotential(r_grid: EcpGrid, v_grid_nonloc: EcpValues, ecp
         static: S,
         electron_atom_distance_i: Float[Array, ""],
         electron_atom_vector_i: Float[Array, "3"],
-        electron_index: int,
+        electron_index: Integer[Array, ""],
         atom_position: Float[Array, "3"],
-        angular_momentum: int,
+        angular_momentum: Integer[Array, ""],
         v_grid: Float[Array, "nchan n_grid"],
     ):
-        integral = make_spherical_integral(quad_degree)(
+        integral, new_static = make_spherical_integral(quad_degree)(
             key,
             logpsi_fn,
             params,
@@ -280,24 +278,34 @@ def make_nonlocal_pseudopotential(r_grid: EcpGrid, v_grid_nonloc: EcpValues, ecp
         )
 
         potential_radial_value = jnp.interp(electron_atom_distance_i, xp=r_grid, fp=v_grid)
-        return potential_radial_value * integral
+        return potential_radial_value * integral, new_static
 
     # vmap over electrons
-    vmap_pp_nonloc = vmap_sum(pp_nonloc, in_axes=(0, None, None, None, None, 0, 0, 0, 0, None, 0))
+    vmap_pp_nonloc = vmap_reduction(
+        pp_nonloc,
+        (functools.partial(jnp.sum, axis=0), jnp.max),
+        in_axes=(0, None, None, None, None, 0, 0, 0, 0, None, 0),
+    )
+    # vmap_pp_nonloc = vmap_sum(pp_nonloc, in_axes=(0, None, None, None, None, 0, 0, 0, 0, None, 0))
 
     # vmap over angular momentum
-    vmap_pp_nonloc = vmap_sum(
+    vmap_pp_nonloc = vmap_reduction(
         vmap_pp_nonloc,
-        in_axes=(1, None, None, None, None, None, None, None, None, 0, 1),
+        (functools.partial(jnp.sum, axis=0), jnp.max),
+        in_axes=(None, None, None, None, None, None, None, None, None, 0, 1),
     )
+    # vmap_pp_nonloc = vmap_sum(
+    #     vmap_pp_nonloc,
+    #     in_axes=(None, None, None, None, None, None, None, None, None, 0, 1),
+    # )
 
     def electron_atom_nonlocal_pseudopotential(
         key: Array,
-        logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+        logpsi_fn: ParameterizedWaveFunction,
         params: P,
         electrons: Electrons,
-        static: S,
-    ):
+        static: Any,
+    ) -> tuple[Float[Array, ""], S]:
         """Evaluates electron-atom contribution to non-local pseudopotential."""
         n_elec = electrons.shape[0]
         n_nonloc = v_grid_nonloc.shape[1]
@@ -308,19 +316,27 @@ def make_nonlocal_pseudopotential(r_grid: EcpGrid, v_grid_nonloc: EcpValues, ecp
 
         # drop all but closest ecp atom
         closest_atom = jnp.argmin(r_ae_ecp, axis=1)
-        # keep first index intact
-        all_electrons = jnp.arange(n_elec)
+        # Compute the number of electrons that are within the cutoff
+        closest_atom_dist = r_ae_ecp[jnp.arange(n_elec), closest_atom]
+        in_cutoff = closest_atom_dist < cutoffs[closest_atom]
+        num_in_cutoff = in_cutoff.sum()
 
-        r_ae_ecp_closest = r_ae_ecp[all_electrons, closest_atom]
-        ae_ecp_closest = ae_ecp[all_electrons, closest_atom, :]
+        # Select only the electrons that are within the cutoff
+        electron_idx = jnp.argsort(closest_atom_dist)[: static.n_pp_elecs]
+        # For all of them use:
+        # electron_idx = jnp.arange(n_elec)
+        closest_atom = closest_atom[electron_idx]
+
+        r_ae_ecp_closest = r_ae_ecp[electron_idx, closest_atom]
+        ae_ecp_closest = ae_ecp[electron_idx, closest_atom, :]
 
         atoms_ecp_closest = atoms[closest_atom]
 
         v_grid_nonloc_closest = v_grid_nonloc[closest_atom]
 
-        keys = jax.random.split(key, n_nonloc * n_elec).reshape(n_elec, n_nonloc, *key.shape)
+        keys = jax.random.split(key, n_elec).reshape(n_elec, *key.shape)
 
-        return vmap_pp_nonloc(
+        pp, new_static = vmap_pp_nonloc(
             keys,
             logpsi_fn,
             params,
@@ -328,13 +344,24 @@ def make_nonlocal_pseudopotential(r_grid: EcpGrid, v_grid_nonloc: EcpValues, ecp
             static,
             r_ae_ecp_closest,
             ae_ecp_closest,
-            jnp.arange(n_elec),
+            electron_idx,
             atoms_ecp_closest,
             jnp.arange(n_nonloc),
             v_grid_nonloc_closest,
         )
+        return pp, new_static.replace(n_pp_elecs=num_in_cutoff)
 
     return electron_atom_nonlocal_pseudopotential
+
+
+def mock_nl_pp(
+    key: Array,
+    logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    params: P,
+    electrons: Electrons,
+    static: S,
+):
+    return jnp.zeros(()), static
 
 
 def make_pseudopotential(
@@ -342,6 +369,7 @@ def make_pseudopotential(
     symbols: Sequence[str],
     quad_degree: int = 4,  # quadrature degree
     ecp: str = "ccecp",  # basis set
+    cutoff_value: float = 1e-7,
 ):
     ecp_data: dict[int, EcpData] = {
         pyscf.lib.parameters.ELEMENTS_PROTON[symbol.capitalize()]: pyscf.gto.basis.load_ecp(ecp, symbol)
@@ -356,7 +384,7 @@ def make_pseudopotential(
     n_ecp = ecp_mask.sum()  # number of atoms with ECP
     # if there are no ECP atoms, return zero potentials
     if n_ecp == 0:
-        return charges, lambda *_, **__: 0.0, lambda *_, **__: 0.0
+        return charges, lambda *_, **__: 0.0, mock_nl_pp
 
     n_grid = grid_radius.size  # number of radial grid points - 1D
     ecp_grid_values = jnp.zeros((n_ecp, max_channels, n_grid))  # ECP values on the radial grid
@@ -366,6 +394,11 @@ def make_pseudopotential(
     non_loc_grid_values, loc_grid_values = jnp.split(ecp_grid_values, (max_channels - 1,), axis=1)
     loc_grid_values = loc_grid_values.reshape(-1, n_grid)
 
+    # Find cutoffs after which the PP can be neglected
+    larger_than_cutoff = np.abs(non_loc_grid_values) > cutoff_value
+    cutoff_idx = np.max(larger_than_cutoff * np.arange(grid_radius.shape[-1]), axis=(1, 2))
+    cutoffs = grid_radius[cutoff_idx]
+
     pp_local = make_local_pseudopotential(grid_radius, loc_grid_values, ecp_mask)
-    pp_nonlocal = make_nonlocal_pseudopotential(grid_radius, non_loc_grid_values, ecp_mask, quad_degree)
+    pp_nonlocal = make_nonlocal_pseudopotential(grid_radius, non_loc_grid_values, ecp_mask, cutoffs, quad_degree)
     return effective_charges, pp_local, pp_nonlocal

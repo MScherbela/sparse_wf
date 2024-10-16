@@ -65,19 +65,15 @@ def make_local_energy(
         case _:
             raise ValueError(f"Unknown energy operator: {energy_operator}")
 
-    if len(pseudopotentials) > 0:
-        eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials)
-    else:
-        eff_charges = wf.Z
-        pp_local = pp_nonlocal = lambda *_, **__: 0
+    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials)
 
-    @vectorize(signature="(k),(n,d)->()", excluded=frozenset({1, 3}))
-    def local_energy(key: jax.Array, params: P, electrons: Electrons, static: S) -> LocalEnergy:
+    def local_energy(key: jax.Array, params: P, electrons: Electrons, static: S) -> tuple[LocalEnergy, S]:
         """Compute the local energy of the system"""
         kinetic_energy = kin_fn(params, electrons, static)
         potential = potential_energy(electrons, wf.R, eff_charges)
         potential += pp_local(electrons, wf.R)
-        potential += pp_nonlocal(key, wf, params, electrons, static)
-        return kinetic_energy + potential
+        nl_pp, new_static = pp_nonlocal(key, wf, params, electrons, static)
+        potential += nl_pp
+        return kinetic_energy + potential, new_static
 
     return local_energy

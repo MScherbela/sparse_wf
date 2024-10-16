@@ -1,3 +1,4 @@
+import functools
 from typing import NamedTuple, Optional, TypeVar
 
 import jax
@@ -16,7 +17,6 @@ from sparse_wf.api import (
 )
 from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum, vector_to_tree_like
 from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub, ravel_with_padding
-import functools
 
 P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
@@ -24,7 +24,9 @@ P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 def make_damping_scheduler(increase_factor=2.0, decay_factor=0.999, cond_max=1e7):
     def adjust_damping(damping, cond_nr, is_nan):
         return jnp.where(
-            is_nan, damping * increase_factor, jnp.where(cond_nr < cond_max, damping * decay_factor, damping)
+            is_nan,
+            damping * increase_factor,
+            jnp.where(cond_nr < cond_max, damping * decay_factor, damping),
         )
 
     return adjust_damping
@@ -65,7 +67,8 @@ def make_cg_preconditioner(
 ):
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(
-            last_grad=jax.tree_map(jnp.zeros_like, params), damping=jnp.array(damping, jnp.float32)
+            last_grad=jax.tree_map(jnp.zeros_like, params),
+            damping=jnp.array(damping, jnp.float32),
         )
 
     def precondition(
@@ -93,8 +96,19 @@ def make_cg_preconditioner(
             result = tree_add(undamped, tree_mul(v, natgrad_state.damping))
             return psum(result)
 
-        natgrad, _ = cg(A=Fisher_matmul, b=grad, x0=natgrad_state.last_grad, tol=0, atol=0, maxiter=maxiter)
-        return natgrad, PreconditionerState(last_grad=natgrad, damping=natgrad_state.damping), {}
+        natgrad, _ = cg(
+            A=Fisher_matmul,
+            b=grad,
+            x0=natgrad_state.last_grad,
+            tol=0,
+            atol=0,
+            maxiter=maxiter,
+        )
+        return (
+            natgrad,
+            PreconditionerState(last_grad=natgrad, damping=natgrad_state.damping),
+            {},
+        )
 
     return Preconditioner(init, precondition)
 
@@ -220,7 +234,8 @@ def make_spring_preconditioner(
 ):
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(
-            last_grad=jax.tree_map(jnp.zeros_like, params), damping=jnp.array(damping, jnp.float32)
+            last_grad=jax.tree_map(jnp.zeros_like, params),
+            damping=jnp.array(damping, jnp.float32),
         )
 
     def precondition(
@@ -289,7 +304,11 @@ def make_spring_preconditioner(
         natgrad = centered_vjp(jnp.linalg.solve(T, cotangent).reshape(n_dev, -1)[pidx()])
         natgrad = tree_add(natgrad, decayed_last_grad)
         natgrad = jax.tree_util.tree_map(lambda x: jnp.astype(x, jnp.float32), natgrad)
-        return natgrad, PreconditionerState(last_grad=natgrad, damping=natgrad_state.damping), {}
+        return (
+            natgrad,
+            PreconditionerState(last_grad=natgrad, damping=natgrad_state.damping),
+            {},
+        )
 
     return Preconditioner(init, precondition)
 
@@ -308,7 +327,10 @@ def make_svd_preconditioner(
 ):
     def init(params: P):
         n_params = sum([p.size for p in jtu.tree_leaves(params)])
-        return SVDPreconditionerState(last_grad=jnp.zeros(n_params), X_history=jnp.zeros([n_params, history_length]))
+        return SVDPreconditionerState(
+            last_grad=jnp.zeros(n_params),
+            X_history=jnp.zeros([n_params, history_length]),
+        )
 
     def precondition(
         params: P,

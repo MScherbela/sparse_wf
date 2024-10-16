@@ -74,7 +74,6 @@ def main(
     effective_charges = mol.atom_charges()
     n_up, n_dn = mol.nelec
     n_el = n_up + n_dn
-    logging.info(f"Atomic numbers: {Z}; Effective charges: {effective_charges}; Spin configuration: ({n_up}, {n_dn})")
 
     loggers = MultiLogger(logging_args)
     loggers.log_config(config | dict(molecule=dict(R=R.tolist(), Z=Z.tolist(), n_el=n_el, n_up=n_up)))
@@ -83,6 +82,7 @@ def main(
         jax.distributed.initialize()
     logging.info(f'Run name: {loggers.args["name"]}')
     logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
+    logging.info(f"Atomic numbers: {Z}; Effective charges: {effective_charges}; Spin configuration: ({n_up}, {n_dn})")
 
     match model.lower().strip():
         case "moon":
@@ -109,6 +109,7 @@ def main(
     mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
     mcmc_width_scheduler = make_width_scheduler()
     static_scheduler = StaticScheduler(n_el, n_up, len(R))
+    pp_static_scheduler = StaticScheduler(n_el, n_up, len(R))
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
@@ -140,6 +141,7 @@ def main(
     assert_identical_copies(state.params)
     model_static = pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons)
     static = static_scheduler(model_static)
+    pp_static = pp_static_scheduler(model_static)
 
     # Build pre-training wavefunction and sampling step
     if (pretraining["steps"] > 0) or evaluation["overlap_states"]:
@@ -175,6 +177,7 @@ def main(
             t0 = time.perf_counter()
             state, aux_data, mcmc_stats = pretrainer.step(state, static)
             static = static_scheduler(mcmc_stats.static_max)
+            pp_static = pp_static_scheduler(mcmc_stats.static_max)
             log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
             t1 = time.perf_counter()
             log_data["pretrain/t_step"] = t1 - t0
@@ -189,8 +192,9 @@ def main(
     # Variational optimization
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
-        state, aux_data, mcmc_stats = trainer.sampling_step(state, static, False, None)
+        state, aux_data, mcmc_stats, _ = trainer.sampling_step(state, static, pp_static, False, None)
         static = static_scheduler(mcmc_stats.static_max)
+        pp_static = pp_static_scheduler(mcmc_stats.static_max)
         log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
         loggers.log(log_data)
 
@@ -206,9 +210,16 @@ def main(
             raise SystemExit(0)
 
         t0 = time.perf_counter()
-        state, _, aux_data, mcmc_stats = trainer.step(state, static)
+        state, _, aux_data, mcmc_stats, pp_static_max = trainer.step(state, static, pp_static)
         static = static_scheduler(mcmc_stats.static_max)
-        log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
+        pp_static = pp_static_scheduler(pp_static_max)
+        log_data = (
+            to_log_data(aux_data)
+            | mcmc_to_log_data(mcmc_stats)
+            | to_log_data(static, "static/padded/")
+            | to_log_data(pp_static_max, "pp_static/max")
+            | to_log_data(pp_static, "pp_static/padded")
+        )
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0
         log_data["opt/step"] = opt_step
@@ -228,9 +239,18 @@ def main(
     )
     for eval_step in range(evaluation["steps"]):
         t0 = time.perf_counter()
-        state, aux_data, mcmc_stats = trainer.sampling_step(state, static, evaluation["compute_energy"], overlap_fn)
+        state, aux_data, mcmc_stats, pp_static_max = trainer.sampling_step(
+            state, static, pp_static, evaluation["compute_energy"], overlap_fn
+        )
         static = static_scheduler(mcmc_stats.static_max)
-        log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
+        pp_static = pp_static_scheduler(pp_static_max)
+        log_data = (
+            to_log_data(aux_data)
+            | mcmc_to_log_data(mcmc_stats)
+            | to_log_data(static, "static/padded/")
+            | to_log_data(pp_static_max, "pp_static/max")
+            | to_log_data(pp_static, "pp_static/padded")
+        )
         t1 = time.perf_counter()
         log_data["eval/t_step"] = t1 - t0
         log_data["eval/step"] = eval_step
