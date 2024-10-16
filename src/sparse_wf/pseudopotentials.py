@@ -15,7 +15,7 @@ MS = TypeVar("MS")
 
 # The first integer is the number of core electrons
 # the second integers in the tuples are the angular momentums
-# An angular momentum of -1 is the non-local part
+# An angular momentum of -1 is the local part
 # The two floats in the end are linear and exponential coefficients
 EcpData = tuple[int, list[tuple[int, list[list[tuple[float, float]]]]]]
 EcpValues = Float[Array, "n_ecp n_l n_grid"]
@@ -46,9 +46,9 @@ def vmap_sum(f, *vmap_args, **vmap_kwargs):
     return vmap_summed_f
 
 
-def eval_ecp(radius: EcpGrid, coeffs):
+def eval_ecp(radius: EcpGrid, coeffs: list[list[tuple[float, float]]]):
     r"""Evaluates r^2 U_l = \\sum A_{lk} r^{n_{lk}} e^{- B_{lk} r^2}."""
-    val = 0.0
+    val = jnp.zeros((), dtype=jnp.float32)
     for r_exponent, v in enumerate(coeffs):
         for exp_coeff, linear_coeff in v:
             val += linear_coeff * radius**r_exponent * jnp.exp(-exp_coeff * radius**2)
@@ -103,7 +103,7 @@ def eval_ecp_on_grid(
         v_grid = jnp.zeros((max_channels, n_grid))
 
         for angular, coeffs in ecp_val:
-            # the non-local part will have index -1 and, thus, will be the last element in the array
+            # the local part will have index -1 and, thus, will be the last element in the array
             v_grid = v_grid.at[angular].set(eval_ecp(r_grid, coeffs) / r_grid**2)
 
         v_grid_dict[z] = jnp.asarray(v_grid)
