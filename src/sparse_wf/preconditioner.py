@@ -99,7 +99,7 @@ def make_cg_preconditioner(
     return Preconditioner(init, precondition)
 
 
-def get_jacjacT(local_jac, param_block_size=65536):
+def get_jacjacT(local_jac, param_block_size=65536, use_float64: bool = True):
     """Compute jac @ jac.T from local/sharded jacobians.
 
     This function transposes the local jaobians across devices, such that all devices have all samples,
@@ -116,32 +116,21 @@ def get_jacjacT(local_jac, param_block_size=65536):
     n_devices = jax.device_count()
     global_block_size = param_block_size * n_devices
     n_samples_local, n_params = local_jac.shape
-
-    # Step 1: take care of all leftover params, which are not divisible by the nr of devices (leftovers = n_params % n_devices)
-    #         since this is not divisible by n_devices, we cannot use pall_to_all
-    n_params = (n_params // n_devices) * n_devices
-    local_jac, leftover_jac = jnp.split(local_jac, [n_params], axis=1)
-    leftover_jac_global = pgather(leftover_jac, axis=0, tiled=True)  # [n_samples_global x n_leftover_params]
-    # Final T will be a psum across devices, so we need to normalize here, where we have the same T across all devices
-    leftover_jac_global = leftover_jac_global / jnp.sqrt(n_devices)
-    T = leftover_jac_global @ leftover_jac_global.T
-
-    # Step 2: Take care of all leftover params, which are not divisible by the global block size
-    #         The leftovers are guaranteed to be divisible by the number of devices, so we can use pall_to_all
-    n_params = (n_params // global_block_size) * global_block_size
-    local_jac, leftover_jac = jnp.split(local_jac, [n_params], axis=1)
-    # all_to_all:  [n_samples_local x n_leftover_params] -> [n_samples_global x (n_leftover_params / n_devices)]
-    leftover_jac = pall_to_all(leftover_jac, split_axis=1, concat_axis=0, tiled=True)
-    T += leftover_jac @ leftover_jac.T
-
-    # Step 3: Take care of all full blocks, which are divisible by the global block size
+    # Take care of all full blocks, which are divisible by the global block size
     n_blocks = n_params // global_block_size
-    local_jac_T = local_jac.T.reshape([n_blocks, global_block_size, n_samples_local])
+    local_jac_T = local_jac.reshape([n_blocks, global_block_size, n_samples_local])
 
     def scan_func(T_carry, loc_jac_T):
         jac_T = pall_to_all(loc_jac_T, split_axis=0, concat_axis=1, tiled=True)
+        if use_float64:
+            jac_T = jac_T.astype(jnp.float64)
+        jac_T -= jac_T.mean(0)
         T_carry += jac_T.T @ jac_T
         return T_carry, None
+
+    T = jnp.zeros((n_samples_local * n_devices, n_samples_local * n_devices), dtype=local_jac_T)
+    if use_float64:
+        T = T.astype(jnp.float64)
 
     T, _ = jax.lax.scan(scan_func, T, local_jac_T)
     T = psum(T)
@@ -155,10 +144,24 @@ def make_dense_spring_preconditioner(
     decay_factor: float,
     max_batch_size: int,
     use_float64: bool,
+    param_block_size: int = 65536,
 ):
+    def ravel_params(params: P):
+        # This ravel function pads the dense tensor to a multiple of the global block size
+        n_dev = jax.device_count()
+        n_params = jax.eval_shape(lambda x: jfu.ravel_pytree(x)[0])(params).size
+        global_block_size = param_block_size * n_dev
+        new_params = (global_block_size - n_params) % global_block_size
+        flat_params, unravel = jfu.ravel_pytree((params, jnp.zeros((new_params,), dtype=jnp.float32)))
+
+        def unravel_params(flat_params):
+            return unravel(flat_params)[0]
+
+        return flat_params, unravel_params
+
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(
-            last_grad=0 * jfu.ravel_pytree(params)[0].astype(jnp.float64), damping=jnp.array(damping, jnp.float32)
+            last_grad=0 * ravel_params(params)[0].astype(jnp.float64), damping=jnp.array(damping, jnp.float32)
         )
 
     damping_scheduler = make_damping_scheduler()
@@ -176,43 +179,30 @@ def make_dense_spring_preconditioner(
         N = local_batch_size * n_dev
         normalization = 1 / jnp.sqrt(N)
 
-        flat_params, unravel = jfu.ravel_pytree(params)
         # We could cast the params first to float64, or at the jacobian, or at solving? Or not at all?
+        flat_params, unravel = ravel_params(params)
 
         def log_p(params: jax.Array, electrons: Electrons, static: S):
             return wave_function(unravel(params), electrons, static) * normalization  # type: ignore
 
-        def log_p_closed(params: P):
-            return jax.vmap(lambda r: log_p(params, r, static))(electrons)  # type: ignore
-
-        logpsi, vjp = jax.vjp(log_p_closed, flat_params)
-
-        def centered_jvp(x):
-            uncentered = jax.jvp(log_p_closed, (flat_params,), (x.astype(flat_params.dtype),))[1]
-            return uncentered - psum(uncentered.sum()) / N
-
-        def centered_vjp(x):
-            x_centered = x - psum(x.sum()) / N
-            return psum(vjp(x_centered.astype(logpsi.dtype)))[0]
-
-        jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), max_batch_size=max_batch_size)
+        jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), out_axes=1, max_batch_size=max_batch_size)
         jacobian = jac_fn(flat_params, electrons, static)
-        if use_float64:
-            jacobian = jacobian.astype(jnp.float64)
-        jacobian -= pmean(jacobian.mean(0))
-        T = get_jacjacT(jacobian)
+        T = get_jacjacT(jacobian, param_block_size, use_float64)
         T += natgrad_state.damping * jnp.eye(N, dtype=T.dtype) + 1 / N
+
+        # The remainder needs a centered jacobian - this can be done in float32
+        jacobian -= pmean(jacobian.mean(1))
 
         last_grad = natgrad_state.last_grad
         decayed_last_grad = decay_factor * last_grad
         decayed_last_grad += jfu.ravel_pytree(aux_grad)[0] / natgrad_state.damping
         cotangent = dE_dlogpsi.reshape(-1) * normalization
-        cotangent -= centered_jvp(decayed_last_grad)
+        cotangent -= decayed_last_grad @ jacobian
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
         precond_cotangents = jnp.linalg.solve(T, cotangent)  # T^(-1)@contangent for all samples
         local_precond_cotangents = precond_cotangents.reshape(n_dev, -1)[pidx()]  # T^(-1)@cotangent for local samples
-        local_natgrad = centered_vjp(local_precond_cotangents)
+        local_natgrad = jacobian @ local_precond_cotangents
         natgrad = psum(local_natgrad)
         natgrad += decayed_last_grad
 
