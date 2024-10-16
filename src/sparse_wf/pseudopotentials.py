@@ -388,6 +388,9 @@ def make_pseudopotential(
     ecp: str = "ccecp",  # basis set
     cutoff_value: float = 1e-7,
 ):
+    if len(symbols) == 0:
+        return charges, lambda *_, **__: 0.0, mock_nl_pp
+
     ecp_data: dict[int, EcpData] = {
         pyscf.lib.parameters.ELEMENTS_PROTON[symbol.capitalize()]: pyscf.gto.basis.load_ecp(ecp, symbol)
         for symbol in symbols
