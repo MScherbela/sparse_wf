@@ -35,15 +35,14 @@ grid:
           - cumulene_C16H4_0deg_singlet
           - cumulene_C16H4_90deg_triplet
 
-default:
-  fixed:
-    molecule_args.pseudopotentials: []
+# default:
+#   fixed:
+#     molecule_args.pseudopotentials: []
 
 pp:
   fixed:
     molecule_args.pseudopotentials: ["C"]
-
-jastrow:
-  fixed:
-    model_args.jastrow.use_mlp_jastrow: True
-    model_args.jastrow.use_log_jastrow: True
+# jastrow:
+#   fixed:
+#     model_args.jastrow.use_mlp_jastrow: True
+#     model_args.jastrow.use_log_jastrow: True

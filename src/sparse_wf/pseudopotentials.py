@@ -297,25 +297,6 @@ def make_nonlocal_pseudopotential(
         potential_radial_value = jnp.interp(electron_atom_distance_i, xp=r_grid, fp=v_grid)
         return potential_radial_value * integral, new_static
 
-    # vmap over electrons
-    vmap_pp_nonloc = vmap_reduction(
-        pp_nonloc,
-        (functools.partial(jnp.sum, axis=0), jnp.max),
-        in_axes=(0, None, None, None, None, 0, 0, 0, 0, None, 0),
-    )
-    # vmap_pp_nonloc = vmap_sum(pp_nonloc, in_axes=(0, None, None, None, None, 0, 0, 0, 0, None, 0))
-
-    # vmap over angular momentum
-    vmap_pp_nonloc = vmap_reduction(
-        vmap_pp_nonloc,
-        (functools.partial(jnp.sum, axis=0), jnp.max),
-        in_axes=(None, None, None, None, None, None, None, None, None, 0, 1),
-    )
-    # vmap_pp_nonloc = vmap_sum(
-    #     vmap_pp_nonloc,
-    #     in_axes=(None, None, None, None, None, None, None, None, None, 0, 1),
-    # )
-
     def electron_atom_nonlocal_pseudopotential(
         key: Array,
         logpsi_fn: ParameterizedWaveFunction,
@@ -352,6 +333,24 @@ def make_nonlocal_pseudopotential(
         v_grid_nonloc_closest = v_grid_nonloc[closest_atom]
 
         keys = jax.random.split(key, static.n_pp_elecs).reshape(static.n_pp_elecs, *key.shape)
+
+        # These are the samples that are within the cutoff
+        mask = closest_atom_dist[electron_idx] < cutoffs[closest_atom]
+
+        # vmap over electrons
+        vmap_pp_nonloc = vmap_reduction(
+            pp_nonloc,
+            # Only take the maximum for the statics among the electrons within the cutoff
+            (functools.partial(jnp.sum, axis=0), lambda x: jnp.max(x * mask)),
+            in_axes=(0, None, None, None, None, 0, 0, 0, 0, None, 0),
+        )
+
+        # vmap over angular momentum
+        vmap_pp_nonloc = vmap_reduction(
+            vmap_pp_nonloc,
+            (functools.partial(jnp.sum, axis=0), jnp.max),
+            in_axes=(None, None, None, None, None, None, None, None, None, 0, 1),
+        )
 
         pp, new_static = vmap_pp_nonloc(
             keys,
