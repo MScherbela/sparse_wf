@@ -4,18 +4,18 @@ seml:
   output_dir: ~/slurm-output/
 
 slurm:
+  # - experiments_per_job: 1
+  #   sbatch_options:
+  #     gres: gpu:2
+  #     cpus-per-task: 8
+  #     mem: 64G
+  #     partition: gpu_h100
   - experiments_per_job: 1
     sbatch_options:
       gres: gpu:4
       cpus-per-task: 16
       mem: 64G
-      partition: mcml-dgx-a100-40x8
-  - experiments_per_job: 1
-    sbatch_options:
-      gres: gpu:4
-      cpus-per-task: 16
-      mem: 64G
-      partition: mcml-hgx-a100-80x4
+      partition: mcml-dgx-a100-40x8,mcml-hgx-a100-80x4,mcml-hgx-h100-92x4
 
 fixed:
   logging_args.wandb.project: ngao_cumulene_pp
@@ -25,6 +25,7 @@ fixed:
     - molecule_args.pseudopotentials
     - model_args.jastrow.use_mlp_jastrow
   model_args.embedding.new.cutoff: 3.0
+  optimization.steps: 20_000
 
 grid:
   molecule_args:
@@ -32,17 +33,17 @@ grid:
       name:
         type: choice
         options:
-          - cumulene_C16H4_0deg_singlet
-          - cumulene_C16H4_90deg_triplet
+          - cumulene_C8H4_0deg_singlet
+          - cumulene_C8H4_90deg_triplet
 
-# default:
-#   fixed:
-#     molecule_args.pseudopotentials: []
+default:
+  fixed:
+    molecule_args.pseudopotentials: []
 
 pp:
   fixed:
     molecule_args.pseudopotentials: ["C"]
-# jastrow:
-#   fixed:
-#     model_args.jastrow.use_mlp_jastrow: True
-#     model_args.jastrow.use_log_jastrow: True
+jastrow:
+  fixed:
+    model_args.jastrow.use_mlp_jastrow: True
+    model_args.jastrow.use_log_jastrow: True
