@@ -164,7 +164,7 @@ def main(
         for step in range(pretraining["steps"]):
             t0 = time.perf_counter()
             state, aux_data, mcmc_stats = pretrainer.step(state, static)
-            static = static_scheduler(mcmc_stats.static_max)
+            static = static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
             log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
             t1 = time.perf_counter()
             log_data["pretrain/t_step"] = t1 - t0

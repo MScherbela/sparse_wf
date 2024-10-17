@@ -4,7 +4,6 @@ from typing import Optional
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
-import logging
 
 
 def round_with_padding(n, padding_factor, max_val):
@@ -50,7 +49,6 @@ class StaticScheduler:
             self.did_recompile[self.step] = self.compilation_cache_size != compilation_cache_size
             self.compilation_cache_size = compilation_cache_size
             n_recompiles = np.sum(self.did_recompile)
-            logging.info(f"{compilation_cache_size=}, {n_recompiles=}, {self.padding_factor=}")
             if n_recompiles <= 3:
                 self.padding_factor = self.min_padding_factor
             elif n_recompiles >= 10:
