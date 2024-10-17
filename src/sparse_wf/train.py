@@ -180,7 +180,7 @@ def main(
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
         state, aux_data, mcmc_stats = trainer.sampling_step(state, static, False, None)
-        static = static_scheduler(mcmc_stats.static_max)
+        static = static_scheduler(mcmc_stats.static_max, trainer.sampling_step._cache_size)
         log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
         loggers.log(log_data)
 
@@ -197,7 +197,7 @@ def main(
 
         t0 = time.perf_counter()
         state, _, aux_data, mcmc_stats = trainer.step(state, static)
-        static = static_scheduler(mcmc_stats.static_max)
+        static = static_scheduler(mcmc_stats.static_max, trainer.step._cache_size)
         log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0
@@ -219,7 +219,7 @@ def main(
     for eval_step in range(evaluation["steps"]):
         t0 = time.perf_counter()
         state, aux_data, mcmc_stats = trainer.sampling_step(state, static, evaluation["compute_energy"], overlap_fn)
-        static = static_scheduler(mcmc_stats.static_max)
+        static = static_scheduler(mcmc_stats.static_max, trainer.sampling_step._cache_size)
         log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
         t1 = time.perf_counter()
         log_data["eval/t_step"] = t1 - t0
