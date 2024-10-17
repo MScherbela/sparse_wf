@@ -15,7 +15,7 @@ from sparse_wf.api import (
     StaticInput,
     MCMCStats,
 )
-from sparse_wf.jax_utils import pmap, pmean
+from sparse_wf.jax_utils import pmap, pmean, PMAP_AXIS_NAME
 
 P, S, MS, SS = TypeVar("P"), TypeVar("S"), TypeVar("MS"), TypeVar("SS")
 
@@ -42,7 +42,7 @@ def make_pretrainer(
             pre_opt_state=pmap(optimizer.init)(training_state.params),
         )
 
-    @pmap(static_broadcasted_argnums=1)
+    # @pmap(static_broadcasted_argnums=1)
     def step(state: PretrainState[P, SS], static: StaticInput) -> tuple[PretrainState[P, SS], AuxData, MCMCStats]:
         targets = wave_function.hf_transformation(batch_src_orbitals(state.electrons))
 
@@ -73,4 +73,4 @@ def make_pretrainer(
             stats,
         )
 
-    return Pretrainer(init, step)
+    return Pretrainer(init, jax.pmap(step, PMAP_AXIS_NAME, static_broadcasted_argnums=1))
