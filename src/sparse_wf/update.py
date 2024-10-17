@@ -21,7 +21,7 @@ from sparse_wf.api import (
     WidthScheduler,
     StaticInput,
 )
-from sparse_wf.jax_utils import pgather, pmap, pmean, replicate, plogsumexp
+from sparse_wf.jax_utils import pgather, pmap, pmean, replicate, plogsumexp, PMAP_AXIS_NAME
 from sparse_wf.tree_utils import tree_dot
 
 from folx import batched_vmap
@@ -96,7 +96,7 @@ def make_trainer(
             step=replicate(jnp.zeros([], jnp.int32)),
         )
 
-    @pmap(static_broadcasted_argnums=(1, 2, 3))
+    # @pmap(static_broadcasted_argnums=(1, 2, 3))
     def sampling_step(
         state: TrainingState[P, SS], static: StaticInput, compute_energy: bool, overlap_fn: Callable | None = None
     ):
@@ -125,7 +125,7 @@ def make_trainer(
 
         return state, aux_data, stats
 
-    @pmap(static_broadcasted_argnums=1)
+    # @pmap(static_broadcasted_argnums=1)
     def step(state: TrainingState[P, SS], static: StaticInput):
         key, subkey = jax.random.split(state.key)
         electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
@@ -174,8 +174,8 @@ def make_trainer(
 
     return Trainer(
         init=init,
-        step=step,
-        sampling_step=sampling_step,
+        step=jax.pmap(step, PMAP_AXIS_NAME, static_broadcasted_argnums=1),
+        sampling_step=jax.pmap(sampling_step, PMAP_AXIS_NAME, static_broadcasted_argnums=(1, 2, 3)),
         wave_function=wave_function,
         mcmc=mcmc_step,
         width_scheduler=width_scheduler,
