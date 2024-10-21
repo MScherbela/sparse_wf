@@ -252,7 +252,7 @@ def make_spherical_integral(quad_degree: int):
 
         init_loop = jnp.zeros_like(logpsi)
         # TODO: I guess we could use vmap_sum or vmap_sum + folx.batched_vmap here
-        new_static = jtu.tree_map(jnp.asarray, static)
+        new_static = jtu.tree_map(lambda x: jnp.zeros_like(jnp.asarray(x)), static)
         legendre, new_static = jax.lax.fori_loop(0, n_points, _body_fun, (init_loop, new_static))
         return (2 * angular_momentum + 1) * legendre, new_static
 
