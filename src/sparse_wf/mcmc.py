@@ -357,7 +357,7 @@ def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> E
         local_batch_size = (batch_size // jax.device_count()) * jax.local_device_count()
     else:
         local_batch_size = batch_size
-    key, subkey = jax.random.split(key)
+    key_up, key_dn, subkey = jax.random.split(key, 3)
     electrons = jax.random.normal(subkey, (local_batch_size, mol.nelectron, 3), dtype=jnp.float32)
 
     R = np.array(mol.atom_coords(), dtype=jnp.float32)
@@ -366,11 +366,12 @@ def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> E
         assert mol.charge == 0, "Only atoms or neutral molecules are supported"
         ind_atom = assign_spins_to_atoms(R, mol.atom_charges())
         electrons += R[ind_atom]
-    if mol.spin > 1:
-        # We randomly shuffle the electron which gets moved to the spin-up channel
+    if abs(mol.spin) > 1:
+        # We randomly shuffle the electron which gets moved to the majority spin channel
         n_el = mol.nelectron
         up_electrons = electrons[:, : n_el // 2]
         down_electrons = electrons[:, n_el // 2 :]
-        down_electrons = jax.random.permutation(key, down_electrons, axis=1)
+        up_electrons = jax.random.permutation(key_up, up_electrons, axis=1)
+        down_electrons = jax.random.permutation(key_dn, down_electrons, axis=1)
         electrons = jnp.concatenate([up_electrons, down_electrons], axis=1)
     return electrons

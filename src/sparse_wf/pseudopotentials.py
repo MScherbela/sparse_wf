@@ -107,7 +107,7 @@ def eval_ecp_on_grid(
 def make_local_pseudopotential(ecp_vals: EcpValues, grid_radius: EcpGrid, ecp_mask: EcpMask):
     def pp_loc(r_ae: Float[Array, " n_elec"], grid_radius: EcpGrid, ecp_vals: AtomEcpValues):
         # Interpolate the potential on the grid
-        return jnp.interp(r_ae, grid_radius, ecp_vals).sum()
+        return jnp.interp(r_ae, grid_radius, ecp_vals).sum()  # sum over electrons
 
     # vmap over atoms
     vmap_pp_loc = vmap_sum(pp_loc, in_axes=(1, None, 0))
