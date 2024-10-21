@@ -24,10 +24,11 @@ from sparse_wf.api import (
     SlaterMatrices,
     EnvelopeArgs,
 )
-from sparse_wf.hamiltonian import make_local_energy, potential_energy
+from sparse_wf.hamiltonian import make_kinetic_energy
 from sparse_wf.jax_utils import fwd_lap
 from sparse_wf.model.new_model import NewEmbedding
 from sparse_wf.model.new_sparse_model import NewSparseEmbedding
+from sparse_wf.system import get_atomic_numbers
 from sparse_wf.tree_utils import tree_add
 from sparse_wf.model.graph_utils import slogdet_with_sparse_fwd_lap
 from sparse_wf.model.orbitals import Orbitals, OrbitalState
@@ -109,7 +110,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         spin_restricted: bool,
     ):
         R = np.asarray(mol.atom_coords(), dtype=jnp.float32)
-        Z = np.asarray(mol.atom_charges())
+        Z = get_atomic_numbers(mol)
         n_electrons = mol.nelectron
         n_up = mol.nelec[0]
 
@@ -207,17 +208,16 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
-    def local_energy(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LocalEnergy:
+    def kinetic_energy(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LocalEnergy:
         if self._sparse_jacobian:
             logpsi = self._logpsi_with_fwd_lap_sparse(params, electrons, static)
         else:
             logpsi = self._logpsi_with_fwd_lap_folx(params, electrons, static)
         kinetic_energy = -0.5 * (logpsi.laplacian.sum() + jnp.vdot(logpsi.jacobian.data, logpsi.jacobian.data))
-        potential = potential_energy(electrons, self.R, self.Z)
-        return kinetic_energy + potential
+        return kinetic_energy
 
-    def local_energy_dense(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LocalEnergy:
-        return make_local_energy(self, self.R, self.Z)(params, electrons, static)
+    def kinetic_energy_dense(self, params: MoonLikeParams[T], electrons: Electrons, static: S) -> LocalEnergy:
+        return make_kinetic_energy(self)(params, electrons, static)
 
     def log_psi_with_state(
         self, params: MoonLikeParams[T], electrons: Electrons, static: S

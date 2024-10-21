@@ -1,7 +1,7 @@
+import functools
 from typing import NamedTuple, Optional, TypeVar
 
 import jax
-import jax.flatten_util as jfu
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from folx import batched_vmap
@@ -16,7 +16,7 @@ from sparse_wf.api import (
     PreconditionerState,
 )
 from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum, vector_to_tree_like
-from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub
+from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub, ravel_with_padding
 
 P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
@@ -24,7 +24,9 @@ P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 def make_damping_scheduler(increase_factor=2.0, decay_factor=0.999, cond_max=1e7):
     def adjust_damping(damping, cond_nr, is_nan):
         return jnp.where(
-            is_nan, damping * increase_factor, jnp.where(cond_nr < cond_max, damping * decay_factor, damping)
+            is_nan,
+            damping * increase_factor,
+            jnp.where(cond_nr < cond_max, damping * decay_factor, damping),
         )
 
     return adjust_damping
@@ -65,7 +67,8 @@ def make_cg_preconditioner(
 ):
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(
-            last_grad=jax.tree_map(jnp.zeros_like, params), damping=jnp.array(damping, jnp.float32)
+            last_grad=jax.tree_map(jnp.zeros_like, params),
+            damping=jnp.array(damping, jnp.float32),
         )
 
     def precondition(
@@ -93,14 +96,25 @@ def make_cg_preconditioner(
             result = tree_add(undamped, tree_mul(v, natgrad_state.damping))
             return psum(result)
 
-        natgrad, _ = cg(A=Fisher_matmul, b=grad, x0=natgrad_state.last_grad, tol=0, atol=0, maxiter=maxiter)
-        return natgrad, PreconditionerState(last_grad=natgrad, damping=natgrad_state.damping), {}
+        natgrad, _ = cg(
+            A=Fisher_matmul,
+            b=grad,
+            x0=natgrad_state.last_grad,
+            tol=0,
+            atol=0,
+            maxiter=maxiter,
+        )
+        return (
+            natgrad,
+            PreconditionerState(last_grad=natgrad, damping=natgrad_state.damping),
+            {},
+        )
 
     return Preconditioner(init, precondition)
 
 
-def get_jacjacT(local_jac, param_block_size=65536):
-    """Compute jac @ jac.T from local/sharded jacobians.
+def get_jacjacT(local_jacT, global_block_size, use_float64: bool = True):
+    """Compute jac @ jac.T from local/sharded transposed jacobians.
 
     This function transposes the local jaobians across devices, such that all devices have all samples,
     but only a subset of parameters.
@@ -109,39 +123,28 @@ def get_jacjacT(local_jac, param_block_size=65536):
     We loop over and aggregate all blocks using scan, and finally add the (non-full) block of leftover params.
 
     Args:
-        local_jac: Jacobian, shape (n_samples_per_device, n_params)
+        local_jacT: Jacobian.T, shape (n_params, n_samples_per_device)
     Returns:
         T: Jacobian times Jacobian transposed, shape (n_samples_total, n_samples_total)
     """
     n_devices = jax.device_count()
-    global_block_size = param_block_size * n_devices
-    n_samples_local, n_params = local_jac.shape
-
-    # Step 1: take care of all leftover params, which are not divisible by the nr of devices (leftovers = n_params % n_devices)
-    #         since this is not divisible by n_devices, we cannot use pall_to_all
-    n_params = (n_params // n_devices) * n_devices
-    local_jac, leftover_jac = jnp.split(local_jac, [n_params], axis=1)
-    leftover_jac_global = pgather(leftover_jac, axis=0, tiled=True)  # [n_samples_global x n_leftover_params]
-    # Final T will be a psum across devices, so we need to normalize here, where we have the same T across all devices
-    leftover_jac_global = leftover_jac_global / jnp.sqrt(n_devices)
-    T = leftover_jac_global @ leftover_jac_global.T
-
-    # Step 2: Take care of all leftover params, which are not divisible by the global block size
-    #         The leftovers are guaranteed to be divisible by the number of devices, so we can use pall_to_all
-    n_params = (n_params // global_block_size) * global_block_size
-    local_jac, leftover_jac = jnp.split(local_jac, [n_params], axis=1)
-    # all_to_all:  [n_samples_local x n_leftover_params] -> [n_samples_global x (n_leftover_params / n_devices)]
-    leftover_jac = pall_to_all(leftover_jac, split_axis=1, concat_axis=0, tiled=True)
-    T += leftover_jac @ leftover_jac.T
-
-    # Step 3: Take care of all full blocks, which are divisible by the global block size
+    n_params, n_samples_local = local_jacT.shape
+    assert n_params % global_block_size == 0, "n_params must be divisible by global_block_size"
     n_blocks = n_params // global_block_size
-    local_jac_T = local_jac.T.reshape([n_blocks, global_block_size, n_samples_local])
+    local_jac_T = local_jacT.reshape([n_blocks, global_block_size, n_samples_local])
 
     def scan_func(T_carry, loc_jac_T):
+        # pall_to_all: [block_size_global x n_samples_local] => [block_size_local x n_samples_global]
         jac_T = pall_to_all(loc_jac_T, split_axis=0, concat_axis=1, tiled=True)
+        if use_float64:
+            jac_T = jac_T.astype(jnp.float64)
+        jac_T -= jac_T.mean(axis=1, keepdims=True)
         T_carry += jac_T.T @ jac_T
         return T_carry, None
+
+    T = jnp.zeros((n_samples_local * n_devices, n_samples_local * n_devices), dtype=local_jac_T)
+    if use_float64:
+        T = T.astype(jnp.float64)
 
     T, _ = jax.lax.scan(scan_func, T, local_jac_T)
     T = psum(T)
@@ -155,10 +158,16 @@ def make_dense_spring_preconditioner(
     decay_factor: float,
     max_batch_size: int,
     use_float64: bool,
+    param_block_size: int = 65536,
 ):
+    n_dev = jax.device_count()
+    global_param_block_size = param_block_size * n_dev
+    ravel_params = functools.partial(ravel_with_padding, block_size=global_param_block_size)
+
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(
-            last_grad=0 * jfu.ravel_pytree(params)[0].astype(jnp.float64), damping=jnp.array(damping, jnp.float32)
+            last_grad=0 * ravel_params(params)[0],
+            damping=jnp.array(damping, jnp.float32),
         )
 
     damping_scheduler = make_damping_scheduler()
@@ -171,35 +180,35 @@ def make_dense_spring_preconditioner(
         aux_grad: P,
         natgrad_state: PreconditionerState[P],
     ):
-        n_dev = jax.device_count()
         local_batch_size = dE_dlogpsi.size
         N = local_batch_size * n_dev
         normalization = 1 / jnp.sqrt(N)
 
-        flat_params, unravel = jfu.ravel_pytree(params)
         # We could cast the params first to float64, or at the jacobian, or at solving? Or not at all?
+        flat_params, unravel = ravel_with_padding(params, global_param_block_size)
 
         def log_p(params: jax.Array, electrons: Electrons, static: S):
             return wave_function(unravel(params), electrons, static) * normalization  # type: ignore
 
-        jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), max_batch_size=max_batch_size)
-        jacobian = jac_fn(flat_params, electrons, static)
-        if use_float64:
-            jacobian = jacobian.astype(jnp.float64)
-        jacobian -= pmean(jacobian.mean(0))
-        T = get_jacjacT(jacobian)
+        jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), out_axes=1, max_batch_size=max_batch_size)
+        jacT = jac_fn(flat_params, electrons, static)
+        T = get_jacjacT(jacT, global_param_block_size, use_float64)
         T += natgrad_state.damping * jnp.eye(N, dtype=T.dtype) + 1 / N
+
+        # The remainder needs a centered jacobian - this can be done in float32
+        jacT -= pmean(jacT.mean(axis=1, keepdims=True))
 
         last_grad = natgrad_state.last_grad
         decayed_last_grad = decay_factor * last_grad
-        decayed_last_grad += jfu.ravel_pytree(aux_grad)[0] / natgrad_state.damping
+        decayed_last_grad += ravel_params(aux_grad)[0] / natgrad_state.damping
         cotangent = dE_dlogpsi.reshape(-1) * normalization
-        cotangent -= jacobian @ decayed_last_grad
+        cotangent -= decayed_last_grad @ jacT
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
         precond_cotangents = jnp.linalg.solve(T, cotangent)  # T^(-1)@contangent for all samples
         local_precond_cotangents = precond_cotangents.reshape(n_dev, -1)[pidx()]  # T^(-1)@cotangent for local samples
-        local_natgrad = local_precond_cotangents @ jacobian
+        local_precond_cotangents = local_precond_cotangents.astype(jnp.float32)
+        local_natgrad = jacT @ local_precond_cotangents
         natgrad = psum(local_natgrad)
         natgrad += decayed_last_grad
 
@@ -225,7 +234,8 @@ def make_spring_preconditioner(
 ):
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(
-            last_grad=jax.tree_map(jnp.zeros_like, params), damping=jnp.array(damping, jnp.float32)
+            last_grad=jax.tree_map(jnp.zeros_like, params),
+            damping=jnp.array(damping, jnp.float32),
         )
 
     def precondition(
@@ -294,7 +304,11 @@ def make_spring_preconditioner(
         natgrad = centered_vjp(jnp.linalg.solve(T, cotangent).reshape(n_dev, -1)[pidx()])
         natgrad = tree_add(natgrad, decayed_last_grad)
         natgrad = jax.tree_util.tree_map(lambda x: jnp.astype(x, jnp.float32), natgrad)
-        return natgrad, PreconditionerState(last_grad=natgrad, damping=natgrad_state.damping), {}
+        return (
+            natgrad,
+            PreconditionerState(last_grad=natgrad, damping=natgrad_state.damping),
+            {},
+        )
 
     return Preconditioner(init, precondition)
 
@@ -313,7 +327,10 @@ def make_svd_preconditioner(
 ):
     def init(params: P):
         n_params = sum([p.size for p in jtu.tree_leaves(params)])
-        return SVDPreconditionerState(last_grad=jnp.zeros(n_params), X_history=jnp.zeros([n_params, history_length]))
+        return SVDPreconditionerState(
+            last_grad=jnp.zeros(n_params),
+            X_history=jnp.zeros([n_params, history_length]),
+        )
 
     def precondition(
         params: P,

@@ -130,6 +130,8 @@ class Embedding(Protocol[P2, S, ES]):
 
 
 class ParameterizedWaveFunction(Protocol[P, S, MS]):
+    R: Nuclei
+    Z: Charges
     n_up: int
 
     def init(self, key: PRNGKeyArray, electrons: Electrons) -> P: ...
@@ -138,8 +140,8 @@ class ParameterizedWaveFunction(Protocol[P, S, MS]):
     ) -> S: ...
     def orbitals(self, params: P, electrons: Electrons, static: S) -> SlaterMatrices: ...
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices: ...
-    def local_energy(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
-    def local_energy_dense(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
+    def kinetic_energy(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
+    def kinetic_energy_dense(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
     def signed(self, params: P, electrons: Electrons, static: S) -> SignedLogAmplitude: ...
     def __call__(self, params: P, electrons: Electrons, static: S) -> LogAmplitude: ...
     def log_psi_with_state(self, params: P, electrons: Electrons, static: S) -> tuple[SignedLogAmplitude, MS]: ...
@@ -299,18 +301,19 @@ class TrainingState(Generic[P, SS], struct.PyTreeNode):  # the order of inherita
         return result
 
 
-class VMCStepFn(Protocol[P, S_contra, SS]):
+class VMCStepFn(Protocol[P, S, SS]):
     def __call__(
         self,
         state: TrainingState[P, SS],
-        static: S_contra,
-    ) -> tuple[TrainingState[P, SS], LocalEnergy, AuxData, MCMCStats]: ...
+        static: S,
+        pp_static: S,
+    ) -> tuple[TrainingState[P, SS], LocalEnergy, AuxData, MCMCStats, S]: ...
 
 
-class SamplingStepFn(Protocol[P, S_contra, SS]):
+class SamplingStepFn(Protocol[P, S, SS]):
     def __call__(
-        self, state: TrainingState[P, SS], static: S_contra, compute_energy: bool, overlap_fn: Callable | None
-    ) -> tuple[TrainingState[P, SS], AuxData, MCMCStats]: ...
+        self, state: TrainingState[P, SS], static: S, pp_static: S, compute_energy: bool, overlap_fn: Callable | None
+    ) -> tuple[TrainingState[P, SS], AuxData, MCMCStats, S]: ...
 
 
 class InitTrainState(Protocol[P, SS]):
@@ -626,6 +629,7 @@ class MoleculeArgs(TypedDict):
     chain_args: MoleculeChainArgs
     database_args: MoleculeDatabaseArgs
     basis: str
+    pseudopotentials: Sequence[str]
 
 
 class MCMCStaticArgs(NamedTuple):

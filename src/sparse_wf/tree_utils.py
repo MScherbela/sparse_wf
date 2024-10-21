@@ -1,6 +1,6 @@
 from typing import Sequence, TypeVar
-
 import jax
+import jax.flatten_util
 import jax.numpy as jnp
 import jax.tree_util as jtu
 
@@ -79,11 +79,11 @@ def tree_take(tree: T, idx, axis) -> T:
     return jtu.tree_map(take, tree)
 
 
-def tree_max(tree, axis=None):
+def tree_max(tree: T, axis=None) -> T:
     return jtu.tree_map(lambda x: jnp.max(x, axis), tree)
 
 
-def tree_maximum(tree1, tree2):
+def tree_maximum(tree1: T, tree2: T) -> T:
     return jtu.tree_map(jnp.maximum, tree1, tree2)
 
 
@@ -106,3 +106,17 @@ def tree_to_flat_dict(tree: PyTree, prefix: str = "") -> dict:
         key_string = "/".join([to_str(k) for k in key])
         out_dict[prefix + key_string] = v
     return out_dict
+
+
+def ravel_with_padding(data, block_size: int):
+    # This ravel function pads the dense tensor to a multiple of the block size
+
+    n_elements = sum([p.size for p in jax.tree_util.tree_leaves(data)])
+    dtype = jax.tree_util.tree_leaves(data)[0].dtype
+    padding = jnp.zeros((-n_elements % block_size,), dtype=dtype)
+    flat_data, unravel = jax.flatten_util.ravel_pytree((data, padding))
+
+    def unravel_data(flat):
+        return unravel(flat)[0]
+
+    return flat_data, unravel_data

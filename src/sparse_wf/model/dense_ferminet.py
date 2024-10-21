@@ -17,7 +17,7 @@ from sparse_wf.api import (
     PRNGKeyArray,
     SlaterMatrices,
 )
-from sparse_wf.hamiltonian import make_local_energy
+from sparse_wf.hamiltonian import make_kinetic_energy
 from sparse_wf.jax_utils import vectorize
 from sparse_wf.model.envelopes import SlaterOrbitals
 from sparse_wf.model.utils import ElecInp, hf_orbitals_to_fulldet_orbitals, signed_logpsi_from_orbitals
@@ -168,12 +168,12 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None, None], PyTre
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)
 
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
-    def local_energy(self, params: FermiNetParams, electrons: Electrons, static):
-        return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)
+    def kinetic_energy(self, params: FermiNetParams, electrons: Electrons, static):
+        return make_kinetic_energy(self)(params, electrons, static)
 
     @vectorize(signature="(nel,dim)->()", excluded=(0, 1, 3))
-    def local_energy_dense(self, params: FermiNetParams, electrons: Electrons, static):
-        return make_local_energy(self, self.mol.atom_coords(), self.mol.atom_charges())(params, electrons, static)
+    def kinetic_energy_dense(self, params: FermiNetParams, electrons: Electrons, static):
+        return make_kinetic_energy(self)(params, electrons, static)
 
     def log_psi_with_state(self, params: FermiNetParams, electrons: Electrons, static):
         return self.signed(params, electrons, static), None

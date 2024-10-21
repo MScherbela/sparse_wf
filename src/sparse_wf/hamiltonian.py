@@ -1,10 +1,18 @@
-from typing import TypeVar
+from typing import Literal, Sequence, TypeVar
 
 import folx
+import jax
 import jax.numpy as jnp
 
-from sparse_wf.api import Charges, Electrons, LocalEnergy, Nuclei, ParameterizedWaveFunction
+from sparse_wf.api import (
+    Charges,
+    Electrons,
+    LocalEnergy,
+    Nuclei,
+    ParameterizedWaveFunction,
+)
 from sparse_wf.jax_utils import vectorize
+from sparse_wf.pseudopotentials import make_pseudopotential
 
 P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
@@ -23,11 +31,11 @@ def potential_energy(r: Electrons, R: Nuclei, Z: Charges):
     return E_ee + E_en + E_nn
 
 
-def make_local_energy(wf: ParameterizedWaveFunction[P, S, MS], R: Nuclei, Z: Charges, use_fwd_lap=True):
-    """Create a local energy function from a wave function"""
+def make_kinetic_energy(wf: ParameterizedWaveFunction[P, S, MS], use_fwd_lap=True):
+    """Create a kinetic energy function from a wave function"""
 
     @vectorize(signature="(n,d)->()", excluded=frozenset({0, 2}))
-    def local_energy(params: P, electrons: Electrons, static: S) -> LocalEnergy:
+    def kinetic(params: P, electrons: Electrons, static: S) -> LocalEnergy:
         """Compute the local energy of the system"""
 
         def closed_wf(electrons):
@@ -38,7 +46,34 @@ def make_local_energy(wf: ParameterizedWaveFunction[P, S, MS], R: Nuclei, Z: Cha
         else:
             laplacian, jacobian = folx.LoopLaplacianOperator()(closed_wf)(electrons)
         kinetic_energy = -0.5 * (laplacian.sum() + jnp.vdot(jacobian, jacobian))
-        potential = potential_energy(electrons, R, Z)
-        return kinetic_energy + potential
+        return kinetic_energy
+
+    return kinetic
+
+
+def make_local_energy(
+    wf: ParameterizedWaveFunction[P, S, MS],
+    energy_operator: Literal["sparse", "dense"],
+    pseudopotentials: Sequence[str],  # Sequence of atoms for which to use pseudopotentials
+):
+    """Create a local energy function from a wave function"""
+    match energy_operator.lower():
+        case "dense":
+            kin_fn = wf.kinetic_energy_dense
+        case "sparse":
+            kin_fn = wf.kinetic_energy
+        case _:
+            raise ValueError(f"Unknown energy operator: {energy_operator}")
+
+    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials)
+
+    def local_energy(key: jax.Array, params: P, electrons: Electrons, static: S) -> tuple[LocalEnergy, S]:
+        """Compute the local energy of the system"""
+        kinetic_energy = kin_fn(params, electrons, static)
+        potential = potential_energy(electrons, wf.R, eff_charges)
+        potential += pp_local(electrons, wf.R)
+        nl_pp, new_static = pp_nonlocal(key, wf, params, electrons, static)
+        potential += nl_pp
+        return kinetic_energy + potential, new_static
 
     return local_energy

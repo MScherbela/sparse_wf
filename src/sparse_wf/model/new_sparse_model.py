@@ -2,7 +2,16 @@
 import jax.numpy as jnp
 import flax.linen as nn
 from flax.struct import PyTreeNode
-from sparse_wf.api import ElectronIdx, Parameters, Int, Nuclei, Electrons, Charges, ScalingParam, StaticInput
+from sparse_wf.api import (
+    ElectronIdx,
+    Parameters,
+    Int,
+    Nuclei,
+    Electrons,
+    Charges,
+    ScalingParam,
+    StaticInput,
+)
 from sparse_wf.static_args import round_with_padding
 from sparse_wf.model.utils import (
     GatedLinearUnit,
@@ -39,6 +48,7 @@ class StaticArgs(StaticInput, Generic[T]):
     n_changed_hout: T
     n_changed_pair_same: T
     n_changed_pair_diff: T
+    n_pp_elecs: T
 
     def get_max(self, n_el, n_up, n_nuc):
         n_dn = n_el - n_up
@@ -53,12 +63,17 @@ class StaticArgs(StaticInput, Generic[T]):
             n_el,
             max_pairs_same,
             max_pairs_diff,
+            n_el,
         )
 
     # @override
     def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
         max_values = self.get_max(n_el, n_up, n_nuc)
-        return jtu.tree_map(lambda x, max_x: round_with_padding(x, padding_factor, max_x), self, max_values)
+        return jtu.tree_map(
+            lambda x, max_x: round_with_padding(x, padding_factor, max_x),
+            self,
+            max_values,
+        )
 
 
 def contract(h_residual, h_ct, h_nb, Gamma, edges, idx_ctr, idx_nb):
@@ -79,8 +94,16 @@ def contract_with_fwd_lap(
 ) -> NodeWithFwdLap:
     n_el, feature_dim = h_ct.x.shape
     padding = jnp.zeros([n_el, 3, feature_dim], dtype=h_ct.x.dtype)
-    h_center = FwdLaplArray(h_ct.x, FwdJacobian(jnp.concatenate([h_ct.jacobian.data, padding], axis=1)), h_ct.laplacian)
-    h_neighb = FwdLaplArray(h_nb.x, FwdJacobian(jnp.concatenate([padding, h_nb.jacobian.data], axis=1)), h_nb.laplacian)
+    h_center = FwdLaplArray(
+        h_ct.x,
+        FwdJacobian(jnp.concatenate([h_ct.jacobian.data, padding], axis=1)),
+        h_ct.laplacian,
+    )
+    h_neighb = FwdLaplArray(
+        h_nb.x,
+        FwdJacobian(jnp.concatenate([padding, h_nb.jacobian.data], axis=1)),
+        h_nb.laplacian,
+    )
 
     # Compute the message for each pair of nodes using folx
     def get_msg_pair(gamma, edge, i, j):
@@ -209,12 +232,19 @@ def get_pair_indices(r, n_up, cutoff, n_pairs_same: int, n_pairs_diff: int):
     pair_indices_same = jnp.where(in_cutoff & is_same_spin, size=n_pairs_same, fill_value=NO_NEIGHBOUR)
     pair_indices_diff = jnp.where(in_cutoff & ~is_same_spin, size=n_pairs_diff, fill_value=NO_NEIGHBOUR)
     idx_ct, idx_nb = jnp.where(in_cutoff, size=n_pairs_same + n_pairs_diff, fill_value=NO_NEIGHBOUR)
-    jac_indices = (jnp.concatenate([np.arange(n_el), idx_ct]), jnp.concatenate([np.arange(n_el), idx_nb]))
+    jac_indices = (
+        jnp.concatenate([np.arange(n_el), idx_ct]),
+        jnp.concatenate([np.arange(n_el), idx_nb]),
+    )
 
     search_key = idx_ct * n_el + idx_nb
     jac_idx_same = jnp.searchsorted(search_key, pair_indices_same[0] * n_el + pair_indices_same[1]) + n_el
     jac_idx_diff = jnp.searchsorted(search_key, pair_indices_diff[0] * n_el + pair_indices_diff[1]) + n_el
-    return (*pair_indices_same, jac_idx_same), (*pair_indices_diff, jac_idx_diff), jac_indices
+    return (
+        (*pair_indices_same, jac_idx_same),
+        (*pair_indices_diff, jac_idx_diff),
+        jac_indices,
+    )
 
 
 def get_distinct_triplet_indices(r, cutoff, n_triplets_max: int):
@@ -344,6 +374,7 @@ class NewSparseEmbedding(PyTreeNode):
         )
 
     def get_static_input(self, electrons_old, electrons_new=None, idx_changed=None) -> StaticArgs[Int]:
+        n_elec = electrons_old.shape[0]
         electrons = electrons_old if (electrons_new is None) else electrons_new
         assert electrons.ndim == 2
 
@@ -374,6 +405,7 @@ class NewSparseEmbedding(PyTreeNode):
             n_changed_hout,
             n_changed_pair_same,
             n_changed_pair_diff,
+            n_elec,
         )
 
     def get_low_rank_pair_indices(
@@ -394,8 +426,16 @@ class NewSparseEmbedding(PyTreeNode):
 
         is_required_pair = in_cutoff_new & is_affected_hout[:, None]
         is_same_spin = self.spins[:, None] == self.spins[None, :]
-        pair_idx_same = jnp.where(is_required_pair & is_same_spin, size=n_changed_pair_same, fill_value=NO_NEIGHBOUR)
-        pair_idx_diff = jnp.where(is_required_pair & ~is_same_spin, size=n_changed_pair_diff, fill_value=NO_NEIGHBOUR)
+        pair_idx_same = jnp.where(
+            is_required_pair & is_same_spin,
+            size=n_changed_pair_same,
+            fill_value=NO_NEIGHBOUR,
+        )
+        pair_idx_diff = jnp.where(
+            is_required_pair & ~is_same_spin,
+            size=n_changed_pair_diff,
+            fill_value=NO_NEIGHBOUR,
+        )
         return idx_changed_hout, pair_idx_same, pair_idx_diff
 
     def get_neighbouring_nuclei(self, r, dynamic_params_en, n_neighbours_en: int):
@@ -418,7 +458,11 @@ class NewSparseEmbedding(PyTreeNode):
         new_scales = AppendingList()
 
         (idx_ct_same, idx_nb_same, _), (idx_ct_diff, idx_nb_diff, _), _ = get_pair_indices(
-            electrons, self.n_up, self.cutoff, static.n_pairs_same, static.n_pairs_diff
+            electrons,
+            self.n_up,
+            self.cutoff,
+            static.n_pairs_same,
+            static.n_pairs_diff,
         )
         R_nb_en, nuc_params_en = jax.vmap(
             lambda r: self.get_neighbouring_nuclei(r, params.dynamic_params_en, static.n_neighbours_en)
@@ -429,22 +473,47 @@ class NewSparseEmbedding(PyTreeNode):
         edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff)
 
         h0, (msg_ct_same, msg_ct_diff, msg_nb_same, msg_nb_diff) = cast(
-            tuple[jax.Array, tuple[list[jax.Array], list[jax.Array], list[jax.Array], list[jax.Array]]],
+            tuple[
+                jax.Array,
+                tuple[list[jax.Array], list[jax.Array], list[jax.Array], list[jax.Array]],
+            ],
             jax.vmap(h0_fn, out_axes=-2)(electrons, R_nb_en, nuc_params_en),
         )
         Gamma_same, edge_same = cast(
             tuple[list[jax.Array], list[jax.Array]],
-            jax.vmap(edge_fn_same)(get(electrons, idx_ct_same, 0.0), get(electrons, idx_nb_same, self.cutoff)),
+            jax.vmap(edge_fn_same)(
+                get(electrons, idx_ct_same, 0.0),
+                get(electrons, idx_nb_same, self.cutoff),
+            ),
         )
         Gamma_diff, edge_diff = cast(
             tuple[list[jax.Array], list[jax.Array]],
-            jax.vmap(edge_fn_diff)(get(electrons, idx_ct_diff, 0.0), get(electrons, idx_nb_diff, self.cutoff)),
+            jax.vmap(edge_fn_diff)(
+                get(electrons, idx_ct_diff, 0.0),
+                get(electrons, idx_nb_diff, self.cutoff),
+            ),
         )
 
         h = h0
         for n in range(self.n_updates):
-            h = contract(h, msg_ct_same[n], msg_nb_same[n], Gamma_same[n], edge_same[n], idx_ct_same, idx_nb_same)
-            h = contract(h, msg_ct_diff[n], msg_nb_diff[n], Gamma_diff[n], edge_diff[n], idx_ct_diff, idx_nb_diff)
+            h = contract(
+                h,
+                msg_ct_same[n],
+                msg_nb_same[n],
+                Gamma_same[n],
+                edge_same[n],
+                idx_ct_same,
+                idx_nb_same,
+            )
+            h = contract(
+                h,
+                msg_ct_diff[n],
+                msg_nb_diff[n],
+                Gamma_diff[n],
+                edge_diff[n],
+                idx_ct_diff,
+                idx_nb_diff,
+            )
             h, new_scales.add = normalize(h, next(scale_seq), return_scale=True)
             h = cast(jax.Array, self.updates[n].apply(params.updates[n], h))
             h, new_scales.add = normalize(h, next(scale_seq), return_scale=True)
@@ -453,7 +522,13 @@ class NewSparseEmbedding(PyTreeNode):
             return h, tuple(new_scales)
         if return_state:
             return h, EmbeddingState(
-                electrons, h0, tuple(msg_ct_same), tuple(msg_ct_diff), tuple(msg_nb_same), tuple(msg_nb_diff), h
+                electrons,
+                h0,
+                tuple(msg_ct_same),
+                tuple(msg_ct_diff),
+                tuple(msg_nb_same),
+                tuple(msg_nb_diff),
+                h,
             )
         return h
 
@@ -500,18 +575,40 @@ class NewSparseEmbedding(PyTreeNode):
         edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff)
         Gamma_same, edge_same = cast(
             tuple[list[jax.Array], list[jax.Array]],
-            jax.vmap(edge_fn_same)(get(electrons, idx_ct_same, 0.0), get(electrons, idx_nb_same, self.cutoff)),
+            jax.vmap(edge_fn_same)(
+                get(electrons, idx_ct_same, 0.0),
+                get(electrons, idx_nb_same, self.cutoff),
+            ),
         )
         Gamma_diff, edge_diff = cast(
             tuple[list[jax.Array], list[jax.Array]],
-            jax.vmap(edge_fn_diff)(get(electrons, idx_ct_diff, 0.0), get(electrons, idx_nb_diff, self.cutoff)),
+            jax.vmap(edge_fn_diff)(
+                get(electrons, idx_ct_diff, 0.0),
+                get(electrons, idx_nb_diff, self.cutoff),
+            ),
         )
 
         # Loop over layers;
         h = state.h_out.at[idx_changed_hout].set(get(h0, idx_changed_hout))
         for n in range(self.n_updates):
-            h = contract(h, msg_ct_same[n], msg_nb_same[n], Gamma_same[n], edge_same[n], idx_ct_same, idx_nb_same)
-            h = contract(h, msg_ct_diff[n], msg_nb_diff[n], Gamma_diff[n], edge_diff[n], idx_ct_diff, idx_nb_diff)
+            h = contract(
+                h,
+                msg_ct_same[n],
+                msg_nb_same[n],
+                Gamma_same[n],
+                edge_same[n],
+                idx_ct_same,
+                idx_nb_same,
+            )
+            h = contract(
+                h,
+                msg_ct_diff[n],
+                msg_nb_diff[n],
+                Gamma_diff[n],
+                edge_diff[n],
+                idx_ct_diff,
+                idx_nb_diff,
+            )
             h_update = get(h, idx_changed_hout) * next(scale_seq)
             h_update = self.updates[n].apply(params.updates[n], h_update)
             h_update = h_update * next(scale_seq)
@@ -521,7 +618,13 @@ class NewSparseEmbedding(PyTreeNode):
             h,
             idx_changed_hout,
             EmbeddingState(
-                electrons, h0, tuple(msg_ct_same), tuple(msg_ct_diff), tuple(msg_nb_same), tuple(msg_nb_diff), h
+                electrons,
+                h0,
+                tuple(msg_ct_same),
+                tuple(msg_ct_diff),
+                tuple(msg_nb_same),
+                tuple(msg_nb_diff),
+                h,
             ),
         )
 
@@ -565,10 +668,24 @@ class NewSparseEmbedding(PyTreeNode):
         )
         for n in range(self.n_updates):
             h = contract_with_fwd_lap(
-                h, h_ct_same[n], h_nb_same[n], Gamma_same[n], edge_same[n], idx_ct_same, idx_nb_same, idx_jac_same
+                h,
+                h_ct_same[n],
+                h_nb_same[n],
+                Gamma_same[n],
+                edge_same[n],
+                idx_ct_same,
+                idx_nb_same,
+                idx_jac_same,
             )
             h = contract_with_fwd_lap(
-                h, h_ct_diff[n], h_nb_diff[n], Gamma_diff[n], edge_diff[n], idx_ct_diff, idx_nb_diff, idx_jac_diff
+                h,
+                h_ct_diff[n],
+                h_nb_diff[n],
+                Gamma_diff[n],
+                edge_diff[n],
+                idx_ct_diff,
+                idx_nb_diff,
+                idx_jac_diff,
             )
             h = h * next(scale_seq)  # type: ignore
             h = self.updates[n].apply(params.updates[n], h)  # type: ignore

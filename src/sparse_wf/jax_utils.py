@@ -324,3 +324,21 @@ def plogsumexp(a, b, axis=0):
     sign = jnp.sign(sum_exp).squeeze(axis)
     logsumexp = (jnp.log(jnp.abs(sum_exp)) + max_a).squeeze(axis)
     return logsumexp, sign
+
+
+C = TypeVar("C", bound=Callable)
+
+
+def vmap_reduction(f: C, reductions, max_batch_size=None, *vmap_args, **vmap_kwargs) -> C:
+    if max_batch_size is not None:
+        vmap_fn = functools.partial(folx.batched_vmap, max_batch_size=max_batch_size)
+    else:
+        vmap_fn = jax.vmap  # type: ignore
+    vmapped_f = vmap_fn(f, *vmap_args, **vmap_kwargs)
+
+    @functools.wraps(f)
+    def vmap_reduction_f(*args, **kwargs):
+        unreduced = vmapped_f(*args, **kwargs)
+        return jtu.tree_map(lambda f, x: jtu.tree_map(f, x), reductions, unreduced)
+
+    return cast(C, vmap_reduction_f)
