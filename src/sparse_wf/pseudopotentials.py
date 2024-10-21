@@ -110,7 +110,7 @@ def make_local_pseudopotential(ecp_vals: EcpValues, grid_radius: EcpGrid, ecp_ma
         return jnp.interp(r_ae, grid_radius, ecp_vals).sum()  # sum over electrons
 
     # vmap over atoms
-    vmap_pp_loc = vmap_sum(pp_loc, in_axes=(1, None, 0))
+    vmap_pp_loc = vmap_sum(pp_loc, in_axes=(1, None, 0))  # sum over nuclei
 
     # TODO: Update input
     def electron_atom_local_pseudopotential(electrons: Electrons, atoms: Nuclei) -> jnp.ndarray:
@@ -324,7 +324,7 @@ def make_nonlocal_pseudopotential(
         # For all of them use:
         # electron_idx = jnp.arange(n_elec)
         closest_atom = closest_atom[electron_idx]
-
+        closest_atom_dist = closest_atom_dist[electron_idx]
         r_ae_ecp_closest = r_ae_ecp[electron_idx, closest_atom]
         ae_ecp_closest = ae_ecp[electron_idx, closest_atom, :]
 
@@ -335,7 +335,7 @@ def make_nonlocal_pseudopotential(
         keys = jax.random.split(key, static.n_pp_elecs).reshape(static.n_pp_elecs, *key.shape)
 
         # These are the samples that are within the cutoff
-        mask = closest_atom_dist[electron_idx] < cutoffs[closest_atom]
+        mask = closest_atom_dist < cutoffs[closest_atom]
 
         # vmap over electrons
         vmap_pp_nonloc = vmap_reduction(
@@ -346,6 +346,10 @@ def make_nonlocal_pseudopotential(
         )
 
         # vmap over angular momentum
+        # Note that at first glance this double/triple vmap (first over n_elec, then over angular momenta,
+        # and internally over the 12 integration points), appears to need n_el * n_angular_momenta * 12 low-rank evaluations.
+        # However the JAX compiler is smart enough to only evaluate the low-rank function once per electron,
+        # and then broadcast the result to all angular momenta / integration points.
         vmap_pp_nonloc = vmap_reduction(
             vmap_pp_nonloc,
             (functools.partial(jnp.sum, axis=0), jnp.max),
