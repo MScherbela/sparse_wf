@@ -107,7 +107,7 @@ def main(
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
     mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
-    mcmc_width_scheduler = make_width_scheduler()
+    mcmc_width_scheduler = make_width_scheduler(target_pmove=mcmc_args["acceptance_target"])
     static_scheduler = StaticScheduler(n_el, n_up, len(R))
     pp_static_scheduler = StaticScheduler(n_el, n_up, len(R))
 
@@ -176,8 +176,8 @@ def main(
         for step in range(pretraining["steps"]):
             t0 = time.perf_counter()
             state, aux_data, mcmc_stats = pretrainer.step(state, static)
-            static = static_scheduler(mcmc_stats.static_max)
-            pp_static = pp_static_scheduler(mcmc_stats.static_max)
+            static = static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
+            pp_static = pp_static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
             log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
             t1 = time.perf_counter()
             log_data["pretrain/t_step"] = t1 - t0
@@ -193,8 +193,8 @@ def main(
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
         state, aux_data, mcmc_stats, _ = trainer.sampling_step(state, static, pp_static, False, None)
-        static = static_scheduler(mcmc_stats.static_max)
-        pp_static = pp_static_scheduler(mcmc_stats.static_max)
+        static = static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
+        pp_static = pp_static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
         log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
         loggers.log(log_data)
 
@@ -211,8 +211,8 @@ def main(
 
         t0 = time.perf_counter()
         state, _, aux_data, mcmc_stats, pp_static_max = trainer.step(state, static, pp_static)
-        static = static_scheduler(mcmc_stats.static_max)
-        pp_static = pp_static_scheduler(pp_static_max)
+        static = static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
+        pp_static = pp_static_scheduler(pp_static_max, pretrainer.step._cache_size)  # type: ignore
         log_data = (
             to_log_data(aux_data)
             | mcmc_to_log_data(mcmc_stats)
@@ -242,8 +242,8 @@ def main(
         state, aux_data, mcmc_stats, pp_static_max = trainer.sampling_step(
             state, static, pp_static, evaluation["compute_energy"], overlap_fn
         )
-        static = static_scheduler(mcmc_stats.static_max)
-        pp_static = pp_static_scheduler(pp_static_max)
+        static = static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
+        pp_static = pp_static_scheduler(pp_static_max, pretrainer.step._cache_size)  # type: ignore
         log_data = (
             to_log_data(aux_data)
             | mcmc_to_log_data(mcmc_stats)

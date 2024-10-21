@@ -600,6 +600,7 @@ class MCMCClusterUpdateArgs(MCMCProposalArg):
 
 class MCMCArgs(TypedDict):
     proposal: MCMC_proposal_type
+    acceptance_target: float
     all_electron_args: MCMCAllElectronArgs
     single_electron_args: MCMCSingleElectronArgs
     cluster_update_args: MCMCClusterUpdateArgs

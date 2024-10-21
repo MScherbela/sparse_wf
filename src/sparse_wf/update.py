@@ -21,7 +21,16 @@ from sparse_wf.api import (
     WidthScheduler,
 )
 from sparse_wf.hamiltonian import make_local_energy
-from sparse_wf.jax_utils import pgather, pmap, pmean, replicate, plogsumexp, vmap_reduction, pmax_if_pmap
+from sparse_wf.jax_utils import (
+    pgather,
+    pmap,
+    pmean,
+    replicate,
+    plogsumexp,
+    vmap_reduction,
+    pmax_if_pmap,
+    PMAP_AXIS_NAME,
+)
 from sparse_wf.tree_utils import tree_dot
 
 
@@ -98,7 +107,7 @@ def make_trainer(
             step=replicate(jnp.zeros([], jnp.int32)),
         )
 
-    @pmap(static_broadcasted_argnums=(1, 2, 3, 4))
+    # @pmap(static_broadcasted_argnums=(1, 2, 3))
     def sampling_step(
         state: TrainingState[P, SS], static: S, pp_static: S, compute_energy: bool, overlap_fn: Callable | None = None
     ):
@@ -130,7 +139,7 @@ def make_trainer(
 
         return state, aux_data, stats, pp_static_max
 
-    @pmap(static_broadcasted_argnums=(1, 2))
+    # @pmap(static_broadcasted_argnums=(1, 2))
     def step(state: TrainingState[P, SS], static: S, pp_static: S):
         batch_size = state.electrons.shape[0]
         key, subkey = jax.random.split(state.key)
@@ -158,7 +167,7 @@ def make_trainer(
         )
         aux_data.update(preconditioner_aux)
         aux_data["opt/update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
-        aux_data["opt/elec_max_extend"] = jnp.abs(electrons).max()  # TODO: remove?
+        aux_data["opt/elec_max_extend"] = jnp.abs(electrons).max()
 
         updates, opt = optimizer.update(natgrad, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)
@@ -181,8 +190,8 @@ def make_trainer(
 
     return Trainer(
         init=init,
-        step=step,
-        sampling_step=sampling_step,
+        step=jax.pmap(step, PMAP_AXIS_NAME, static_broadcasted_argnums=(1, 2)),
+        sampling_step=jax.pmap(sampling_step, PMAP_AXIS_NAME, static_broadcasted_argnums=(1, 2, 3, 4)),
         wave_function=wave_function,
         mcmc=mcmc_step,
         width_scheduler=width_scheduler,

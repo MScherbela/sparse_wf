@@ -171,7 +171,8 @@ class CASWavefunction(HFWavefunction):
         self.ci_coeffs = jnp.zeros([n_determinants], dtype=jnp.float32)
 
         with only_on_main_process():
-            cas_result = run_cas(self.hf, min(active_orbitals, mol.nao), min(active_electrons, sum(mol.nelec)), s2)
+            active_orbitals, active_electrons = self.sanity_check_active_space(active_orbitals, active_electrons)
+            cas_result = run_cas(self.hf, active_orbitals, active_electrons, s2)
             self.cas_result = cas_result
             logging.info(f"CASCI energy: {cas_result.energy}")
             idx_orbitals, ci_coeffs = get_most_important_determinants(cas_result, n_determinants, det_threshold)
@@ -184,6 +185,17 @@ class CASWavefunction(HFWavefunction):
             self.ci_coeffs = jnp.asarray(self.ci_coeffs, dtype=jnp.float32)
         self.idx_orbitals = copy_from_main(replicate(self.idx_orbitals))[0]
         self.ci_coeffs = copy_from_main(replicate(self.ci_coeffs))[0]
+
+    def sanity_check_active_space(self, active_orb, active_el):
+        # All nrs of electrons/orbitals in this function refer to the number per spin
+        assert (
+            self.mol.nelec[0] == self.mol.nelec[1]
+        ), "CASCI currently only supports equal number of spin-up and spin-down electrons"
+        n_el = self.mol.nelec[0]
+        active_el = min(active_el, n_el)
+        n_core = n_el - active_el
+        active_orb = min(active_orb, self.mol.nao - n_core)
+        return active_orb, active_el
 
     def orbitals(self, electrons: Electrons):
         mo_up, mo_dn = eval_molecular_orbitals(self.mol, self.mo_coeffs, electrons)

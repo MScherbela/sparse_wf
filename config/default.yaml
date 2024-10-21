@@ -160,6 +160,7 @@ batch_size: 4096
 
 mcmc_args:
   proposal: "cluster-update"
+  acceptance_target: 0.25
   all_electron_args:
     steps: 20
     init_width: 0.1
@@ -169,6 +170,6 @@ mcmc_args:
   cluster_update_args:
     sweeps: 1.0
     sweep_type: "sequential"
-    init_width: 0.1
+    init_width: 0.2
     max_cluster_radius: 2.0
     max_cluster_size: 5
