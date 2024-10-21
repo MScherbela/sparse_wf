@@ -47,8 +47,8 @@ model_args:
   jastrow:
     e_e_cusps: psiformer
     use_e_e_mlp: False
-    use_mlp_jastrow: False
-    use_log_jastrow: False
+    use_mlp_jastrow: True
+    use_log_jastrow: True
     mlp_width: 256
     mlp_depth: 2
     use_attention: True
