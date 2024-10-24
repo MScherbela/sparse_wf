@@ -193,8 +193,8 @@ def main(
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
         state, aux_data, mcmc_stats, _ = trainer.sampling_step(state, static, pp_static, False, None)
-        static = static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
-        pp_static = pp_static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
+        static = static_scheduler(mcmc_stats.static_max, trainer.sampling_step._cache_size)  # type: ignore
+        pp_static = pp_static_scheduler(mcmc_stats.static_max, trainer.sampling_step._cache_size)  # type: ignore
         log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
         loggers.log(log_data)
 
@@ -211,8 +211,8 @@ def main(
 
         t0 = time.perf_counter()
         state, _, aux_data, mcmc_stats, pp_static_max = trainer.step(state, static, pp_static)
-        static = static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
-        pp_static = pp_static_scheduler(pp_static_max, pretrainer.step._cache_size)  # type: ignore
+        static = static_scheduler(mcmc_stats.static_max, trainer.step._cache_size)  # type: ignore
+        pp_static = pp_static_scheduler(pp_static_max, trainer.step._cache_size)  # type: ignore
         log_data = (
             to_log_data(aux_data)
             | mcmc_to_log_data(mcmc_stats)
@@ -242,8 +242,8 @@ def main(
         state, aux_data, mcmc_stats, pp_static_max = trainer.sampling_step(
             state, static, pp_static, evaluation["compute_energy"], overlap_fn
         )
-        static = static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
-        pp_static = pp_static_scheduler(pp_static_max, pretrainer.step._cache_size)  # type: ignore
+        static = static_scheduler(mcmc_stats.static_max, trainer.sampling_step._cache_size)  # type: ignore
+        pp_static = pp_static_scheduler(pp_static_max, trainer.sampling_step._cache_size)  # type: ignore
         log_data = (
             to_log_data(aux_data)
             | mcmc_to_log_data(mcmc_stats)
