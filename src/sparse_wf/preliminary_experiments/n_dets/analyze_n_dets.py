@@ -63,7 +63,7 @@ for n_carbon, ax in zip([4, 8], axes.T):
     ax_abs, ax_rel, ax_final = ax
 
     df_plot = pivot[pivot["n_carbon"] == n_carbon]
-    ax_final.plot(df_plot["n_dets"], df_plot["E_rel"], marker="o", color='k')
+    ax_final.plot(df_plot["n_dets"], df_plot["E_rel"], marker="o", color='gray')
     ax_final.set_ylabel("Relative Energy / mHa")
     ax_final.set_xlabel("Number of determinants")
     ax_final.set_title(f"C{n_carbon}H4")
@@ -80,6 +80,10 @@ for n_carbon, ax in zip([4, 8], axes.T):
         ax_rel.set_xlabel("Steps / k")
         ax_rel.set_ylabel("Relative Energy / mHa")
         ax_rel.set_ylim([df_plot.E_rel.min()-10, df_plot.E_rel.max()+10])
+
+        E_final = df_plot[df_plot["n_dets"] == n_dets].E_rel.mean()
+        ax_final.plot([n_dets], [E_final], marker="o", color=f"C{idx_dets}")
+
     ax_abs.legend()
     ax_abs.set_ylim([df_plot.E0.min()-0.01, df_plot.E90.min()+0.1])
     # ax_final.set_ylim([0, df_plot.E_rel.max()+5])

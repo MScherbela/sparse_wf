@@ -20,7 +20,7 @@ class StaticScheduler:
         n_electrons: int,
         n_up: int,
         n_nuclei: int,
-        history_length: int = 100,
+        history_length: int = 500,
         max_padding_factor: float = 1.2,
         min_padding_factor: float = 1.05,
     ):
@@ -49,9 +49,9 @@ class StaticScheduler:
             self.did_recompile[self.step] = self.compilation_cache_size != compilation_cache_size
             self.compilation_cache_size = compilation_cache_size
             n_recompiles = np.sum(self.did_recompile)
-            if n_recompiles <= 3:
+            if n_recompiles <= 2:
                 self.padding_factor = self.min_padding_factor
-            elif n_recompiles >= 10:
+            elif n_recompiles >= 5:
                 self.padding_factor = self.max_padding_factor
 
         static = jtu.tree_map(lambda x: int(jnp.max(x)), self.history)
