@@ -3,7 +3,6 @@ import wandb
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 import re
 
 data_fname = "data_cumulene_ndets.csv"
@@ -24,7 +23,7 @@ for run in runs:
     )
     full_history = [h for h in run.scan_history(keys=["opt/step", "opt/E"], page_size=10_000)]
     h = pd.DataFrame(full_history)
-    h["E_smooth"] = h["opt/E"].rolling(2000).mean()
+    h["E_smooth"] = h["opt/E"].rolling(5000).mean()
     for k, v in metadata.items():
         h[k] = v
     data_full.append(h)
@@ -64,9 +63,9 @@ for n_carbon, ax in zip([4, 8], axes.T):
 
     df_plot = pivot[pivot["n_carbon"] == n_carbon]
     ax_final.plot(df_plot["n_dets"], df_plot["E_rel"], marker="o", color='gray')
-    ax_final.set_ylabel("Relative Energy / mHa")
+    ax_final.set_ylabel("E_rel @ 25k steps / mHa")
     ax_final.set_xlabel("Number of determinants")
-    ax_final.set_title(f"C{n_carbon}H4")
+    ax_abs.set_title(f"C{n_carbon}H4")
 
     for idx_dets, n_dets in enumerate(sorted(df_final.n_dets.unique())):
         df_plot_full = full_pivot[(full_pivot["n_carbon"] == n_carbon) & (full_pivot["n_dets"] == n_dets)]
@@ -91,6 +90,7 @@ for n_carbon, ax in zip([4, 8], axes.T):
     for a in ax:
         a.grid(alpha=0.5)
 fig.tight_layout()
+fig.savefig("/home/mscherbela/ucloud/results/sparse_wf/n_dets.png", bbox_inches="tight")
 
 
 
