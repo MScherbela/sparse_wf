@@ -186,11 +186,10 @@ def make_spherical_integral(quad_degree: int):
         raise RuntimeError("quad_degree = 4 is the only implemented quadrature")
     # This matches (up to rotation and permutation) quadpy.u3.get_good_scheme(4)
     # and is the quadrature used in the ByteDance pseudopotential paper etc.
-    n_points = 12
-    weights = jnp.ones(n_points, dtype=jnp.float32) / n_points
+
     spherical_points = [[0, 0], [np.pi, 0]]
-    spherical_points += [[np.arctan(2), 2 * np.pi * i / 5] for i in range(1, 6)]
-    spherical_points += [[np.pi - np.arctan(2), np.pi / 5 * (2 * i - 11)] for i in range(6, 11)]
+    # spherical_points += [[np.arctan(2), 2 * np.pi * i / 5] for i in range(1, 6)]
+    # spherical_points += [[np.pi - np.arctan(2), np.pi / 5 * (2 * i - 11)] for i in range(6, 11)]
     theta, phi = zip(*spherical_points)
     points = jnp.stack(
         [
@@ -200,6 +199,8 @@ def make_spherical_integral(quad_degree: int):
         ],
         axis=1,
     ).astype(jnp.float32)
+    n_points = len(points)
+    weights = jnp.ones(n_points, dtype=jnp.float32) / n_points
 
     def spherical_integral(
         key: Array,
