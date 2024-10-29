@@ -1,0 +1,298 @@
+2024-10-28 09:33:26.337345: W external/xla/xla/service/gpu/nvptx_compiler.cc:744] The NVIDIA driver's CUDA version is 12.4 which is older than the ptxas CUDA version (12.6.77). Because the driver is older than the ptxas version, XLA is disabling parallel compilation, which may slow down compilation. You should update your NVIDIA driver or use the NVIDIA-provided CUDA forward compatibility packages.
+system_size = 4: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+Running for timings
+{'batch_size': 32, 'cutoff': 3.0, 'system': 'cumulene', 'system_size': 4, 'move_stepsize': 0.5, 'n_iterations': 50, 'use_ecp': True, 'n_el_core': 8, 'n_el': 20, 't_wf_full': 0.005732774883508682, 't_wf_lr': 0.005264647975564003, 't_E_kin': 0.04281510412693024, 't_E_pot': 0.17167428135871887, 'static/n_pairs_same': 56, 'static/n_pairs_diff': 74, 'static/n_triplets': 894, 'static/n_neighbours_en': 8, 'static/n_changed_hout': 10, 'static/n_changed_pair_same': 36, 'static/n_changed_pair_diff': 41, 'static/n_pp_elecs': 20, 'pp_static/n_pairs_same': 62, 'pp_static/n_pairs_diff': 80, 'pp_static/n_triplets': 1006, 'pp_static/n_neighbours_en': 8, 'pp_static/n_changed_hout': 15, 'pp_static/n_changed_pair_same': 47, 'pp_static/n_changed_pair_diff': 59, 'pp_static/n_pp_elecs': 14}
+system_size = 5: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+Running for timings
+{'batch_size': 32, 'cutoff': 3.0, 'system': 'cumulene', 'system_size': 5, 'move_stepsize': 0.5, 'n_iterations': 50, 'use_ecp': True, 'n_el_core': 10, 'n_el': 24, 't_wf_full': 0.00666158989071846, 't_wf_lr': 0.005251853689551353, 't_E_kin': 0.03607255592942238, 't_E_pot': 0.2219964563846588, 'static/n_pairs_same': 66, 'static/n_pairs_diff': 86, 'static/n_triplets': 1088, 'static/n_neighbours_en': 9, 'static/n_changed_hout': 10, 'static/n_changed_pair_same': 29, 'static/n_changed_pair_diff': 39, 'static/n_pp_elecs': 24, 'pp_static/n_pairs_same': 74, 'pp_static/n_pairs_diff': 94, 'pp_static/n_triplets': 1244, 'pp_static/n_neighbours_en': 9, 'pp_static/n_changed_hout': 16, 'pp_static/n_changed_pair_same': 59, 'pp_static/n_changed_pair_diff': 60, 'pp_static/n_pp_elecs': 18}
+system_size = 7: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+Running for timings
+{'batch_size': 32, 'cutoff': 3.0, 'system': 'cumulene', 'system_size': 7, 'move_stepsize': 0.5, 'n_iterations': 50, 'use_ecp': True, 'n_el_core': 14, 'n_el': 32, 't_wf_full': 0.00823365807533264, 't_wf_lr': 0.005629681199789047, 't_E_kin': 0.046494197100400925, 't_E_pot': 0.29052455723285675, 'static/n_pairs_same': 88, 'static/n_pairs_diff': 116, 'static/n_triplets': 1404, 'static/n_neighbours_en': 11, 'static/n_changed_hout': 11, 'static/n_changed_pair_same': 33, 'static/n_changed_pair_diff': 43, 'static/n_pp_elecs': 32, 'pp_static/n_pairs_same': 94, 'pp_static/n_pairs_diff': 120, 'pp_static/n_triplets': 1508, 'pp_static/n_neighbours_en': 11, 'pp_static/n_changed_hout': 15, 'pp_static/n_changed_pair_same': 51, 'pp_static/n_changed_pair_diff': 62, 'pp_static/n_pp_elecs': 24}
+system_size = 11: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+Running for timings
+{'batch_size': 32, 'cutoff': 3.0, 'system': 'cumulene', 'system_size': 11, 'move_stepsize': 0.5, 'n_iterations': 50, 'use_ecp': True, 'n_el_core': 22, 'n_el': 48, 't_wf_full': 0.01063928633928299, 't_wf_lr': 0.006278357952833175, 't_E_kin': 0.06493085622787476, 't_E_pot': 0.473487913608551, 'static/n_pairs_same': 138, 'static/n_pairs_diff': 182, 'static/n_triplets': 2208, 'static/n_neighbours_en': 15, 'static/n_changed_hout': 11, 'static/n_changed_pair_same': 40, 'static/n_changed_pair_diff': 54, 'static/n_pp_elecs': 48, 'pp_static/n_pairs_same': 148, 'pp_static/n_pairs_diff': 186, 'pp_static/n_triplets': 2362, 'pp_static/n_neighbours_en': 15, 'pp_static/n_changed_hout': 15, 'pp_static/n_changed_pair_same': 52, 'pp_static/n_changed_pair_diff': 71, 'pp_static/n_pp_elecs': 36}
+system_size = 16: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+Running for timings
+{'batch_size': 32, 'cutoff': 3.0, 'system': 'cumulene', 'system_size': 16, 'move_stepsize': 0.5, 'n_iterations': 50, 'use_ecp': True, 'n_el_core': 32, 'n_el': 68, 't_wf_full': 0.01280990533530712, 't_wf_lr': 0.007317363172769546, 't_E_kin': 0.12477052956819534, 't_E_pot': 0.8563882783055305, 'static/n_pairs_same': 196, 'static/n_pairs_diff': 250, 'static/n_triplets': 2970, 'static/n_neighbours_en': 18, 'static/n_changed_hout': 11, 'static/n_changed_pair_same': 47, 'static/n_changed_pair_diff': 56, 'static/n_pp_elecs': 68, 'pp_static/n_pairs_same': 204, 'pp_static/n_pairs_diff': 258, 'pp_static/n_triplets': 3136, 'pp_static/n_neighbours_en': 18, 'pp_static/n_changed_hout': 15, 'pp_static/n_changed_pair_same': 56, 'pp_static/n_changed_pair_diff': 68, 'pp_static/n_pp_elecs': 48}
+system_size = 22: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+Running for timings
+{'batch_size': 32, 'cutoff': 3.0, 'system': 'cumulene', 'system_size': 22, 'move_stepsize': 0.5, 'n_iterations': 50, 'use_ecp': True, 'n_el_core': 44, 'n_el': 92, 't_wf_full': 0.016846879571676254, 't_wf_lr': 0.008820713460445405, 't_E_kin': 0.15270594134926796, 't_E_pot': 1.662512093782425, 'static/n_pairs_same': 262, 'static/n_pairs_diff': 342, 'static/n_triplets': 4372, 'static/n_neighbours_en': 18, 'static/n_changed_hout': 11, 'static/n_changed_pair_same': 34, 'static/n_changed_pair_diff': 58, 'static/n_pp_elecs': 92, 'pp_static/n_pairs_same': 266, 'pp_static/n_pairs_diff': 344, 'pp_static/n_triplets': 4466, 'pp_static/n_neighbours_en': 18, 'pp_static/n_changed_hout': 16, 'pp_static/n_changed_pair_same': 57, 'pp_static/n_changed_pair_diff': 74, 'pp_static/n_pp_elecs': 63}
+system_size = 31: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+Running for timings
+{'batch_size': 32, 'cutoff': 3.0, 'system': 'cumulene', 'system_size': 31, 'move_stepsize': 0.5, 'n_iterations': 50, 'use_ecp': True, 'n_el_core': 62, 'n_el': 128, 't_wf_full': 0.023747048825025558, 't_wf_lr': 0.011211699768900872, 't_E_kin': 0.27817610278725624, 't_E_pot': 3.2004782035946846, 'static/n_pairs_same': 360, 'static/n_pairs_diff': 468, 'static/n_triplets': 5550, 'static/n_neighbours_en': 18, 'static/n_changed_hout': 11, 'static/n_changed_pair_same': 41, 'static/n_changed_pair_diff': 54, 'static/n_pp_elecs': 128, 'pp_static/n_pairs_same': 368, 'pp_static/n_pairs_diff': 476, 'pp_static/n_triplets': 5708, 'pp_static/n_neighbours_en': 18, 'pp_static/n_changed_hout': 16, 'pp_static/n_changed_pair_same': 63, 'pp_static/n_changed_pair_diff': 75, 'pp_static/n_pp_elecs': 85}
+system_size = 45: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+Running for timings
+{'batch_size': 16, 'cutoff': 3.0, 'system': 'cumulene', 'system_size': 45, 'move_stepsize': 0.5, 'n_iterations': 50, 'use_ecp': True, 'n_el_core': 90, 'n_el': 184, 't_wf_full': 0.025258295238018036, 't_wf_lr': 0.01223215326666832, 't_E_kin': 0.5005360655486584, 't_E_pot': 6.960055738687515, 'static/n_pairs_same': 508, 'static/n_pairs_diff': 650, 'static/n_triplets': 7978, 'static/n_neighbours_en': 18, 'static/n_changed_hout': 10, 'static/n_changed_pair_same': 35, 'static/n_changed_pair_diff': 42, 'static/n_pp_elecs': 184, 'pp_static/n_pairs_same': 510, 'pp_static/n_pairs_diff': 656, 'pp_static/n_triplets': 8154, 'pp_static/n_neighbours_en': 18, 'pp_static/n_changed_hout': 16, 'pp_static/n_changed_pair_same': 58, 'pp_static/n_changed_pair_diff': 74, 'pp_static/n_pp_elecs': 123}
+system_size = 63: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+Running for timings
+{'batch_size': 16, 'cutoff': 3.0, 'system': 'cumulene', 'system_size': 63, 'move_stepsize': 0.5, 'n_iterations': 50, 'use_ecp': True, 'n_el_core': 126, 'n_el': 256, 't_wf_full': 0.04035647176206112, 't_wf_lr': 0.01757249616086483, 't_E_kin': 1.5732882283627987, 't_E_pot': 22.12204685807228, 'static/n_pairs_same': 686, 'static/n_pairs_diff': 894, 'static/n_triplets': 10566, 'static/n_neighbours_en': 18, 'static/n_changed_hout': 11, 'static/n_changed_pair_same': 40, 'static/n_changed_pair_diff': 46, 'static/n_pp_elecs': 256, 'pp_static/n_pairs_same': 698, 'pp_static/n_pairs_diff': 900, 'pp_static/n_triplets': 10776, 'pp_static/n_neighbours_en': 18, 'pp_static/n_changed_hout': 16, 'pp_static/n_changed_pair_same': 53, 'pp_static/n_changed_pair_diff': 66, 'pp_static/n_pp_elecs': 171}
+system_size = 90: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+Running for timings
+{'batch_size': 8, 'cutoff': 3.0, 'system': 'cumulene', 'system_size': 90, 'move_stepsize': 0.5, 'n_iterations': 50, 'use_ecp': True, 'n_el_core': 180, 'n_el': 364, 't_wf_full': 0.06683413371443749, 't_wf_lr': 0.021463523134589196, 't_E_kin': 2.805743522942066, 't_E_pot': 45.86205914616585, 'static/n_pairs_same': 984, 'static/n_pairs_diff': 1278, 'static/n_triplets': 14892, 'static/n_neighbours_en': 18, 'static/n_changed_hout': 11, 'static/n_changed_pair_same': 31, 'static/n_changed_pair_diff': 43, 'static/n_pp_elecs': 364, 'pp_static/n_pairs_same': 992, 'pp_static/n_pairs_diff': 1286, 'pp_static/n_triplets': 15110, 'pp_static/n_neighbours_en': 18, 'pp_static/n_changed_hout': 17, 'pp_static/n_changed_pair_same': 81, 'pp_static/n_changed_pair_diff': 90, 'pp_static/n_pp_elecs': 240}
+system_size = 127: Initializing model, electrons, params, and static input for
+Running warmup/compilation
+2024-10-28 09:54:44.629085: W external/xla/xla/service/hlo_rematerialization.cc:2941] Can't reduce memory use below 2.39GiB (2568845721 bytes) by rematerialization; only reduced to 13.51GiB (14504951808 bytes), down from 13.51GiB (14504951808 bytes) originally
+2024-10-28 09:54:54.655555: W external/tsl/tsl/framework/bfc_allocator.cc:487] Allocator (GPU_0_bfc) ran out of memory trying to allocate 13.51GiB (rounded to 14504951808)requested by op
+2024-10-28 09:54:54.656130: W external/tsl/tsl/framework/bfc_allocator.cc:499] ******************************************************************************______________________
+E1028 09:54:54.656219 1127798 pjrt_stream_executor_client.cc:2766] Execution of replica 0 failed: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 14504951808 bytes.
+BufferAssignment OOM Debugging.
+BufferAssignment stats:
+             parameter allocation:   13.51GiB
+              constant allocation:         0B
+        maybe_live_out allocation:   13.51GiB
+     preallocated temp allocation:         0B
+                 total allocation:   27.02GiB
+              total fragmentation:         0B (0.00%)
+Peak buffers:
+	Buffer 1:
+		Size: 13.51GiB
+		Operator: op_name="jit(concatenate)/jit(main)/concatenate[dimension=4]" source_file="/home/scherbelam20/develop/folx/folx/hessian.py" source_line=224
+		XLA Label: fusion
+		Shape: s32[512,512,3,1537,3]
+		==========================
+
+	Buffer 2:
+		Size: 9.01GiB
+		Entry Parameter Subshape: s32[512,512,3,1537,2]
+		==========================
+
+	Buffer 3:
+		Size: 4.50GiB
+		Entry Parameter Subshape: s32[512,512,3,1537,1]
+		==========================
+
+
+2024-10-28 09:57:16.481388: W external/xla/xla/service/hlo_rematerialization.cc:2941] Can't reduce memory use below 28.04GiB (30103384638 bytes) by rematerialization; only reduced to 48.23GiB (51782608224 bytes), down from 48.59GiB (52169143664 bytes) originally
+2024-10-28 09:57:36.193162: W external/tsl/tsl/framework/bfc_allocator.cc:487] Allocator (GPU_0_bfc) ran out of memory trying to allocate 32.45GiB (rounded to 34846419200)requested by op
+2024-10-28 09:57:36.193701: W external/tsl/tsl/framework/bfc_allocator.cc:499] **__________________________________________________________________________________________________
+E1028 09:57:36.196671 1127798 pjrt_stream_executor_client.cc:2766] Execution of replica 0 failed: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 34846419136 bytes.
+BufferAssignment OOM Debugging.
+BufferAssignment stats:
+             parameter allocation:   24.96MiB
+              constant allocation:   10.32MiB
+        maybe_live_out allocation:       360B
+     preallocated temp allocation:   32.45GiB
+                 total allocation:   32.49GiB
+Peak buffers:
+	Buffer 1:
+		Size: 16.00GiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(while)))/body/Orbitals.low_rank_update/broadcast_in_dim[shape=(8, 512, 512, 2048) broadcast_dimensions=(0, 2, 3)]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/orbitals.py" source_line=144
+		XLA Label: fusion
+		Shape: f32[8,512,512,2048]
+		==========================
+
+	Buffer 2:
+		Size: 288.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(while)))/body/Orbitals.low_rank_update/Orbitals._get_orbitals_up/to_orbitals_up/dot_general[dimension_numbers=(((3,), (0,)), ((), ())) precision=None preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/sparse_fwd_lap.py" source_line=194
+		XLA Label: custom-call
+		Shape: f32[36864,2048]
+		==========================
+
+	Buffer 3:
+		Size: 288.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(while)))/body/Orbitals.low_rank_update/Orbitals._get_orbitals_dn/to_orbitals_dn/dot_general[dimension_numbers=(((3,), (0,)), ((), ())) precision=None preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/sparse_fwd_lap.py" source_line=194
+		XLA Label: custom-call
+		Shape: f32[36864,2048]
+		==========================
+
+	Buffer 4:
+		Size: 32.00MiB
+		XLA Label: fusion
+		Shape: f32[8,4,512,512]
+		==========================
+
+	Buffer 5:
+		Size: 32.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(Orbitals)))/transpose[permutation=(0, 2, 1, 3)]" source_file="/home/scherbelam20/develop/sparse_wf/.venv/lib/python3.11/site-packages/einops/_backends.py" source_line=92
+		XLA Label: fusion
+		Shape: f32[8,512,2048]
+		==========================
+
+	Buffer 6:
+		Size: 32.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(Orbitals)))/transpose[permutation=(0, 2, 1, 3)]" source_file="/home/scherbelam20/develop/sparse_wf/.venv/lib/python3.11/site-packages/einops/_backends.py" source_line=92
+		XLA Label: fusion
+		Shape: f32[8,4,512,512]
+		==========================
+
+	Buffer 7:
+		Size: 32.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(Orbitals)))/concatenate[dimension=1]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/orbitals.py" source_line=115
+		XLA Label: fusion
+		Shape: f32[8,512,2048]
+		==========================
+
+	Buffer 8:
+		Size: 32.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(while)))/body/Orbitals.low_rank_update/Orbitals._get_envelopes_up/env_up/...nde,ndeo->...do/dot_general[dimension_numbers=(((2, 0), (5, 3)), ((1,), (4,))) precision=None preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/envelopes.py" source_line=79 deduplicated_name="triton_gemm_dot.148"
+		XLA Label: fusion
+		Shape: f32[4,512,8,512,1]
+		==========================
+
+	Buffer 9:
+		Size: 32.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(while)))/body/Orbitals.low_rank_update/Orbitals._get_envelopes_dn/env_dn/...nde,ndeo->...do/dot_general[dimension_numbers=(((2, 0), (5, 3)), ((1,), (4,))) precision=None preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/envelopes.py" source_line=79 deduplicated_name="triton_gemm_dot.148"
+		XLA Label: fusion
+		Shape: f32[4,512,8,512,1]
+		==========================
+
+	Buffer 10:
+		Size: 8.19MiB
+		XLA Label: fusion
+		Shape: f32[4,512,8,131]
+		==========================
+
+	Buffer 11:
+		Size: 8.19MiB
+		XLA Label: fusion
+		Shape: f32[4,512,8,131]
+		==========================
+
+	Buffer 12:
+		Size: 8.19MiB
+		Entry Parameter Subshape: f32[131,4,8,512]
+		==========================
+
+	Buffer 13:
+		Size: 8.19MiB
+		Entry Parameter Subshape: f32[131,4,8,512]
+		==========================
+
+	Buffer 14:
+		Size: 4.84MiB
+		XLA Label: constant
+		Shape: f32[127,1,10001]
+		==========================
+
+	Buffer 15:
+		Size: 4.84MiB
+		XLA Label: constant
+		Shape: f32[127,10001]
+		==========================
+
+
+Traceback (most recent call last):
+  File "/home/scherbelam20/develop/sparse_wf/src/sparse_wf/preliminary_experiments/scaling/run_scaling_tests.py", line 215, in <module>
+    pp_static = get_E_pot(rng_pp, params, electrons, static)[1]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scherbelam20/develop/sparse_wf/src/sparse_wf/preliminary_experiments/scaling/run_scaling_tests.py", line 110, in <lambda>
+    return lambda *args, **kwargs: jax.tree_map(lambda x: x.block_until_ready(), f(*args, **kwargs))
+                                                                                 ^^^^^^^^^^^^^^^^^^
+jaxlib.xla_extension.XlaRuntimeError: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 34846419136 bytes.
+BufferAssignment OOM Debugging.
+BufferAssignment stats:
+             parameter allocation:   24.96MiB
+              constant allocation:   10.32MiB
+        maybe_live_out allocation:       360B
+     preallocated temp allocation:   32.45GiB
+                 total allocation:   32.49GiB
+Peak buffers:
+	Buffer 1:
+		Size: 16.00GiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(while)))/body/Orbitals.low_rank_update/broadcast_in_dim[shape=(8, 512, 512, 2048) broadcast_dimensions=(0, 2, 3)]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/orbitals.py" source_line=144
+		XLA Label: fusion
+		Shape: f32[8,512,512,2048]
+		==========================
+
+	Buffer 2:
+		Size: 288.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(while)))/body/Orbitals.low_rank_update/Orbitals._get_orbitals_up/to_orbitals_up/dot_general[dimension_numbers=(((3,), (0,)), ((), ())) precision=None preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/sparse_fwd_lap.py" source_line=194
+		XLA Label: custom-call
+		Shape: f32[36864,2048]
+		==========================
+
+	Buffer 3:
+		Size: 288.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(while)))/body/Orbitals.low_rank_update/Orbitals._get_orbitals_dn/to_orbitals_dn/dot_general[dimension_numbers=(((3,), (0,)), ((), ())) precision=None preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/sparse_fwd_lap.py" source_line=194
+		XLA Label: custom-call
+		Shape: f32[36864,2048]
+		==========================
+
+	Buffer 4:
+		Size: 32.00MiB
+		XLA Label: fusion
+		Shape: f32[8,4,512,512]
+		==========================
+
+	Buffer 5:
+		Size: 32.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(Orbitals)))/transpose[permutation=(0, 2, 1, 3)]" source_file="/home/scherbelam20/develop/sparse_wf/.venv/lib/python3.11/site-packages/einops/_backends.py" source_line=92
+		XLA Label: fusion
+		Shape: f32[8,512,2048]
+		==========================
+
+	Buffer 6:
+		Size: 32.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(Orbitals)))/transpose[permutation=(0, 2, 1, 3)]" source_file="/home/scherbelam20/develop/sparse_wf/.venv/lib/python3.11/site-packages/einops/_backends.py" source_line=92
+		XLA Label: fusion
+		Shape: f32[8,4,512,512]
+		==========================
+
+	Buffer 7:
+		Size: 32.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(Orbitals)))/concatenate[dimension=1]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/orbitals.py" source_line=115
+		XLA Label: fusion
+		Shape: f32[8,512,2048]
+		==========================
+
+	Buffer 8:
+		Size: 32.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(while)))/body/Orbitals.low_rank_update/Orbitals._get_envelopes_up/env_up/...nde,ndeo->...do/dot_general[dimension_numbers=(((2, 0), (5, 3)), ((1,), (4,))) precision=None preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/envelopes.py" source_line=79 deduplicated_name="triton_gemm_dot.148"
+		XLA Label: fusion
+		Shape: f32[4,512,8,512,1]
+		==========================
+
+	Buffer 9:
+		Size: 32.00MiB
+		Operator: op_name="jit(get_potential_energy)/jit(main)/vmap(vmap(vmap(while)))/body/Orbitals.low_rank_update/Orbitals._get_envelopes_dn/env_dn/...nde,ndeo->...do/dot_general[dimension_numbers=(((2, 0), (5, 3)), ((1,), (4,))) precision=None preferred_element_type=float32]" source_file="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/model/envelopes.py" source_line=79 deduplicated_name="triton_gemm_dot.148"
+		XLA Label: fusion
+		Shape: f32[4,512,8,512,1]
+		==========================
+
+	Buffer 10:
+		Size: 8.19MiB
+		XLA Label: fusion
+		Shape: f32[4,512,8,131]
+		==========================
+
+	Buffer 11:
+		Size: 8.19MiB
+		XLA Label: fusion
+		Shape: f32[4,512,8,131]
+		==========================
+
+	Buffer 12:
+		Size: 8.19MiB
+		Entry Parameter Subshape: f32[131,4,8,512]
+		==========================
+
+	Buffer 13:
+		Size: 8.19MiB
+		Entry Parameter Subshape: f32[131,4,8,512]
+		==========================
+
+	Buffer 14:
+		Size: 4.84MiB
+		XLA Label: constant
+		Shape: f32[127,1,10001]
+		==========================
+
+	Buffer 15:
+		Size: 4.84MiB
+		XLA Label: constant
+		Shape: f32[127,10001]
+		==========================
+
+
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
