@@ -553,6 +553,7 @@ class OptimizationArgs(TypedDict):
     max_batch_size: int
     spin_operator_args: SpinOperatorArgs
     energy_operator: Literal["dense", "sparse"]
+    pp_grid_points: int  # number of spherical grid points for pseudopotential integration
 
 
 class CASArgs(TypedDict):
@@ -629,7 +630,7 @@ class MoleculeArgs(TypedDict):
     chain_args: MoleculeChainArgs
     database_args: MoleculeDatabaseArgs
     basis: str
-    pseudopotentials: dict[str, int]
+    pseudopotentials: Sequence[str]
 
 
 class MCMCStaticArgs(NamedTuple):

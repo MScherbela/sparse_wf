@@ -19,7 +19,7 @@ molecule_args:
     distance: 2.0
     n: 10
   basis: sto-6g
-  pseudopotentials: {} # dict of elements for which to use pseudopotentials and which quadrature degree to use
+  pseudopotentials: [] # list of elements for which to use pseudopotentials
 
 model: moon
 
@@ -82,6 +82,7 @@ logging_args:
 
 optimization:
   energy_operator: sparse
+  pp_grid_points: 12 # number of grid points for pseudopotential quadrature
   steps: 100_000
   burn_in: 500
   max_batch_size: 16

@@ -1,4 +1,4 @@
-from typing import Literal, TypeVar
+from typing import Literal, TypeVar, Sequence
 
 import folx
 import jax
@@ -54,9 +54,8 @@ def make_kinetic_energy(wf: ParameterizedWaveFunction[P, S, MS], use_fwd_lap=Tru
 def make_local_energy(
     wf: ParameterizedWaveFunction[P, S, MS],
     energy_operator: Literal["sparse", "dense"],
-    pseudopotentials: dict[
-        str, int
-    ],  # Mapping of atoms for which to use pseudopotentials, and how many quad points to use
+    pseudopotentials: Sequence[str],  # list of atoms for which to use pseudopotentials
+    pp_grid_points: int,
 ):
     """Create a local energy function from a wave function"""
     match energy_operator.lower():
@@ -67,7 +66,7 @@ def make_local_energy(
         case _:
             raise ValueError(f"Unknown energy operator: {energy_operator}")
 
-    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials)
+    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials, pp_grid_points)
 
     def local_energy(key: jax.Array, params: P, electrons: Electrons, static: S) -> tuple[LocalEnergy, S]:
         """Compute the local energy of the system"""

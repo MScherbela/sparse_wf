@@ -130,7 +130,8 @@ def main(
         optimization["max_batch_size"],
         make_spin_operator(wf, optimization["spin_operator_args"]),
         optimization["energy_operator"],
-        mol.pp_n_quad_points,
+        mol._ecp.keys(),
+        optimization["pp_grid_points"],
     )
     # The state will only be fed into pmapped functions, i.e., we need a per device key
     state = trainer.init(device_keys, params, electrons, mcmc_state)

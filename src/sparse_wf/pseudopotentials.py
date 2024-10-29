@@ -467,16 +467,13 @@ def mock_nl_pp(
 
 def make_pseudopotential(
     charges: Charges,
-    symbols: dict[str, int],
+    symbols: Sequence[str],
+    n_quad_points: int,
     ecp: str = "ccecp",  # basis set
     cutoff_value: float = 1e-7,
 ):
     if len(symbols) == 0:
         return charges, lambda *_, **__: 0.0, mock_nl_pp
-
-    n_quad_points_per_atom = list(symbols.values())
-    assert len(np.unique(n_quad_points_per_atom)) == 1, "All atoms must have the same number of quadrature points"
-    n_quad_points = n_quad_points_per_atom[0]
 
     ecp_data: dict[int, EcpData] = {
         pyscf.lib.parameters.ELEMENTS_PROTON[symbol.capitalize()]: pyscf.gto.basis.load_ecp(ecp, symbol)
