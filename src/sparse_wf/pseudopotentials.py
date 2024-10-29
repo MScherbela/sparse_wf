@@ -35,6 +35,104 @@ EcpGrid = Float[Array, "n_grid"]  # Radial grid distances
 EcpCutoffs = Float[Array, "n_ecp"]  # for each ECP atom, the cutoff distance
 
 
+def _sph_to_cart(spherical_coords: np.ndarray | Sequence[Sequence[float]]) -> np.ndarray:
+    """Convert spherical coordinates to Cartesian coordinates."""
+    theta, phi = np.array(spherical_coords).T
+    return np.array([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)], np.float32).T
+
+
+def make_spherical_grid(n_points: int):
+    match n_points:
+        case 1:
+            r = _sph_to_cart([[0, 0]])
+        case 2:
+            r = _sph_to_cart([[0, 0], [np.pi, 0]])
+        case 4:
+            r = _sph_to_cart(
+                [
+                    [0, 0],
+                    [np.arccos(-1 / 3), 0],
+                    [np.arccos(-1 / 3), 2 * np.pi / 3],
+                    [np.arccos(-1 / 3), 4 * np.pi / 3],
+                ]
+            )
+        case 6:
+            r = _sph_to_cart(
+                [
+                    [0, 0],
+                    [np.pi, 0],
+                    [np.pi / 2, 0],
+                    [np.pi / 2, np.pi / 2],
+                    [np.pi / 2, np.pi],
+                    [np.pi / 2, 3 * np.pi / 2],
+                ]
+            )
+        case 12:
+            # spherical_coords = [[0, 0], [np.pi, 0]]
+            # spherical_coords += [[np.arctan(2), 2 * np.pi * i / 5] for i in range(1, 6)]
+            # spherical_coords += [[np.pi - np.arctan(2), np.pi / 5 * (2 * i - 11)] for i in range(6, 11)]
+            # return _sph_to_cart(spherical_coords)
+
+            # 12-point scheme to order 5 from http://neilsloane.com/sphdesigns/dim3/
+            x, y = 0.850650808352, 0.525731112119
+            r = np.array(
+                [
+                    [x, 0, -y],
+                    [y, -x, 0],
+                    [0, -y, x],
+                    [x, 0, y],
+                    [-y, -x, 0],
+                    [0, y, -x],
+                    [-x, 0, -y],
+                    [-y, x, 0],
+                    [0, y, x],
+                    [-x, 0, y],
+                    [y, x, 0],
+                    [0, -y, -x],
+                ]
+            )
+        case 24:
+            # 24-point scheme to order 7 from http://neilsloane.com/sphdesigns/dim3/
+            a = 0.8662468181078205913835980
+            b = 0.4225186537611115291185464
+            c = 0.2666354015167047203315344
+            r = np.array(
+                [
+                    [a, b, c],
+                    [a, -b, -c],
+                    [a, c, -b],
+                    [a, -c, b],
+                    [-a, b, -c],
+                    [-a, -b, c],
+                    [-a, c, b],
+                    [-a, -c, -b],
+                    [c, a, b],
+                    [-c, a, -b],
+                    [-b, a, c],
+                    [b, a, -c],
+                    [-c, -a, b],
+                    [c, -a, -b],
+                    [b, -a, c],
+                    [-b, -a, -c],
+                    [b, c, a],
+                    [-b, -c, a],
+                    [c, -b, a],
+                    [-c, b, a],
+                    [b, -c, -a],
+                    [-b, c, -a],
+                    [c, b, -a],
+                    [-c, -b, -a],
+                ]
+            )
+        case _:
+            raise ValueError(f"Unsupported number of points: {n_points}")
+
+    assert len(r) == n_points
+    assert np.allclose(np.linalg.norm(r, axis=1), 1)
+    weights = np.ones(n_points, dtype=np.float32) / n_points
+    return r, weights
+
+
 def vmap_sum(f, *vmap_args, **vmap_kwargs):
     return vmap_reduction(f, functools.partial(jnp.sum, axis=0), *vmap_args, **vmap_kwargs)
 
@@ -179,28 +277,10 @@ def project_legendre(
     return jnp.squeeze(leg * f_ratio), static_f(e, index)
 
 
-def make_spherical_integral(quad_degree: int):
+def make_spherical_integral(n_quad_points: int):
     """Creates callable for evaluating an integral over a spherical quadrature."""
 
-    if quad_degree != 4:
-        raise RuntimeError("quad_degree = 4 is the only implemented quadrature")
-    # This matches (up to rotation and permutation) quadpy.u3.get_good_scheme(4)
-    # and is the quadrature used in the ByteDance pseudopotential paper etc.
-
-    spherical_points = [[0, 0], [np.pi, 0]]
-    # spherical_points += [[np.arctan(2), 2 * np.pi * i / 5] for i in range(1, 6)]
-    # spherical_points += [[np.pi - np.arctan(2), np.pi / 5 * (2 * i - 11)] for i in range(6, 11)]
-    theta, phi = zip(*spherical_points)
-    points = jnp.stack(
-        [
-            np.cos(phi) * np.sin(theta),
-            np.sin(phi) * np.sin(theta),
-            np.cos(theta),
-        ],
-        axis=1,
-    ).astype(jnp.float32)
-    n_points = len(points)
-    weights = jnp.ones(n_points, dtype=jnp.float32) / n_points
+    points, weights = make_spherical_grid(n_quad_points)
 
     def spherical_integral(
         key: Array,
@@ -254,7 +334,7 @@ def make_spherical_integral(quad_degree: int):
         init_loop = jnp.zeros_like(logpsi)
         # TODO: I guess we could use vmap_sum or vmap_sum + folx.batched_vmap here
         new_static = jtu.tree_map(lambda x: jnp.zeros_like(jnp.asarray(x)), static)
-        legendre, new_static = jax.lax.fori_loop(0, n_points, _body_fun, (init_loop, new_static))
+        legendre, new_static = jax.lax.fori_loop(0, n_quad_points, _body_fun, (init_loop, new_static))
         return (2 * angular_momentum + 1) * legendre, new_static
 
     return spherical_integral
@@ -265,7 +345,7 @@ def make_nonlocal_pseudopotential(
     v_grid_nonloc: EcpValues,
     ecp_mask: EcpMask,
     cutoffs: EcpCutoffs,
-    quad_degree: int,
+    n_quad_points: int,
 ):
     """Creates callable for evaluating the non-local pseudopotential."""
 
@@ -282,7 +362,7 @@ def make_nonlocal_pseudopotential(
         angular_momentum: Integer[Array, ""],
         v_grid: Float[Array, "nchan n_grid"],
     ):
-        integral, new_static = make_spherical_integral(quad_degree)(
+        integral, new_static = make_spherical_integral(n_quad_points)(
             key,
             logpsi_fn,
             params,
@@ -387,13 +467,16 @@ def mock_nl_pp(
 
 def make_pseudopotential(
     charges: Charges,
-    symbols: Sequence[str],
-    quad_degree: int = 4,  # quadrature degree
+    symbols: dict[str, int],
     ecp: str = "ccecp",  # basis set
     cutoff_value: float = 1e-7,
 ):
     if len(symbols) == 0:
         return charges, lambda *_, **__: 0.0, mock_nl_pp
+
+    n_quad_points_per_atom = list(symbols.values())
+    assert len(np.unique(n_quad_points_per_atom)) == 1, "All atoms must have the same number of quadrature points"
+    n_quad_points = n_quad_points_per_atom[0]
 
     ecp_data: dict[int, EcpData] = {
         pyscf.lib.parameters.ELEMENTS_PROTON[symbol.capitalize()]: pyscf.gto.basis.load_ecp(ecp, symbol)
@@ -424,5 +507,5 @@ def make_pseudopotential(
     cutoffs = grid_radius[cutoff_idx]
 
     pp_local = make_local_pseudopotential(grid_radius, loc_grid_values, ecp_mask)
-    pp_nonlocal = make_nonlocal_pseudopotential(grid_radius, non_loc_grid_values, ecp_mask, cutoffs, quad_degree)
+    pp_nonlocal = make_nonlocal_pseudopotential(grid_radius, non_loc_grid_values, ecp_mask, cutoffs, n_quad_points)
     return effective_charges, pp_local, pp_nonlocal

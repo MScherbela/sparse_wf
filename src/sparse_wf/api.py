@@ -629,7 +629,7 @@ class MoleculeArgs(TypedDict):
     chain_args: MoleculeChainArgs
     database_args: MoleculeDatabaseArgs
     basis: str
-    pseudopotentials: Sequence[str]
+    pseudopotentials: dict[str, int]
 
 
 class MCMCStaticArgs(NamedTuple):

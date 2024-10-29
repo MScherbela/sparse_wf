@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal, Sequence, TypeVar, Callable
+from typing import Literal, TypeVar, Callable
 
 import jax
 import jax.numpy as jnp
@@ -82,7 +82,7 @@ def make_trainer(
     max_batch_size: int,
     spin_operator: SpinOperator[P, S, SS],
     energy_operator: Literal["sparse", "dense"],
-    pseudopotentials: Sequence[str],
+    pseudopotentials: dict[str, int],
 ):
     energy_fn = make_local_energy(wave_function, energy_operator, pseudopotentials)
     batched_energy_fn = vmap_reduction(
