@@ -129,8 +129,8 @@ def make_spherical_grid(n_points: int):
 
     assert len(r) == n_points
     assert np.allclose(np.linalg.norm(r, axis=1), 1)
-    weights = np.ones(n_points, dtype=np.float32) / n_points
-    return r, weights
+    weights = jnp.ones(n_points, np.float32) / n_points
+    return jnp.array(r, jnp.float32), weights
 
 
 def vmap_sum(f, *vmap_args, **vmap_kwargs):

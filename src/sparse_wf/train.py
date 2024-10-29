@@ -40,6 +40,7 @@ from sparse_wf.system import get_molecule, get_atomic_numbers
 from sparse_wf.update import make_trainer
 from sparse_wf.auto_requeue import should_abort, requeue_job
 import functools
+import copy
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -142,7 +143,6 @@ def main(
     assert_identical_copies(state.params)
     model_static = pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons)
     static = static_scheduler(model_static)
-    pp_static = pp_static_scheduler(model_static)
 
     # Build pre-training wavefunction and sampling step
     if (pretraining["steps"] > 0) or evaluation["overlap_states"]:
@@ -178,7 +178,6 @@ def main(
             t0 = time.perf_counter()
             state, aux_data, mcmc_stats = pretrainer.step(state, static)
             static = static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
-            pp_static = pp_static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
             log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
             t1 = time.perf_counter()
             log_data["pretrain/t_step"] = t1 - t0
@@ -193,14 +192,15 @@ def main(
     # Variational optimization
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
-        state, aux_data, mcmc_stats, _ = trainer.sampling_step(state, static, pp_static, False, None)
+        state, aux_data, mcmc_stats, _ = trainer.sampling_step(state, static, static, False, None)
         static = static_scheduler(mcmc_stats.static_max, trainer.sampling_step._cache_size)  # type: ignore
-        pp_static = pp_static_scheduler(mcmc_stats.static_max, trainer.sampling_step._cache_size)  # type: ignore
         log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
         loggers.log(log_data)
 
     logging.info("Training")
     n_steps_prev = int(state.step[0])
+    # Use regular statics as initial guess for pp_static
+    pp_static_scheduler, pp_static = copy.deepcopy((static_scheduler, static))
     for opt_step in range(n_steps_prev, optimization["steps"] + 1):
         loggers.store_checkpoint(opt_step, state, "opt")
         if should_abort():
