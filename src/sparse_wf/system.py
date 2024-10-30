@@ -60,6 +60,7 @@ def get_molecule(molecule_args: MoleculeArgs) -> pyscf.gto.Mole:
     if molecule_args["pseudopotentials"]:
         molecule.ecp = {atom: "ccecp" for atom in molecule_args["pseudopotentials"]}
     molecule.build()
+    molecule.pp_n_quad_points = molecule_args["pseudopotentials"]
     return molecule
 
 
