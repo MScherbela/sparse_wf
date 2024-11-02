@@ -357,14 +357,25 @@ def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> E
         local_batch_size = (batch_size // jax.device_count()) * jax.local_device_count()
     else:
         local_batch_size = batch_size
-    key_up, key_dn, subkey = jax.random.split(key, 3)
+    key_up, key_dn, atom_key, subkey = jax.random.split(key, 4)
     electrons = jax.random.normal(subkey, (local_batch_size, mol.nelectron, 3), dtype=jnp.float32)
 
     R = np.array(mol.atom_coords(), dtype=jnp.float32)
     n_atoms = len(R)
     if n_atoms > 1:
-        assert mol.charge == 0, "Only atoms or neutral molecules are supported"
-        ind_atom = assign_spins_to_atoms(R, mol.atom_charges())
+        if mol.charge == 0:
+            # We can assign spins with the least stress
+            ind_atom = assign_spins_to_atoms(R, mol.atom_charges())
+        else:
+            # We randomly pick atoms based on their charge as probability.
+            ind_atom = np.asarray(
+                jax.random.choice(
+                    atom_key,
+                    np.arange(n_atoms),
+                    shape=(local_batch_size, mol.nelectron),
+                    p=mol.atom_charges() / sum(mol.atom_charges()),
+                )
+            )
         electrons += R[ind_atom]
     if abs(mol.spin) > 1:
         # We randomly shuffle the electron which gets moved to the majority spin channel
