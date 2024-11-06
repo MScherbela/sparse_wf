@@ -17,4 +17,4 @@ export NVIDIA_TF32_OVERRIDE=0
 export WANDB_DIR="${HOME}/tmp"
 
 PROGRAM="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/preliminary_experiments/scaling/run_scaling_tests.py"
-python $PROGRAM --use_ecp 1 -o timings_with_ecp.txt
+python $PROGRAM --use_ecp -o timings_with_ecp.txt

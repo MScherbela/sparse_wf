@@ -79,8 +79,7 @@ def get_model(mol, cutoff):
 
 
 def make_potential_energy(wf, use_ecp):
-    if use_ecp:
-        pseudopotentials = ["C", "N", "O"]
+    pseudopotentials = ["C", "N", "O"] if use_ecp else []
     eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials)
 
     def get_potential_energy(key: jax.Array, params, electrons, static):
@@ -148,10 +147,10 @@ def build_looped_logpsi_lowrank(wf, n_iterations):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--use_ecp", type=int, default=1)
+    parser.add_argument("--use_ecp", action="store_true", default=False)
     parser.add_argument("--system_size_min", type=int, default=4)
     parser.add_argument("--system_size_max", type=int, default=256)
-    parser.add_argument("--system_size_steps", type=int, default=13)
+    parser.add_argument("--system_size_steps", type=int, default=25)
     parser.add_argument("--cutoff", type=float, default=3.0)
     parser.add_argument("--system", type=str, default="cumulene")
     parser.add_argument("--move_stepsize", type=float, default=0.5)
@@ -164,11 +163,6 @@ if __name__ == "__main__":
     system_sizes = np.unique(np.round(system_sizes).astype(int))
     for system_size in system_sizes:
         batch_size = args.batch_size
-        cutoff = args.cutoff
-        system = args.system
-        move_stepsize = args.move_stepsize
-        n_iterations = args.n_iterations
-        use_ecp = bool(args.use_ecp)
 
         if system_size >= 32:
             batch_size //= 2
@@ -179,30 +173,30 @@ if __name__ == "__main__":
 
         settings = dict(
             batch_size=batch_size,
-            cutoff=cutoff,
-            system=system,
+            cutoff=args.cutoff,
+            system=args.system,
             system_size=system_size,
-            move_stepsize=move_stepsize,
-            n_iterations=n_iterations,
-            use_ecp=use_ecp,
+            move_stepsize=args.move_stepsize,
+            n_iterations=args.n_iterations,
+            use_ecp=args.use_ecp,
         )
 
         print(f"system_size = {system_size}: Initializing model, electrons, params, and static input for ")
         rng = jax.random.PRNGKey(0)
         rng_electrons, rng_move, rng_params, rng_pp = jax.random.split(rng, 4)
         rng_pp = jax.random.split(rng_pp, batch_size)
-        mol = get_cumulene(system_size, use_ecp)
+        mol = get_cumulene(system_size, args.use_ecp)
         wf = get_model(mol, 3.0)
         electrons = init_electrons(rng_electrons, mol, batch_size)
-        electrons_new, idx_changed_el = single_electron_move(rng_move, electrons, move_stepsize)
+        electrons_new, idx_changed_el = single_electron_move(rng_move, electrons, args.move_stepsize)
         params = wf.init(rng_params, electrons[0])
 
         get_static = jit_and_await(jax.vmap(wf.get_static_input))
-        get_logpsi_full = build_looped_logpsi_full(wf, n_iterations)
-        get_logpsi_lowrank = build_looped_logpsi_lowrank(wf, n_iterations)
+        get_logpsi_full = build_looped_logpsi_full(wf, args.n_iterations)
+        get_logpsi_lowrank = build_looped_logpsi_lowrank(wf, args.n_iterations)
         get_E_kin = jit_and_await(jax.vmap(wf.kinetic_energy, in_axes=(None, 0, None)), static_argnums=(2,))
         get_E_pot = jit_and_await(
-            jax.vmap(make_potential_energy(wf, use_ecp), in_axes=(0, None, 0, None)), static_argnums=(3,)
+            jax.vmap(make_potential_energy(wf, args.use_ecp), in_axes=(0, None, 0, None)), static_argnums=(3,)
         )
 
         static = get_static(electrons, electrons_new, idx_changed_el)
@@ -216,13 +210,14 @@ if __name__ == "__main__":
         pp_static = get_max_static(pp_static, wf)
         get_E_pot(rng_pp, params, electrons, pp_static)
 
-        timing = functools.partial(timeit.timeit, globals=globals(), number=10)
+        def get_timing(expression, n_reps=5):
+            return timeit.timeit(expression, globals=globals(), number=n_reps) / n_reps
 
         print("Running for timings", flush=True)
-        t_wf_full = timing("get_logpsi_full(params, electrons, static)") / n_iterations
-        t_wf_lr = timing("get_logpsi_lowrank(params, electrons_new, idx_changed_el, static, state)") / n_iterations
-        t_E_kin = timing("get_E_kin(params, electrons, static)")
-        t_E_pot = timing("get_E_pot(rng_pp, params, electrons, pp_static)")
+        t_wf_full = get_timing(lambda: get_logpsi_full(params, electrons, static)) / args.n_iterations
+        t_wf_lr = get_timing(lambda: get_logpsi_lowrank(params, electrons_new, idx_changed_el, static, state)) / args.n_iterations
+        t_E_kin = get_timing(lambda: get_E_kin(params, electrons, static))
+        t_E_pot = get_timing(lambda: get_E_pot(rng_pp, params, electrons, pp_static))
 
         results = dict(
             **settings,
