@@ -49,7 +49,12 @@ disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 testpaths = ["tests"]
 
 [tool.uv]
-dev-dependencies = ["ipykernel>=6.29.5", "mypy>=1.12.0"]
+dev-dependencies = [
+    "ipykernel>=6.29.5",
+    "mypy>=1.12.0",
+    "tensorboard-plugin-profile>=2.17.0",
+    "tensorflow>=2.18.0",
+]
 find-links = [
     "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html",
 ]

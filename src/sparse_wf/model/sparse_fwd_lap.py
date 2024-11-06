@@ -16,7 +16,7 @@ class NodeWithFwdLap(PyTreeNode):
     # The first n_el entries correspond to the jacobian of the node with itself, ie. idx_dep = idx_ctr
     # The next n_pairs entries correspond to the jacobian of the node with its neighbours, i.e. idx_dep != idx_ctr
     x: jax.Array  # [n_el x feature_dim]
-    jac: jax.Array  # [n_el + n_pairs x 3 x feature_dim]
+    jac: jax.Array  # [(n_el + n_pairs) x 3 x feature_dim]
     lap: jax.Array  # [n_el x feature_dim]
     idx_ctr: jax.Array  # [n_el + n_pairs]
     idx_dep: jax.Array  # [n_el + n_pairs]
@@ -157,23 +157,6 @@ def get_pair_indices(r, n_up, cutoff, n_pairs_same: int, n_pairs_diff: int):
     return (*pair_indices_same, jac_idx_same), (*pair_indices_diff, jac_idx_diff), jac_indices
 
 
-def get_distinct_triplet_indices(r, cutoff, n_triplets_max: int):
-    """Return three index-arrays, corresponding to the dependants i,k and the dependency n."""
-    n_el = r.shape[0]
-    dist = jnp.linalg.norm(r[:, None, :] - r[None, :, :], axis=-1)
-    dist = dist.at[jnp.arange(n_el), jnp.arange(n_el)].set(jnp.inf)
-    in_cutoff = dist < cutoff
-    is_triplet = in_cutoff[:, None, :] & in_cutoff[None, :, :]
-    return jnp.where(is_triplet, size=n_triplets_max, fill_value=NO_NEIGHBOUR)
-
-
-def get_pair_indices_from_triplets(pair_indices, triplet_indices, n_el):
-    pair_search_keys = pair_indices[0] * n_el + pair_indices[1]
-    pair_in = jnp.searchsorted(pair_search_keys, triplet_indices[0] * n_el + triplet_indices[2])
-    pair_kn = jnp.searchsorted(pair_search_keys, triplet_indices[1] * n_el + triplet_indices[2])
-    return pair_in, pair_kn
-
-
 class Linear(nn.Module):
     features: int
     use_bias: bool = True
@@ -242,36 +225,26 @@ class SparseMLP(nn.Module):
         return x
 
 
-def sparse_slogdet_with_fwd_lap(A: NodeWithFwdLap, triplet_indices):
-    # Build all triplets of indices i,k,n where i and k are both neighbours of n.
-    # This is required for the tr(JHJ.T) term in the laplacian of the logdet.
-    # Triplets are aranged in the following order:
-    # 1) n_el entries where i=k=n
-    # 2) n_pair entries where k=n, i!=n
-    # 3) n_pair entries where i=n, k!=n
-    # 4) n_triplet entries where i!=n and k!=n (i==k | i!=k)
-
-    n_el = A.x.shape[-1]
-    n_pairs = len(A.idx_ctr) - n_el
-
-    pairidx_ct = A.idx_ctr[n_el:]
-    pairidx_nb = A.idx_dep[n_el:]
-
-    tripidx_i = jnp.concatenate([np.arange(n_el), pairidx_ct, pairidx_nb, triplet_indices[0]])
-    tripidx_k = jnp.concatenate([np.arange(n_el), pairidx_nb, pairidx_ct, triplet_indices[1]])
-    # tripidx_n = jnp.concatenate([np.arange(n_el), pairidx_nb, pairidx_nb, triplet_indices[2]])
-    tripidx_in, tripidx_kn = get_pair_indices_from_triplets((pairidx_ct, pairidx_nb), triplet_indices, n_el)
-    tripidx_in = jnp.concatenate([np.arange(n_el), np.arange(n_pairs) + n_el, pairidx_nb, tripidx_in + n_el])
-    tripidx_kn = jnp.concatenate([np.arange(n_el), pairidx_nb, np.arange(n_pairs) + n_el, tripidx_kn + n_el])
-
+def sparse_slogdet_with_fwd_lap(A: NodeWithFwdLap, n_triplets: int):
     (sign, logdet), A_inv = slog_and_inverse(A.x)
     M = A.jac @ A_inv
+
+    # Build all triplets of indices i,k,n where i and k are both neighbours of n.
+    n_el = A.x.shape[-1]
+    n_pairs = len(A.idx_ctr) - n_el
+    n_triplets_total = n_el + 2 * n_pairs + n_triplets
+    pair_idx_i, pair_idx_n = A.idx_ctr, A.idx_dep
+    is_triplet = pair_idx_n[:, None] == pair_idx_n[None, :]
+    trip_idx_in, trip_idx_kn = jnp.where(is_triplet, size=n_triplets_total, fill_value=NO_NEIGHBOUR)
+    trip_idx_i, trip_idx_k = pair_idx_i[trip_idx_in], pair_idx_i[trip_idx_kn]
 
     jac_logdet = jnp.zeros([n_el, 3], dtype=A.x.dtype)
     jac_logdet = jac_logdet.at[A.idx_dep, :].add(get(M, (np.arange(n_pairs + n_el), slice(None), A.idx_ctr)))
 
     lap_logdet = jnp.einsum("ij,ji", A.lap, A_inv)
-    lap_logdet -= jnp.sum(get(M, (tripidx_in, slice(None), tripidx_k)) * get(M, (tripidx_kn, slice(None), tripidx_i)))
+    lap_logdet -= jnp.sum(
+        get(M, (trip_idx_in, slice(None), trip_idx_k)) * get(M, (trip_idx_kn, slice(None), trip_idx_i))
+    )
     return sign, FwdLaplArray(logdet, FwdJacobian(jac_logdet.reshape([n_el * 3])), lap_logdet)
 
 

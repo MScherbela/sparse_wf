@@ -1,27 +1,16 @@
 # %%
-import os
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import numpy as np
-
-
-# For system in n=..., pp=...
-# Build model
-# For each model, run: psi, psi_low_rank, E_kin, E_pot, embedding, jastrow, determinant
-
 from sparse_wf.system import from_str
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.api import NewEmbeddingArgs, JastrowArgs
 from sparse_wf.mcmc import init_electrons
 import jax
 import jax.numpy as jnp
-import time
 import timeit
 from sparse_wf.pseudopotentials import make_pseudopotential
 from sparse_wf.hamiltonian import potential_energy
 from sparse_wf.loggers import to_log_data
 import argparse
-import functools
 
 
 def get_cumulene(n_carbon: int, use_ecp):
@@ -156,6 +145,7 @@ if __name__ == "__main__":
     parser.add_argument("--move_stepsize", type=float, default=0.5)
     parser.add_argument("--n_iterations", type=int, default=50)
     parser.add_argument("-o", "--output", type=str, default="timings.txt")
+    parser.add_argument("--profile", action="store_true", default=False)
 
     args = parser.parse_args()
 
@@ -218,6 +208,14 @@ if __name__ == "__main__":
         t_wf_lr = get_timing(lambda: get_logpsi_lowrank(params, electrons_new, idx_changed_el, static, state)) / args.n_iterations
         t_E_kin = get_timing(lambda: get_E_kin(params, electrons, static))
         t_E_pot = get_timing(lambda: get_E_pot(rng_pp, params, electrons, pp_static))
+
+        if args.profile:
+            print("Running once for profiling")
+            with jax.profiler.trace("/tmp/tensorboard"):
+                get_logpsi_full(params, electrons, static)
+                get_logpsi_lowrank(params, electrons_new, idx_changed_el, static, state)
+                get_E_kin(params, electrons, static)
+                get_E_pot(rng_pp, params, electrons, pp_static)
 
         results = dict(
             **settings,

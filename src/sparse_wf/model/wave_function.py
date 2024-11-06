@@ -35,7 +35,6 @@ from sparse_wf.model.orbitals import Orbitals, OrbitalState
 from sparse_wf.model.sparse_fwd_lap import (
     NodeWithFwdLap,
     sparse_slogdet_with_fwd_lap,
-    get_distinct_triplet_indices,
 )
 from sparse_wf.model.jastrow import Jastrow, JastrowState
 from sparse_wf.model.moon import MoonEmbedding
@@ -167,10 +166,11 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], S, LowRa
         embeddings = cast(NodeWithFwdLap, self.embedding.apply_with_fwd_lap(params.embedding, electrons, static))
         orbitals = self.to_orbitals.fwd_lap(params.to_orbitals, electrons, embeddings)
 
-        triplet_indices = get_distinct_triplet_indices(electrons, self.embedding.cutoff, static.n_triplets)  # type: ignore
+        # triplet_indices = get_distinct_triplet_indices(electrons, self.embedding.cutoff, static.n_triplets)  # type: ignore
         signs, logdets = jax.vmap(
             lambda x, J, lap: sparse_slogdet_with_fwd_lap(
-                NodeWithFwdLap(x, J, lap, orbitals.idx_ctr, orbitals.idx_dep), triplet_indices
+                NodeWithFwdLap(x, J, lap, orbitals.idx_ctr, orbitals.idx_dep),
+                static.n_triplets,  # type: ignore
             ),
             in_axes=0,
             out_axes=-1,

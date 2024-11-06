@@ -9,7 +9,7 @@ import ast
 import bokeh.plotting as bpl
 import bokeh
 
-def plot_and_fit(p, x, y, title, color, dash="solid", n_fit_min=128, label=""):
+def plot_and_fit(p, x, y, title, color, dash="solid", n_fit_min=130, label=""):
     include_in_fit = x >= n_fit_min
     x_fit, y_fit = x[include_in_fit], y[include_in_fit]
     fit_coeffs = np.polyfit(np.log(x_fit), np.log(y_fit), 1)
@@ -49,7 +49,8 @@ data_fnames = [
 
 ]
 models = ["SWANN", "lapnet", "psiformer", "ferminet"]
-n_el_for_breakdown = 190
+n_el_for_breakdown = 274
+use_ecp = False
 n_grid_points_pp = 4
 
 df = pd.concat([load_data(data_fname) for data_fname in data_fnames], ignore_index=True)
@@ -57,16 +58,21 @@ df["model"] = df["model"].fillna("SWANN")
 df["model_idx"] = df.model.apply(models.index)
 df["t_wf_lr"] = df.t_wf_lr.fillna(df.t_wf_full)
 df["t_E_pot_estimate"] = df.t_wf_full + df.t_wf_lr * df.n_el * n_grid_points_pp
-df.loc[df.model != "SWANN", "t_E_pot"] = df.t_E_pot_estimate[df.model != "SWANN"]
+df["t_E_pot"] = df.t_E_pot.fillna(df.t_E_pot_estimate)
 
 df.t_wf_full = df.t_wf_full * BATCH_SIZE_PLOT / df.batch_size
 df.t_wf_lr = df.t_wf_lr * BATCH_SIZE_PLOT / df.batch_size
 df.t_E_kin = df.t_E_kin * BATCH_SIZE_PLOT / df.batch_size
 df.t_E_pot = df.t_E_pot * BATCH_SIZE_PLOT / df.batch_size
 df["t_sampling"] = df.t_wf_full + df.n_el * df.t_wf_lr
-df["t_total"] = df.t_sampling + df.t_E_kin + df.t_E_pot
+df["t_total"] = df.t_sampling + df.t_E_kin
+if use_ecp:
+    df["t_total"] += df.t_E_pot
 
-df = df[((df.model == "SWANN") & df.use_ecp) | (df.model != "SWANN")]
+if use_ecp:
+    df = df[((df.model == "SWANN") & df.use_ecp) | (df.model != "SWANN")]
+else:
+    df = df[~df.use_ecp]
 df = df.sort_values(["model_idx", "system", "system_size"])
 
 
@@ -98,24 +104,20 @@ for p in plots:
 
 # Breakdown of total step time
 timings = ["t_sampling", "t_E_kin", "t_E_pot"]
-# df_large = df[df.n_el == n_el_for_breakdown][["model", "model_idx"] + timings]
-df_large = df[np.abs(df.n_el - n_el_for_breakdown) <= 6]
-# df_large = pd.wide_to_long(df_large, "t", sep="_", i=["model_idx", "model"], j="timing",  suffix=r".*").reset_index()
+bar_colors = bokeh.palettes.HighContrast3
+if not use_ecp:
+    timings = timings[:2]
+    bar_colors = bar_colors[:2]
 
-#%%
-# source = {k: df_large[k].values for k in timings}
-# source["model"] = [str(x) for x in df_large.model.values]
+df_large = df[np.abs(df.n_el - n_el_for_breakdown) <= 6]
 
 df_large["speedup"] = (df_large.t_total / df_large.t_total.min()).apply(lambda x: f"{x:.1f}x")
 ds = bokeh.models.ColumnDataSource(df_large)
 p_ratio = bpl.figure(width=500, height=400, x_range=models, y_range=(0, df_large.t_total.max()+5), title=f"Total time for {n_el_for_breakdown} electrons", tooltips=[("model", "@model"), ("Potential energy", "@t_E_pot"), ("Kinetic energy", "@t_E_kin"), ("Sampling", "@t_sampling"), ])
-p_ratio.vbar_stack(timings, x="model", source=ds, color=bokeh.palettes.HighContrast3, legend_label=timings, width=0.9)
+p_ratio.vbar_stack(timings, x="model", source=ds, color=bar_colors, legend_label=timings, width=0.9)
 labels = bokeh.models.LabelSet(x="model", y="t_total", text="speedup", x_offset=0, y_offset=5, source=ds, text_align="center")
 p_ratio.add_layout(labels)
 p_ratio.legend.location = "top_left"
-
-# labels = LabelSet(x='x', y='y', text='y', level='glyph',
-#                   text_align='center', y_offset=5, source=source)
 p_ratio.legend[0].items.reverse()
 
 
@@ -128,25 +130,3 @@ bpl.show(grid)
 
 # bokeh.io.export_svg(grid, filename="scaling.svg")
 # bokeh.io.export_png(grid, filename="scaling.png", width=2000)
-
-#%%
-df_swann = df[df.model == "SWANN"]
-
-p0 = plot_and_fit(None, df_swann["n_el"], df_swann["t_E_kin"], "E_kin (n_el)", "blue", label="SWANN")
-p0.yaxis.axis_label = "Time (s)"
-p0.xaxis.axis_label = "Number of electrons"
-
-p1 = plot_and_fit(None, df_swann["pp_static/n_triplets"], df_swann["t_E_kin"], "E_kin (triplets)", "blue", label="SWANN", n_fit_min=8000)
-p1.yaxis.axis_label = "Time (s)"
-p1.xaxis.axis_label = "Number of triplets"
-
-p2 = plot_and_fit(None, df_swann["n_el"], df_swann["pp_static/n_triplets"], "triplets (n_el)", "blue", label="SWANN", n_fit_min=100)
-p2.yaxis.axis_label = "Number of triplets"
-p2.xaxis.axis_label = "Number of electrons"
-
-grid = bokeh.layouts.row([p0, p1, p2])
-bpl.show(grid)
-
-
-
-
