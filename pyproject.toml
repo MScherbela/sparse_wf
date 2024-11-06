@@ -28,7 +28,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff", "pre-commit"]
+bokeh = [
+    "bokeh>=3.6.0",
+    "chromedriver-binary>=132.0.6821.0.0",
+    "selenium>=4.26.1",
+]
 
 [tool.ruff]
 line-length = 120
@@ -50,6 +54,8 @@ testpaths = ["tests"]
 
 [tool.uv]
 dev-dependencies = [
+    "ruff",
+    "pre-commit",
     "ipykernel>=6.29.5",
     "mypy>=1.12.0",
     "tensorboard-plugin-profile>=2.17.0",
