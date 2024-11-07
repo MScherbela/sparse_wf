@@ -17,4 +17,4 @@ export NVIDIA_TF32_OVERRIDE=0
 export WANDB_DIR="${HOME}/tmp"
 
 PROGRAM="/home/scherbelam20/develop/sparse_wf/src/sparse_wf/preliminary_experiments/scaling/run_scaling_tests.py"
-python $PROGRAM --system_size_min 50 --system_size_max 50 --system_size_steps 1 --profile -o /dev/null
+python $PROGRAM --system_size_min 50 --system_size_max 50 --system_size_steps 1 --n_iterations 10 --profile -o /dev/null

@@ -12,7 +12,7 @@ geometries = [g for g in all_geoms.values() if g.comment.startswith("WG_")]
 
 df_geom = pd.DataFrame(
     [
-        dict(geom_hash=g.hash, name=g.name, comment=g.comment, n_el=g.n_el, n_el_cutoff=g.n_electrons_in_cutoff(4.0))
+        dict(geom_hash=g.hash, name=g.name, comment=g.comment, n_el=g.n_el, n_el_cutoff=g.n_electrons_in_cutoff(3.0))
         for g in geometries
     ]
 )

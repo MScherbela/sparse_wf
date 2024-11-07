@@ -417,26 +417,28 @@ class NewSparseEmbedding(PyTreeNode):
         n_changed_pair_same: int,
         n_changed_pair_diff: int,
     ):
+        # Get the indices of all electrons, for which h_out changes, and which must thus be recomputed
         in_cutoff_old = is_neighbour(electrons, self.cutoff)
         in_cutoff_new = is_neighbour(electrons_new, self.cutoff)
-
         is_affected_hout = jnp.any(in_cutoff_old[:, idx_changed] | in_cutoff_new[:, idx_changed], axis=-1)
         is_affected_hout = is_affected_hout.at[idx_changed].set(True)
         idx_changed_hout = jnp.where(is_affected_hout, size=n_changed_hout, fill_value=NO_NEIGHBOUR)[0]
 
-        is_required_pair = in_cutoff_new & is_affected_hout[:, None]
-        is_same_spin = self.spins[:, None] == self.spins[None, :]
-        pair_idx_same = jnp.where(
-            is_required_pair & is_same_spin,
-            size=n_changed_pair_same,
-            fill_value=NO_NEIGHBOUR,
-        )
-        pair_idx_diff = jnp.where(
-            is_required_pair & ~is_same_spin,
-            size=n_changed_pair_diff,
-            fill_value=NO_NEIGHBOUR,
-        )
-        return idx_changed_hout, pair_idx_same, pair_idx_diff
+        # Get all pairs of electrons, where the center electron needs to be recomputed
+        is_required_pair = in_cutoff_new[idx_changed_hout, :]  # => [n_changsed_hout x n_el]
+        n_changed_pairs_total = n_changed_pair_same + n_changed_pair_diff
+        idx_pair_ct, idx_pair_nb = jnp.where(is_required_pair, size=n_changed_pairs_total, fill_value=NO_NEIGHBOUR)
+
+        # Divide the pairs into pairs with same and different spin
+        is_same_spin = (idx_changed_hout[idx_pair_ct] < self.n_up) == (idx_pair_nb < self.n_up)
+        pair_idx_same = jnp.where(is_same_spin, size=n_changed_pair_same, fill_value=NO_NEIGHBOUR)
+        pair_idx_diff = jnp.where(~is_same_spin, size=n_changed_pair_diff, fill_value=NO_NEIGHBOUR)
+
+        # Get the center and neighbour indices for the pairs
+        idx_pair_same = (idx_changed_hout[idx_pair_ct[pair_idx_same]], idx_pair_nb[pair_idx_same])
+        idx_pair_diff = (idx_changed_hout[idx_pair_ct[pair_idx_diff]], idx_pair_nb[pair_idx_diff])
+
+        return idx_changed_hout, idx_pair_same, idx_pair_diff
 
     def get_neighbouring_nuclei(self, r, dynamic_params_en, n_neighbours_en: int):
         assert r.shape == (3,)

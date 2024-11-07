@@ -69,7 +69,7 @@ def get_model(mol, cutoff):
 
 def make_potential_energy(wf, use_ecp):
     pseudopotentials = ["C", "N", "O"] if use_ecp else []
-    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials)
+    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials, n_quad_points=4)
 
     def get_potential_energy(key: jax.Array, params, electrons, static):
         potential = potential_energy(electrons, wf.R, eff_charges)
@@ -119,18 +119,18 @@ def build_looped_logpsi_full(wf, n_iterations):
 
 
 def build_looped_logpsi_lowrank(wf, n_iterations):
-    def looped_logpsi(params, electrons_new, idx_changed_el, static, state):
+    def looped_logpsi(params, electrons, static, state):
         def loop_body(i, carry):
-            _state, offset = carry
-            r_new = electrons_new + offset
-            idx_el = idx_changed_el + jnp.minimum(i, 0)
-            (sign, logpsi), _state = wf.log_psi_low_rank_update(params, r_new, idx_el, static, _state)
-            return _state, jnp.mean(sign * logpsi) * 1e-12
+            r, _state, shift = carry
+            idx_changed_el = jnp.array([i], jnp.int32)
+            r = r.at[i].add(1e-12 * shift)
+            (sign, logpsi), _state = wf.log_psi_low_rank_update(params, r, idx_changed_el, static, _state)
+            return r, _state, jnp.mean(sign * logpsi) * 1e-12
 
-        return jax.lax.fori_loop(0, n_iterations, loop_body, (state, jnp.zeros([])))[0]
+        return jax.lax.fori_loop(0, n_iterations, loop_body, (electrons, state, jnp.zeros([])))[0]
 
-    looped_logpsi = jax.vmap(looped_logpsi, in_axes=(None, 0, 0, None, 0))
-    return jit_and_await(looped_logpsi, static_argnums=(3,))
+    looped_logpsi = jax.vmap(looped_logpsi, in_axes=(None, 0, None, 0))
+    return jit_and_await(looped_logpsi, static_argnums=(2,))
 
 
 if __name__ == "__main__":
@@ -194,7 +194,7 @@ if __name__ == "__main__":
 
         print("Running warmup/compilation", flush=True)
         state = get_logpsi_full(params, electrons, static)[1]
-        get_logpsi_lowrank(params, electrons_new, idx_changed_el, static, state)
+        get_logpsi_lowrank(params, electrons, static, state)
         get_E_kin(params, electrons, static)
         pp_static = get_E_pot(rng_pp, params, electrons, static)[1]
         pp_static = get_max_static(pp_static, wf)
@@ -205,7 +205,7 @@ if __name__ == "__main__":
 
         print("Running for timings", flush=True)
         t_wf_full = get_timing(lambda: get_logpsi_full(params, electrons, static)) / args.n_iterations
-        t_wf_lr = get_timing(lambda: get_logpsi_lowrank(params, electrons_new, idx_changed_el, static, state)) / args.n_iterations
+        t_wf_lr = get_timing(lambda: get_logpsi_lowrank(params, electrons, static, state)) / args.n_iterations
         t_E_kin = get_timing(lambda: get_E_kin(params, electrons, static))
         t_E_pot = get_timing(lambda: get_E_pot(rng_pp, params, electrons, pp_static))
 
@@ -213,7 +213,7 @@ if __name__ == "__main__":
             print("Running once for profiling")
             with jax.profiler.trace("/tmp/tensorboard"):
                 get_logpsi_full(params, electrons, static)
-                get_logpsi_lowrank(params, electrons_new, idx_changed_el, static, state)
+                get_logpsi_lowrank(params, electrons, static, state)
                 get_E_kin(params, electrons, static)
                 get_E_pot(rng_pp, params, electrons, pp_static)
 
