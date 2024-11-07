@@ -14,7 +14,7 @@ dependencies = [
     "chex",
     "tqdm",
     "einops",
-    "numpy<2.0.0",
+    "numpy",
     "matplotlib",
     "folx",
     "pyscf",
@@ -24,7 +24,6 @@ dependencies = [
     "pytest",
     "wonderwords",
     "argcomplete",
-    "nvidia-cudnn-cu12<=9",
 ]
 
 [project.optional-dependencies]
@@ -57,6 +56,11 @@ disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 testpaths = ["tests"]
 
 [tool.uv]
+constraint-dependencies = [
+    "scipy<=1.12.0",         # required for jax==0.4.23
+    "numpy<2.0.0",           # required for jax==0.4.23
+    "nvidia_cudnn_cu12<9.0", # required for jax==0.4.23
+]
 dev-dependencies = [
     "ruff",
     "pre-commit",
