@@ -279,11 +279,8 @@ def setup_calculations():
 
         # Generate the name for the run
         experiment_name = full_config.get("metadata", {}).get("experiment_name", "exp")
-        run_name = "_".join([str(v) for v in cli_values])
-        if run_name:
-            run_name = f"{experiment_name}_{run_name}"
-        else:
-            run_name = experiment_name
+        run_name_tokens = [experiment_name] + [str(v) for v in cli_values]
+        run_name = "_".join([t for t in run_name_tokens if t])
 
         # Pick a random seed for this run, unless specified
         if full_config.get("seed", 0) == 0:
