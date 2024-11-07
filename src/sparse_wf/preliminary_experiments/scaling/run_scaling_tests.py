@@ -134,12 +134,12 @@ def build_looped_logpsi_lowrank(wf, n_iterations):
 
 
 if __name__ == "__main__":
+    default_system_sizes = np.unique(np.round(np.geomspace(16, 256, 25)).astype(int))
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--use_ecp", action="store_true", default=False)
-    parser.add_argument("--system_size_min", type=int, default=4)
-    parser.add_argument("--system_size_max", type=int, default=256)
-    parser.add_argument("--system_size_steps", type=int, default=25)
+    parser.add_argument("--system_sizes", nargs="+", type=int, default=default_system_sizes)
     parser.add_argument("--cutoff", type=float, default=3.0)
     parser.add_argument("--system", type=str, default="cumulene")
     parser.add_argument("--move_stepsize", type=float, default=0.5)
@@ -149,17 +149,13 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    system_sizes = np.geomspace(args.system_size_min, args.system_size_max, args.system_size_steps).astype(int)
-    system_sizes = np.unique(np.round(system_sizes).astype(int))
-    for system_size in system_sizes:
+    for system_size in args.system_sizes:
+        mol = get_cumulene(system_size, args.use_ecp)
         batch_size = args.batch_size
-
-        if system_size >= 32:
-            batch_size //= 2
-        if system_size >= 64:
-            batch_size //= 2
-        if system_size >= 128:
-            batch_size //= 2
+        # if mol.nelectron >= 250:
+        #     batch_size /= 2
+        # if mol.nelectron >= 350:
+        #     batch_size /= 2
 
         settings = dict(
             batch_size=batch_size,
@@ -175,7 +171,7 @@ if __name__ == "__main__":
         rng = jax.random.PRNGKey(0)
         rng_electrons, rng_move, rng_params, rng_pp = jax.random.split(rng, 4)
         rng_pp = jax.random.split(rng_pp, batch_size)
-        mol = get_cumulene(system_size, args.use_ecp)
+
         wf = get_model(mol, 3.0)
         electrons = init_electrons(rng_electrons, mol, batch_size)
         electrons_new, idx_changed_el = single_electron_move(rng_move, electrons, args.move_stepsize)

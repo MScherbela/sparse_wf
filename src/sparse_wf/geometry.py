@@ -160,6 +160,10 @@ def load_geometries(geom_db_fname=None) -> dict[str, Geometry]:
 
 
 def save_geometries(geometries, geom_db_fname=None):
+    if isinstance(geometries, Geometry):
+        geometries = [geometries]
+    if isinstance(geometries, list):
+        geometries = {g.hash: g for g in geometries}
     geom_db_fname = geom_db_fname or _get_default_geom_fname()
     geoms = load_geometries(geom_db_fname) | geometries
     dump_to_json(geoms, geom_db_fname)
