@@ -225,6 +225,9 @@ def fwd_lap(f, argnums=None, sparsity_threshold: float | int = 0):
 
 
 def copy_from_main(x: T) -> T:
+    if jax.process_count() == 1:
+        return x
+
     def _copy_from_main(x):
         return jax.tree_util.tree_map(lambda x: pgather(x, axis=0)[0], x)
 

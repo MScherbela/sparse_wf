@@ -4,6 +4,7 @@
 #SBATCH --gpus-per-task={min(n_gpus, 4)}
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
+#SBATCH --mem=0
 #SBATCH -p boost_usr_prod
 #SBATCH --qos normal
 #SBATCH -A L-AUT_Sch-Hoef
