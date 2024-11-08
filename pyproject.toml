@@ -8,7 +8,7 @@ name = "sparse_wf"
 version = "0.0.1"
 readme = "README.md"
 dependencies = [
-    "jax[cuda12-pip]==0.4.23",
+    "jax[cuda12-pip]==0.4.24",
     "flax",
     "optax",
     "chex",
@@ -32,10 +32,7 @@ bokeh = [
     "chromedriver-binary>=132.0.6821.0.0",
     "selenium>=4.26.1",
 ]
-profiling = [
-    "tensorboard-plugin-profile>=2.17.0",
-    "tensorflow>=2.18.0",
-]
+profiling = ["tensorboard-plugin-profile>=2.17.0", "tensorflow>=2.18.0"]
 
 [tool.ruff]
 line-length = 120
@@ -61,12 +58,7 @@ constraint-dependencies = [
     "numpy<2.0.0",           # required for jax==0.4.23
     "nvidia_cudnn_cu12<9.0", # required for jax==0.4.23
 ]
-dev-dependencies = [
-    "ruff",
-    "pre-commit",
-    "ipykernel>=6.29.5",
-    "mypy>=1.12.0",
-]
+dev-dependencies = ["ruff", "pre-commit", "ipykernel>=6.29.5", "mypy>=1.12.0"]
 find-links = [
     "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html",
 ]
