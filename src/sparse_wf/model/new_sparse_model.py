@@ -435,10 +435,15 @@ class NewSparseEmbedding(PyTreeNode):
         pair_idx_diff = jnp.where(~is_same_spin, size=n_changed_pair_diff, fill_value=NO_NEIGHBOUR)
 
         # Get the center and neighbour indices for the pairs
-        idx_pair_same = (idx_changed_hout[idx_pair_ct[pair_idx_same]], idx_pair_nb[pair_idx_same])
-        idx_pair_diff = (idx_changed_hout[idx_pair_ct[pair_idx_diff]], idx_pair_nb[pair_idx_diff])
+        get_padded = functools.partial(get, fill_value=NO_NEIGHBOUR)
+        # Getting the centers requires 1 more lookup, because we need to convert from the idx of changed_hout to the idx of all electrons
+        # This is a result of is_required_pair having a non-square shape
+        pair_idx_same_ct = get_padded(idx_changed_hout, get_padded(idx_pair_ct, pair_idx_same))
+        pair_idx_diff_ct = get_padded(idx_changed_hout, get_padded(idx_pair_ct, pair_idx_diff))
+        pair_idx_same_nb = get_padded(idx_pair_nb, pair_idx_same)
+        pair_idx_diff_nb = get_padded(idx_pair_nb, pair_idx_diff)
 
-        return idx_changed_hout, idx_pair_same, idx_pair_diff
+        return idx_changed_hout, (pair_idx_same_ct, pair_idx_same_nb), (pair_idx_diff_ct, pair_idx_diff_nb)
 
     def get_neighbouring_nuclei(self, r, dynamic_params_en, n_neighbours_en: int):
         assert r.shape == (3,)
