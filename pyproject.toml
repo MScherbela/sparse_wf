@@ -8,7 +8,7 @@ name = "sparse_wf"
 version = "0.0.1"
 readme = "README.md"
 dependencies = [
-    "jax[cuda12-pip]==0.4.24",
+    "jax[cuda12-pip]==0.4.23",
     "flax",
     "optax",
     "chex",

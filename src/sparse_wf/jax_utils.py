@@ -11,7 +11,6 @@ import jax.core
 import jax.tree_util as jtu
 
 from sparse_wf.api import PRNGKeyArray
-from sparse_wf.tree_utils import tree_squared_norm
 import flax.linen as nn
 
 T = TypeVar("T")
@@ -281,17 +280,10 @@ def only_on_main_process(
 
 
 def assert_identical_copies(x, threshold=1e-8):
-    @pmap
-    def check_tree_identity(x):
-        main = jax.tree_util.tree_map(lambda x: pgather(x, axis=0)[0], x)
-        diff = jax.tree_util.tree_map(jnp.subtract, x, main)
-        delta = tree_squared_norm(diff) ** 0.5
-        is_okay = delta <= threshold
-        is_okay = pmin(is_okay)
-        return is_okay, delta
-
-    is_okay, delta = check_tree_identity(x)
-    assert is_okay.any().item(), f"Tensors are not identical! Delta is {delta.ravel()[0].item()}"
+    all_params = jax.tree_util.tree_map(lambda y: pmap(pgather)(y)[0], x)
+    mae = jax.tree_util.tree_map(lambda x: jnp.max(jnp.abs(x - x[0])), all_params)
+    max_delta = max(jax.tree_util.tree_leaves(mae))
+    assert max_delta < threshold, f"Tensors are not identical! Maximum delta is {max_delta}"
 
 
 def get_from_main_process(data, has_device_axis=False):

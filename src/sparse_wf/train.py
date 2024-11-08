@@ -141,6 +141,7 @@ def main(
         mol._ecp.keys(),
         optimization["pp_grid_points"],
     )
+
     # The state will only be fed into pmapped functions, i.e., we need a per device key
     state = trainer.init(device_keys, params, electrons, mcmc_state)
     if load_checkpoint:

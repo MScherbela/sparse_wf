@@ -824,7 +824,7 @@ wheels = [
 
 [[package]]
 name = "jax"
-version = "0.4.24"
+version = "0.4.23"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ml-dtypes" },
@@ -832,9 +832,9 @@ dependencies = [
     { name = "opt-einsum" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4b/e4/bb8c304e1fe9abddf91e8735e42cdb9a43c30ce53f3867c10786d0eef845/jax-0.4.24.tar.gz", hash = "sha256:4a6b6fd026ddd22653c7fa2fac1904c3de2dbe845b61ede08af9a5cc709662ae", size = 1519335 }
+sdist = { url = "https://files.pythonhosted.org/packages/59/05/6c8fe50bca3d7f23d3984ea78d954eb3abd2a39eaf526496ff7e2aaffb19/jax-0.4.23.tar.gz", hash = "sha256:2a229a5a758d1b803891b2eaed329723f6b15b4258b14dc0ccb1498c84963685", size = 1469779 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/35/c1/51a51ea646864ef8b4bd68632162ed1b4495c580b9bfa72fe49168221d69/jax-0.4.24-py3-none-any.whl", hash = "sha256:4ff1cde9585c95d00b397e20d53680d13d951df7248ec7136d13b4e2000348b6", size = 1789928 },
+    { url = "https://files.pythonhosted.org/packages/28/d0/edf653ea02628f2130ea2557f96d02b264768a2f54d22a9c002c7119cb1d/jax-0.4.23-py3-none-any.whl", hash = "sha256:a7a07ccd1577111e3b82378c79a8ed0f9d6613b1e98fb6bf3c0b459198f73eaa", size = 1735250 },
 ]
 
 [package.optional-dependencies]
@@ -854,7 +854,7 @@ cuda12-pip = [
 
 [[package]]
 name = "jaxlib"
-version = "0.4.24+cuda12.cudnn89"
+version = "0.4.23+cuda12.cudnn89"
 source = { registry = "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" }
 dependencies = [
     { name = "ml-dtypes" },
@@ -862,10 +862,10 @@ dependencies = [
     { name = "scipy" },
 ]
 wheels = [
-    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp311-cp311-manylinux2014_aarch64.whl" },
-    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp311-cp311-manylinux2014_x86_64.whl" },
-    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp312-cp312-manylinux2014_aarch64.whl" },
-    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.24+cuda12.cudnn89-cp312-cp312-manylinux2014_x86_64.whl" },
+    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.23+cuda12.cudnn89-cp311-cp311-manylinux2014_aarch64.whl" },
+    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.23+cuda12.cudnn89-cp311-cp311-manylinux2014_x86_64.whl" },
+    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.23+cuda12.cudnn89-cp312-cp312-manylinux2014_aarch64.whl" },
+    { url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.23+cuda12.cudnn89-cp312-cp312-manylinux2014_x86_64.whl" },
 ]
 
 [[package]]
@@ -2421,7 +2421,7 @@ requires-dist = [
     { name = "einops" },
     { name = "flax" },
     { name = "folx" },
-    { name = "jax", extras = ["cuda12-pip"], specifier = "==0.4.24" },
+    { name = "jax", extras = ["cuda12-pip"], specifier = "==0.4.23" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "optax" },

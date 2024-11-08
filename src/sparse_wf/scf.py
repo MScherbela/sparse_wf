@@ -30,6 +30,7 @@ def run_hf(mol):
     hf.sigma = 1e-6
     hf.max_cycle = 50
     hf.kernel()
+    logging.info(f"HF energy: {hf.e_tot}")
     return hf
 
 

@@ -30,6 +30,7 @@ from sparse_wf.jax_utils import (
     vmap_reduction,
     pmax_if_pmap,
     PMAP_AXIS_NAME,
+    copy_from_main,
 )
 from sparse_wf.tree_utils import tree_dot
 
@@ -94,7 +95,7 @@ def make_trainer(
     )
 
     def init(key: PRNGKeyArray, params: P, electrons: Electrons, init_width: Width):
-        params = replicate(params)
+        params = copy_from_main(replicate(params))
         return TrainingState(
             key=key,
             params=params,
