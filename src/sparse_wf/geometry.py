@@ -126,7 +126,7 @@ class Geometry:
 
         return ase.Atoms(self.Z, self.R * BOHR_IN_ANGSTROM)
 
-    def as_pyscf_molecule(self, basis_set):
+    def as_pyscf_molecule(self, basis_set, ecp=None):
         import pyscf.gto
 
         molecule = pyscf.gto.Mole()
@@ -138,6 +138,8 @@ class Geometry:
         molecule.charge = self.charge
         # maximum memory in megabytes (i.e. 10e3 = 10GB)
         molecule.max_memory = 10e3
+        if ecp is not None:
+            molecule.ecp = ecp
         molecule.build()
         return molecule
 

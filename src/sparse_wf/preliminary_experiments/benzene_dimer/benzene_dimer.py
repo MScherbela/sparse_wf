@@ -1,0 +1,72 @@
+#%%
+import bokeh.layouts
+import wandb
+import pandas as pd
+
+api = wandb.Api()
+runs = api.runs("tum_daml_nicholas/benzene")
+runs = [r for r in runs if r.name.startswith("benzene_dimer_T_")]
+
+data = []
+for r in runs:
+    print(r.name)
+    metadata = dict(dist = 10.0 if "10.00A" in r.name else 4.95,
+    cutoff=5.0 if "_5.0" in r.name else 3.0,
+    run_name=r.name,)
+
+    for h in r.scan_history(["opt/step", "opt/E", "opt/E_std"], page_size=10_000):
+        data.append(h | metadata)
+
+df_all = pd.DataFrame(data)
+df_all.to_csv("benzene_energies.csv", index=False)
+
+#%%
+import bokeh.plotting as bpl
+import bokeh
+
+window_length = 10_000
+cutoffs = [3.0, 5.0]
+dists = [4.95, 10.0]
+
+df_all = pd.read_csv("benzene_energies.csv")
+# molecules = sorted(df_all["molecule"].unique())
+pivot = df_all.pivot_table(index="opt/step", columns=["cutoff", "dist"], values="opt/E", aggfunc="mean")
+for cutoff in cutoffs:
+    for dist in dists:
+        smoothed = pivot[(cutoff, dist)].rolling(window=window_length).mean()
+        pivot.loc[:, (cutoff, f"E{dist}_smooth")] = smoothed
+    pivot.loc[:, (cutoff, "delta_smooth")] = (pivot[cutoff][f"E{dists[0]}_smooth"] - pivot[cutoff][f"E{dists[1]}_smooth"]) * 1000
+
+refs = {
+"PsiFormer": 5.0,
+"Experiment": -3.8,
+"FermiNet": -4.6,
+"DMC (Ren et al)": -9.2,
+}
+
+
+# df_ref = pd.read_csv("../../../../data/energies.csv")
+# df_ref = df_ref[(df_ref.model == "CCSD(T)") & (df_ref.model_comment == "CBS") & (df_ref.geom_comment.isin(molecules))]
+# df_ref = df_ref.groupby("geom_comment")[["E"]].mean()
+# df_ref["delta"] = (df_ref - df_ref.mean(axis=0)) * 1000
+
+p = bpl.figure(width=900, title="Benzene dimer binding energy", x_axis_label="Optimization Step", y_axis_label="E_4.95 - E_10.0 / mHa", tools="box_zoom,hover,save", tooltips=[("step", "$x"), ("delta", "$y")])
+for cutoff, color in zip(cutoffs, bokeh.palettes.HighContrast3):
+    p.line(pivot.index, pivot[(cutoff, "delta_smooth")], legend_label=f"cutoff={cutoff:.1f}", color=color, line_width=2)
+    # p.add_layout(bokeh.models.Span(location=df_ref.loc[m, "delta"], dimension="width", line_color=color, line_dash="dashed", line_width=2))
+
+for (ref, E_ref), color in zip(refs.items(), bokeh.palettes.Category10[10]):
+    p.line([0, max(pivot.index)], [E_ref, E_ref], legend_label=ref, color=color, line_dash="dashed", line_width=2)
+
+
+p.y_range.start = -10
+p.y_range.end = 10
+bpl.output_notebook()
+bpl.show(p)
+
+# bokeh.io.export_png(p, filename="mpconf.png")
+
+
+
+
+
