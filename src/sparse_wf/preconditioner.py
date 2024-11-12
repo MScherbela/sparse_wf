@@ -15,19 +15,17 @@ from sparse_wf.api import (
     PreconditionerArgs,
     PreconditionerState,
 )
-from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum, vector_to_tree_like
+from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum, vector_to_tree_like, pmean_if_pmap
 from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub, ravel_with_padding
 
 P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
 
-def make_damping_scheduler(increase_factor=2.0, decay_factor=0.999, cond_max=1e4):
+def make_damping_scheduler(nan_increase_factor=2.0, decay_factor=0.999, cond_target=1e4):
     def adjust_damping(damping, cond_nr, is_nan):
-        return jnp.where(
-            is_nan | (cond_nr > 10 * cond_max),
-            damping * increase_factor,
-            jnp.where(cond_nr < cond_max, damping * decay_factor, damping),
-        )
+        damping = jnp.where(is_nan, damping * nan_increase_factor, damping)
+        damping = jnp.where(cond_nr < cond_target, damping * decay_factor, damping / decay_factor)
+        return damping
 
     return adjust_damping
 
@@ -214,7 +212,7 @@ def make_dense_spring_preconditioner(
 
         # Diagnose and adjust stability
         aux_data = {}
-        cond_nr = jnp.linalg.cond(T)
+        cond_nr = pmean_if_pmap(jnp.linalg.cond(T))  # pmean should not be necessary, but just in case
         aux_data["opt/log10_S_cond_nr"] = jnp.log10(cond_nr)
         aux_data["opt/damping"] = natgrad_state.damping
         is_nan = ~jnp.all(jnp.isfinite(natgrad))
