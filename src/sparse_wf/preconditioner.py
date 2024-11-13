@@ -21,13 +21,13 @@ from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub, ravel_with_paddin
 P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
 
-def make_damping_scheduler(nan_increase_factor=2.0, decay_factor=0.999, cond_target=1e6):
-    def adjust_damping(damping, cond_nr, is_nan):
-        damping = jnp.where(is_nan, damping * nan_increase_factor, damping)
-        damping = jnp.where(cond_nr < cond_target, damping * decay_factor, damping / decay_factor)
-        return damping
+# def make_damping_scheduler(min_damping, max_cond_nr=1e6, nan_increase_factor=2.0, decay_factor=0.999):
+#     def adjust_damping(damping, cond_nr, is_nan):
+#         damping = jnp.where(is_nan, damping * nan_increase_factor, damping)
+#         damping = jnp.where(cond_nr < cond_target, damping * decay_factor, damping / decay_factor)
+#         return damping
 
-    return adjust_damping
+#     return adjust_damping
 
 
 def make_identity_preconditioner(
@@ -168,7 +168,7 @@ def make_dense_spring_preconditioner(
             damping=jnp.array(damping, jnp.float32),
         )
 
-    damping_scheduler = make_damping_scheduler()
+    # damping_scheduler = make_damping_scheduler()
 
     def precondition(
         params: P,
@@ -191,14 +191,24 @@ def make_dense_spring_preconditioner(
         jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), out_axes=1, max_batch_size=max_batch_size)
         jacT = jac_fn(flat_params, electrons, static)
         T = get_jacjacT(jacT, global_param_block_size, use_float64)
-        T += natgrad_state.damping * jnp.eye(N, dtype=T.dtype) + 1 / N
+        T += 1 / N
+
+        # Compute optimal damping to target a given condition number
+        # This is probably a little overkill, but also doesn't cost a lot
+        cond_nr_target = 1e6
+        eigvals = jnp.linalg.eigvalsh(T)[[0, -1]]
+        required_damping = (eigvals[1] - cond_nr_target * eigvals[0]) / (cond_nr_target - 1)
+        required_damping = pmean_if_pmap(jnp.maximum(required_damping, damping))
+        T += required_damping * jnp.eye(N, dtype=T.dtype)
+
+        # T += natgrad_state.damping * jnp.eye(N, dtype=T.dtype) + 1 / N
 
         # The remainder needs a centered jacobian - this can be done in float32
         jacT -= pmean(jacT.mean(axis=1, keepdims=True))
 
         last_grad = natgrad_state.last_grad
         decayed_last_grad = decay_factor * last_grad
-        decayed_last_grad += ravel_params(aux_grad)[0] / natgrad_state.damping
+        decayed_last_grad += ravel_params(aux_grad)[0] / required_damping
         cotangent = dE_dlogpsi.reshape(-1) * normalization
         cotangent -= decayed_last_grad @ jacT
         cotangent = pgather(cotangent, axis=0, tiled=True)
@@ -212,15 +222,15 @@ def make_dense_spring_preconditioner(
 
         # Diagnose and adjust stability
         aux_data = {}
-        cond_nr = pmean_if_pmap(jnp.linalg.cond(T))  # pmean should not be necessary, but just in case
-        aux_data["opt/log10_S_cond_nr"] = jnp.log10(cond_nr)
-        aux_data["opt/damping"] = natgrad_state.damping
+        # cond_nr = pmean_if_pmap(jnp.linalg.cond(T))  # pmean should not be necessary, but just in case
+        aux_data["opt/log10_S_cond_nr"] = jnp.log10(eigvals[1]) - jnp.log10(eigvals[0])
+        aux_data["opt/damping"] = required_damping
         is_nan = ~jnp.all(jnp.isfinite(natgrad))
-        damping = damping_scheduler(natgrad_state.damping, cond_nr, is_nan)
+        # required_damping = damping_scheduler(natgrad_state.damping, cond_nr, is_nan)
         natgrad = jnp.where(is_nan, jnp.zeros_like(natgrad), natgrad)
 
         update = unravel(natgrad.astype(jnp.float32))
-        return update, PreconditionerState(last_grad=natgrad, damping=damping), aux_data
+        return update, PreconditionerState(last_grad=natgrad, damping=required_damping), aux_data
 
     return Preconditioner(init, precondition)
 
