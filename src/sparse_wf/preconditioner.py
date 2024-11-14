@@ -21,11 +21,14 @@ from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub, ravel_with_paddin
 P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
 
 
-def symmetric_inv_with_damping(H, damping):
+def symmetric_inv_with_damping(H, damping, max_cond_nr=None):
     s, U = jnp.linalg.eigh(H)
     damping = jnp.maximum(damping, damping - s[0])  # Use larger damping in case of negative eigenvalues
+    if max_cond_nr is not None:
+        required_damping = (s[-1] - max_cond_nr * s[0]) / (max_cond_nr - 1)
+        damping = jnp.maximum(damping, required_damping)
     cond_nr = (s[-1] + damping) / (s[0] + damping)
-    U = U / jnp.sqrt(s)
+    U = U / jnp.sqrt(s + damping)
     return U @ U.T, damping.astype(jnp.float32), cond_nr.astype(jnp.float32)
 
 
