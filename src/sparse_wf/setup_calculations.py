@@ -164,6 +164,14 @@ def get_slurm_defaults(cluster, queue):
             raise ValueError("Unknown queue: {queue}")
     elif cluster == "leonardo":
         defaults = dict(time="1-00:00:00", n_gpus=4)
+    elif cluster == "lrz":
+        defaults = dict(
+            time="2-00:00:00",
+            n_gpus=4,
+            partition="mcml-hgx-h100-92x4,mcml-hgx-a100-80x4",
+        )
+    elif cluster == "daml":
+        defaults = dict(time="5-00:00:00", n_gpus=1, partition="gpu_a100,gpu_h100")
     return defaults
 
 
@@ -175,6 +183,10 @@ def autodetect_cluster():
         return "vsc5"
     elif "leonardo" in hostname:
         return "leonardo"
+    elif "login-" in hostname:
+        return "lrz"
+    elif "gpu06" in hostname or "fs" == hostname:
+        return "daml"
 
 
 def build_grid(*param_groups):
