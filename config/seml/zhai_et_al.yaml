@@ -4,18 +4,30 @@ seml:
   output_dir: ~/slurm-output/
 
 slurm:
-  - experiments_per_job: 1
-    sbatch_options:
-      gres: gpu:4
-      cpus-per-task: 16
-      mem: 64G
-      partition: gpu_h100
+  # - experiments_per_job: 1
+  #   sbatch_options:
+  #     gres: gpu:4
+  #     cpus-per-task: 16
+  #     mem: 64G
+  #     partition: gpu_h100
+  # - experiments_per_job: 1
+  #   sbatch_options:
+  #     gres: gpu:8
+  #     cpus-per-task: 16
+  #     mem: 64G
+  #     partition: gpu_a100
   - experiments_per_job: 1
     sbatch_options:
       gres: gpu:8
-      cpus-per-task: 16
-      mem: 64G
-      partition: gpu_a100
+      cpus-per-task: 32
+      mem: 256G
+      partition: mcml-hgx-a100-80x4
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:4
+      cpus-per-task: 32
+      mem: 256G
+      partition: mcml-hgx-h100-92x4
 
 fixed:
   logging_args.wandb.project: ngao_zhai
@@ -29,11 +41,11 @@ grid:
   molecule_args.database_args.name:
     type: choice
     options:
-      # - zhai_et_al_2023_HFe_df2-tzvp
-      # - zhai_et_al_2023_HC_df2-tzvp
-      # - zhai_et_al_2023_HFe2_df2-tzvp
-      # - zhai_et_al_2023_HS_df2-tzvp
-      - zhai_et_al_2023_HFe_df2-svp
-      - zhai_et_al_2023_HC_df2-svp
-      - zhai_et_al_2023_HFe2_df2-svp
-      - zhai_et_al_2023_HS_df2-svp
+      - zhai_et_al_2023_HFe_df2-tzvp
+      - zhai_et_al_2023_HC_df2-tzvp
+      - zhai_et_al_2023_HFe2_df2-tzvp
+      - zhai_et_al_2023_HS_df2-tzvp
+      # - zhai_et_al_2023_HFe_df2-svp
+      # - zhai_et_al_2023_HC_df2-svp
+      # - zhai_et_al_2023_HFe2_df2-svp
+      # - zhai_et_al_2023_HS_df2-svp
