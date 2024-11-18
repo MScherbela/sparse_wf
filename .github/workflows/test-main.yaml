@@ -19,6 +19,6 @@ jobs:
       - name: Install dependencies
         run: uv sync
       - name: Remove cuda
-        run: uv remove jax nvidia-cudnn-cu12; uv add jax
+        run: uv remove jax; uv add jax
       - name: Test with pytest
         run: JAX_PLATFORM_NAME=cpu uv run pytest
