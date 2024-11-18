@@ -19,20 +19,11 @@ slurm:
 
 fixed:
   logging_args.wandb.project: ngao_zhai
-  pretraining.steps: 10_000
-
   logging_args.name_keys:
-    - molecule_args.from_str_args.atom
-    - molecule_args.pseudopotentials
-
+    - molecule_args.database_args.name
   molecule_args.method: database
-  batch_size: 4096
-  logging_args.python.use: False
-  optimization.steps: 100_000
-  pretraining.reference: hf
   molecule_args.pseudopotentials: [C, S, Fe]
   optimization.pp_grid_points: 6
-  model_args.embedding.new.cutoff: 3.0
 
 grid:
   molecule_args.database_args.name:
@@ -42,7 +33,7 @@ grid:
       # - zhai_et_al_2023_HC_df2-tzvp
       # - zhai_et_al_2023_HFe2_df2-tzvp
       # - zhai_et_al_2023_HS_df2-tzvp
-      # - zhai_et_al_2023_HFe_df2-svp
-      # - zhai_et_al_2023_HC_df2-svp
+      - zhai_et_al_2023_HFe_df2-svp
+      - zhai_et_al_2023_HC_df2-svp
       - zhai_et_al_2023_HFe2_df2-svp
       - zhai_et_al_2023_HS_df2-svp
