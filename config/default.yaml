@@ -24,12 +24,12 @@ molecule_args:
 model: moon
 
 model_args:
-  n_determinants: 16
+  n_determinants: 4
   spin_restricted: false
   embedding:
     embedding: new_sparse
     new:
-      cutoff: 5.0
+      cutoff: 3.0
       cutoff_1el: 20.0
       feature_dim: 256
       pair_mlp_widths: [16, 8]
@@ -65,7 +65,7 @@ model_args:
 
 logging_args:
   smoothing: 5000
-  checkpoint_every: 10_000
+  checkpoint_every: 5_000
   wandb:
     use: true
     entity: tum_daml_nicholas
@@ -105,7 +105,7 @@ optimization:
     spring_dense_args:
       damping: 1.0e-3
       decay_factor: 0.99
-      max_batch_size: 128
+      max_batch_size: 16
       use_float64: true
     cg_args:
       damping: 1.0e-3
@@ -150,7 +150,7 @@ pretraining:
     s2: -1
 
 load_checkpoint: ""
-auto_requeue: 0
+auto_requeue: 1
 
 evaluation:
   steps: 0
