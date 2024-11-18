@@ -21,7 +21,7 @@ slurm:
       gres: gpu:8
       cpus-per-task: 32
       mem: 256G
-      partition: mcml-hgx-a100-80x4
+      partition: mcml-dgx-a100-40x8
   - experiments_per_job: 1
     sbatch_options:
       gres: gpu:4
