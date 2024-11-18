@@ -114,7 +114,7 @@ def test_energy(dtype, embedding):
 
 
 if __name__ == "__main__":
-    test_orbitals(jnp.float32, "new_sparse")
+    test_energy(jnp.float64, "new_sparse")
     # for embedding in ["moon", "new", "new_sparse"]:
     #     for dtype in [jnp.float64, jnp.float32]:
     #         test_embedding(dtype, embedding)

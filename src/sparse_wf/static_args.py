@@ -25,7 +25,7 @@ class StaticScheduler:
         min_padding_factor: float = 1.05,
     ):
         self.step = 0
-        self.did_recompile = np.ones(history_length, jnp.bool)
+        self.did_recompile = np.ones(history_length, bool)
         self.history_length = history_length
         self.history: Optional[StaticInput] = None
         self.n_electrons = n_electrons

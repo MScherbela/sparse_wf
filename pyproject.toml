@@ -8,13 +8,13 @@ name = "sparse_wf"
 version = "0.0.1"
 readme = "README.md"
 dependencies = [
-    "jax[cuda12-pip]==0.4.24",
+    "jax[cuda12-pip]==0.4.29", # lates jax with monolitic cuda12
     "flax",
     "optax",
     "chex",
     "tqdm",
     "einops",
-    "numpy<2.0.0",
+    "numpy",
     "matplotlib",
     "folx",
     "pyscf",
@@ -24,11 +24,15 @@ dependencies = [
     "pytest",
     "wonderwords",
     "argcomplete",
-    "nvidia-cudnn-cu12<=9",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff", "pre-commit"]
+bokeh = [
+    "bokeh>=3.6.0",
+    "chromedriver-binary>=132.0.6821.0.0",
+    "selenium>=4.26.1",
+]
+profiling = ["tensorboard-plugin-profile>=2.17.0", "tensorflow>=2.18.0"]
 
 [tool.ruff]
 line-length = 120
@@ -49,7 +53,12 @@ disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 testpaths = ["tests"]
 
 [tool.uv]
-dev-dependencies = ["ipykernel>=6.29.5", "mypy>=1.12.0"]
+constraint-dependencies = [
+    "scipy<=1.12.0", # required for jax==0.4.23
+    "numpy<2.0.0",   # required for jax==0.4.23
+    # "nvidia_cudnn_cu12<9.0", # required for jax==0.4.23
+]
+dev-dependencies = ["ruff", "pre-commit", "ipykernel>=6.29.5", "mypy>=1.12.0"]
 find-links = [
     "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html",
 ]

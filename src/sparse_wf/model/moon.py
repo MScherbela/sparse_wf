@@ -582,7 +582,7 @@ class MoonEmbedding(PyTreeNode, Embedding[MoonEmbeddingParams, StaticInputMoon, 
         dist_ne = jnp.minimum(dist_ne, dist_ne_new)
         dist_en = jnp.swapaxes(dist_ne, -1, -2)
 
-        is_affected_r = jnp.zeros(n_el, dtype=jnp.bool_).at[idx_changed].set(True)
+        is_affected_r = jnp.zeros(n_el, dtype=bool).at[idx_changed].set(True)
         is_affected_h0 = is_affected_r | jnp.any((dist_ee < self.cutoff) & is_affected_r[None, :], axis=-1)
         is_affected_H = jnp.any((dist_ne < self.cutoff) & is_affected_h0[None, :], axis=-1)
         is_affected_out = (

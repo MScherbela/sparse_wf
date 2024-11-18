@@ -79,8 +79,15 @@ def main(
     loggers = MultiLogger(logging_args)
     loggers.log_config(config | dict(molecule=dict(R=R.tolist(), Z=Z.tolist(), n_el=n_el, n_up=n_up)))
     # initialize distributed training
-    if int(os.environ.get("SLURM_NTASKS", 1)) > 1:
-        jax.distributed.initialize()
+    slurm_n_tasks = int(os.environ.get("SLURM_NTASKS", 1))
+    slurm_gpus_per_task = int(os.environ.get("SLURM_GPUS_PER_TASK", 1))
+    if slurm_n_tasks > 1:
+        if slurm_gpus_per_task > 1:
+            # SBATCH settings: -N {nr_of_nodes} --ntasks-per-node=1 --gpus-per-task={gpus_per_node}; do not use gres
+            jax.distributed.initialize(num_processes=slurm_n_tasks, local_device_ids=range(slurm_gpus_per_task))
+        else:
+            # SBATCH settings: -N {nr_of_nodes} --ntasks-per-node={gpus_per_node} --gres=gpu:{gpus_per_node}; do not use --gpus-per-task
+            jax.distributed.initialize()
     logging.info(f'Run name: {loggers.args["name"]}')
     logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
     logging.info(f"Atomic numbers: {Z}; Effective charges: {effective_charges}; Spin configuration: ({n_up}, {n_dn})")
@@ -134,6 +141,7 @@ def main(
         mol._ecp.keys(),
         optimization["pp_grid_points"],
     )
+
     # The state will only be fed into pmapped functions, i.e., we need a per device key
     state = trainer.init(device_keys, params, electrons, mcmc_state)
     if load_checkpoint:
@@ -146,6 +154,7 @@ def main(
 
     # Build pre-training wavefunction and sampling step
     if (pretraining["steps"] > 0) or evaluation["overlap_states"]:
+        logging.info(f"Computing reference wavefunction for pretraining, using: {pretraining['reference']}")
         match pretraining["reference"].lower():
             case "hf":
                 hf_wf = HFWavefunction(mol)

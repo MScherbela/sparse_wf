@@ -126,7 +126,7 @@ class Geometry:
 
         return ase.Atoms(self.Z, self.R * BOHR_IN_ANGSTROM)
 
-    def as_pyscf_molecule(self, basis_set):
+    def as_pyscf_molecule(self, basis_set, ecp=None):
         import pyscf.gto
 
         molecule = pyscf.gto.Mole()
@@ -138,6 +138,8 @@ class Geometry:
         molecule.charge = self.charge
         # maximum memory in megabytes (i.e. 10e3 = 10GB)
         molecule.max_memory = 10e3
+        if ecp is not None:
+            molecule.ecp = ecp
         molecule.build()
         return molecule
 
@@ -160,6 +162,10 @@ def load_geometries(geom_db_fname=None) -> dict[str, Geometry]:
 
 
 def save_geometries(geometries, geom_db_fname=None):
+    if isinstance(geometries, Geometry):
+        geometries = [geometries]
+    if isinstance(geometries, list):
+        geometries = {g.hash: g for g in geometries}
     geom_db_fname = geom_db_fname or _get_default_geom_fname()
     geoms = load_geometries(geom_db_fname) | geometries
     dump_to_json(geoms, geom_db_fname)

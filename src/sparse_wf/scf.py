@@ -26,10 +26,12 @@ def run_hf(mol):
     hf = pyscf.scf.addons.smearing_(hf, sigma=0.1, method="fermi")
     hf.max_cycle = 5
     hf.kernel()
+    logging.info("HF smearing completed. Starting main SCF.")
 
     hf.sigma = 1e-6
     hf.max_cycle = 50
     hf.kernel()
+    logging.info(f"HF energy: {hf.e_tot}")
     return hf
 
 

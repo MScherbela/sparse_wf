@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH -J {job_name}
 #SBATCH -N 1
-#SBATCH -n {n_gpus}
-#SBATCH --cpus-per-task 8
+#SBATCH --gpus-per-task={n_gpus}
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task 16
 #SBATCH --partition hgx
 #SBATCH --qos={qos}
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
-#SBATCH --gres=gpu:{n_gpus}
 #SBATCH --mem={n_gpus*100_000}
 #SBATCH --signal=B:USR1@300
 #SBATCH --export=NONE
