@@ -34,7 +34,6 @@ fixed:
   logging_args.name_keys:
     - molecule_args.database_args.name
   molecule_args.method: database
-  molecule_args.basis: ccecp-ccpvdz
   molecule_args.pseudopotentials: [C, S, Fe]
   optimization.pp_grid_points: 6
 

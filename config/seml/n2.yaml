@@ -20,7 +20,6 @@ slurm:
 fixed:
   logging_args.wandb.project: ngao_n2
   molecule_args.method: from_str
-  molecule_args.basis: ccecp-ccpvdz
   logging_args.name_keys:
     - molecule_args.from_str_args.atom
     - molecule_args.pseudopotentials
