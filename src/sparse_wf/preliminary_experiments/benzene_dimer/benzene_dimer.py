@@ -6,6 +6,8 @@ import pandas as pd
 api = wandb.Api()
 runs = api.runs("tum_daml_nicholas/benzene")
 runs = [r for r in runs if r.name.startswith("benzene_dimer_T_")]
+runs = [r for r in runs if not "2024-11-20T" in r.metadata["startedAt"]]
+runs = [r for r in runs if not "5.0" in r.name]
 
 data = []
 for r in runs:
@@ -24,8 +26,9 @@ df_all.to_csv("benzene_energies.csv", index=False)
 import bokeh.plotting as bpl
 import bokeh
 
-window_length = 10_000
-cutoffs = [3.0, 5.0]
+window_length = 5000
+# cutoffs = [3.0, 5.0]
+cutoffs = [3.0]
 dists = [4.95, 10.0]
 
 df_all = pd.read_csv("benzene_energies.csv")
@@ -38,10 +41,10 @@ for cutoff in cutoffs:
     pivot.loc[:, (cutoff, "delta_smooth")] = (pivot[cutoff][f"E{dists[0]}_smooth"] - pivot[cutoff][f"E{dists[1]}_smooth"]) * 1000
 
 refs = {
-"PsiFormer": 5.0,
 "Experiment": -3.8,
-"FermiNet": -4.6,
-"DMC (Ren et al)": -9.2,
+"PsiFormer": 5.0,
+"FermiNet VMC (Glehn et al)": -4.6,
+"FermiNet DMC (Ren et al)": -9.2,
 }
 
 
@@ -52,14 +55,15 @@ refs = {
 
 p = bpl.figure(width=900, title="Benzene dimer binding energy", x_axis_label="Optimization Step", y_axis_label="E_4.95 - E_10.0 / mHa", tools="box_zoom,hover,save", tooltips=[("step", "$x"), ("delta", "$y")])
 for cutoff, color in zip(cutoffs, bokeh.palettes.HighContrast3):
-    p.line(pivot.index, pivot[(cutoff, "delta_smooth")], legend_label=f"cutoff={cutoff:.1f}", color=color, line_width=2)
+    p.line(pivot.index, pivot[(cutoff, "delta_smooth")], legend_label=f"SWANN cutoff={cutoff:.1f}", color=color, line_width=2)
     # p.add_layout(bokeh.models.Span(location=df_ref.loc[m, "delta"], dimension="width", line_color=color, line_dash="dashed", line_width=2))
 
-for (ref, E_ref), color in zip(refs.items(), bokeh.palettes.Category10[10]):
-    p.line([0, max(pivot.index)], [E_ref, E_ref], legend_label=ref, color=color, line_dash="dashed", line_width=2)
+for (ref, E_ref), color in zip(refs.items(), ("black",) + bokeh.palettes.Category10[10]):
+    line_dash = "solid" if ref == "Experiment" else "dashed"
+    p.line([0, max(pivot.index)], [E_ref, E_ref], legend_label=ref, color=color, line_dash=line_dash, line_width=2)
 
 
-p.y_range.start = -10
+p.y_range.start = -20
 p.y_range.end = 10
 bpl.output_notebook()
 bpl.show(p)
