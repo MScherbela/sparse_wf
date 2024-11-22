@@ -32,7 +32,8 @@ import bokeh.plotting as bpl
 import bokeh
 
 window_length = 5_000
-models = ["hf_like", "swann_low_damp", "swann_high_damp"]
+models = ["hf_like", "swann_high_damp"]
+model_labels = ["HF-like model (high damping)", "Full SWANN (high damping)"]
 
 df_all = pd.read_csv("mpconf_energies.csv")
 molecules = sorted(df_all["molecule"].unique())
@@ -50,7 +51,7 @@ for model in models:
 
 
 plots = []
-for model, title in zip(models, ["HF-like model (high damping)", "Full SWANN (low damping)", "Full SWANN (high damping)"]):
+for model, title in zip(models, model_labels):
     pivot = pivot_all[model]
     molecules = [m for m in list(pivot) if m.startswith("WG_")]
 
