@@ -36,5 +36,13 @@ grid:
   molecule_args.pseudopotentials:
     type: choice
     options:
-      # - []
-      - [N]
+      - []
+      # - [N]
+
+  pretraining.sample_from:
+    type: choice
+    options: [wf, hf]
+
+  mcmc_args.proposal:
+    type: choice
+    options: [all_electron, cluster-update]
