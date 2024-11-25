@@ -45,4 +45,4 @@ grid:
 
   mcmc_args.proposal:
     type: choice
-    options: [all_electron, cluster-update]
+    options: [all-electron, cluster-update]
