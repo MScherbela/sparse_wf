@@ -19,13 +19,13 @@ slurm:
   - experiments_per_job: 1
     sbatch_options:
       gres: gpu:8
-      cpus-per-task: 32
+      cpus-per-task: 64
       mem: 256G
       partition: mcml-dgx-a100-40x8
   - experiments_per_job: 1
     sbatch_options:
       gres: gpu:4
-      cpus-per-task: 32
+      cpus-per-task: 64
       mem: 256G
       partition: mcml-hgx-h100-92x4
 
@@ -41,11 +41,11 @@ grid:
   molecule_args.database_args.name:
     type: choice
     options:
-      - zhai_et_al_2023_HFe_df2-tzvp
-      - zhai_et_al_2023_HC_df2-tzvp
-      - zhai_et_al_2023_HFe2_df2-tzvp
-      - zhai_et_al_2023_HS_df2-tzvp
-      # - zhai_et_al_2023_HFe_df2-svp
-      # - zhai_et_al_2023_HC_df2-svp
-      # - zhai_et_al_2023_HFe2_df2-svp
-      # - zhai_et_al_2023_HS_df2-svp
+      # - zhai_et_al_2023_HFe_df2-tzvp
+      # - zhai_et_al_2023_HC_df2-tzvp
+      # - zhai_et_al_2023_HFe2_df2-tzvp
+      # - zhai_et_al_2023_HS_df2-tzvp
+      - zhai_et_al_2023_HFe_df2-svp
+      - zhai_et_al_2023_HC_df2-svp
+      - zhai_et_al_2023_HFe2_df2-svp
+      - zhai_et_al_2023_HS_df2-svp
