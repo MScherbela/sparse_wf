@@ -70,7 +70,7 @@ def mcmc_steps_all_electron(
         accept = log_ratio > jnp.log(u)
         new_electrons = jnp.where(accept, new_electrons, electrons)
         new_log_prob = jnp.where(accept, new_log_prob, log_prob)
-        num_accept += accept.astype(jnp.int32)
+        num_accept += accept.astype(jnp.int32).sum()
         return key, new_electrons, new_log_prob, static_mean, static_max, num_accept
 
     local_batch_size = electrons.shape[0]
