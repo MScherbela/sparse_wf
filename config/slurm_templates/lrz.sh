@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -J {job_name}
 #SBATCH -N 1
-#SBATCH -n {n_gpus}
+#SBATCH -n 1
 #SBATCH --cpus-per-task {cpus_per_task}
 #SBATCH --partition {partition}
 #SBATCH --qos=mcml
