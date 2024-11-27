@@ -89,6 +89,8 @@ optimization:
   optimizer_args:
     lr_schedule: hyperbolic
     lr_schedule_args:
+      constant:
+        value: 1.0
       hyperbolic:
         init_value: 0.1
         decay: 1.0
