@@ -2,13 +2,13 @@
 #SBATCH -J {job_name}
 #SBATCH -N 1
 #SBATCH -n {n_gpus}
-#SBATCH --cpus-per-task 8
+#SBATCH --cpus-per-task {cpus_per_task}
 #SBATCH --partition {partition}
 #SBATCH --qos=mcml
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
 #SBATCH --gres=gpu:{n_gpus}
-#SBATCH --mem={n_gpus*100_000}
+#SBATCH --mem={mem}
 #SBATCH --signal=B:USR1@300
 
 trap 'touch SPARSEWF_ABORT && wait' SIGUSR1
