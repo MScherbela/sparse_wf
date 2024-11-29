@@ -70,6 +70,7 @@ constraint-dependencies = [
     "numpy<2.0.0",   # required for jax==0.4.23
     # "nvidia_cudnn_cu12<9.0", # required for jax==0.4.23
 ]
+
 dev-dependencies = [
     "ruff",
     "pre-commit",
