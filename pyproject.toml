@@ -8,7 +8,7 @@ name = "sparse_wf"
 version = "0.0.1"
 readme = "README.md"
 dependencies = [
-    "jax[cuda12-pip]==0.4.29", # lates jax with monolitic cuda12
+    "jax[cuda12]>=0.4.35",               # lates jax with monolitic cuda12
     "flax",
     "optax",
     "chex",
@@ -24,6 +24,16 @@ dependencies = [
     "pytest",
     "wonderwords",
     "argcomplete",
+    "nvidia-cublas-cu12==12.6.0.22",
+    "nvidia-cuda-cupti-cu12==12.6.37",
+    "nvidia-cuda-nvcc-cu12==12.6.20",
+    "nvidia-cuda-runtime-cu12==12.6.37",
+    "nvidia-cudnn-cu12==9.3.0.75",
+    "nvidia-cufft-cu12==11.2.6.28",
+    "nvidia-cusolver-cu12==11.6.4.38",
+    "nvidia-cusparse-cu12==12.5.2.23",
+    "nvidia-nccl-cu12==2.22.3",
+    "nvidia-nvjitlink-cu12==12.6.20",
 ]
 
 [project.optional-dependencies]
@@ -53,11 +63,6 @@ disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 testpaths = ["tests"]
 
 [tool.uv]
-constraint-dependencies = [
-    "scipy<=1.12.0", # required for jax==0.4.23
-    "numpy<2.0.0",   # required for jax==0.4.23
-    # "nvidia_cudnn_cu12<9.0", # required for jax==0.4.23
-]
 dev-dependencies = ["ruff", "pre-commit", "ipykernel>=6.29.5", "mypy>=1.12.0"]
 find-links = [
     "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html",

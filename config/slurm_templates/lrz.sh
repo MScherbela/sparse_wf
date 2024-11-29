@@ -13,8 +13,8 @@
 
 trap 'touch SPARSEWF_ABORT && wait' SIGUSR1
 
-# if $HOME/develop/sparse_wf/.venv exists, activate it, else fall back to conda
-if [ -d $HOME/develop/sparse_wf/.venv ]; then
+# if $HOME/repos/sparse_wf/.venv exists, activate it, else fall back to conda
+if [ -d $HOME/repos/sparse_wf/.venv ]; then
     source $HOME/repos/sparse_wf/.venv/bin/activate
 fi
 export OMP_NUM_THREADS=10

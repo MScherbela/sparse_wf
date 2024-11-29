@@ -45,7 +45,7 @@ grid:
       # - zhai_et_al_2023_HC_df2-tzvp
       # - zhai_et_al_2023_HFe2_df2-tzvp
       # - zhai_et_al_2023_HS_df2-tzvp
-      - zhai_et_al_2023_HFe_df2-svp
-      - zhai_et_al_2023_HC_df2-svp
+      # - zhai_et_al_2023_HFe_df2-svp
+      # - zhai_et_al_2023_HC_df2-svp
       - zhai_et_al_2023_HFe2_df2-svp
       - zhai_et_al_2023_HS_df2-svp
