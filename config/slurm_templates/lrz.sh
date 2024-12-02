@@ -17,9 +17,6 @@ trap 'touch SPARSEWF_ABORT && wait' SIGUSR1
 if [ -d $HOME/repos/sparse_wf/.venv ]; then
     source $HOME/repos/sparse_wf/.venv/bin/activate
 fi
-export OMP_NUM_THREADS=10
-export MKL_NUM_THREADS=10
-export NVIDIA_TF32_OVERRIDE=0
-export WANDB_DIR="${{HOME}}/tmp"
-srun sparse-wf-run full_config.yaml &
+sleep 2m # random debug attempt
+sparse-wf-run full_config.yaml &
 wait

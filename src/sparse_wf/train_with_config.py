@@ -1,3 +1,8 @@
+import os
+
+os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+os.environ["JAX_DEFAULT_DTYPE_BITS"] = "32"
+
 import yaml
 from sparse_wf.train import main
 import argparse
