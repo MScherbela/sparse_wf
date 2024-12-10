@@ -10,13 +10,16 @@
 #SBATCH --gres=gpu:{n_gpus}
 #SBATCH --mem={mem}
 #SBATCH --signal=B:USR1@300
+#SBATCH --export=NONE
+SLURM_EXPORT_ENV=ALL
 
 trap 'touch SPARSEWF_ABORT && wait' SIGUSR1
 
-# if $HOME/repos/sparse_wf/.venv exists, activate it, else fall back to conda
-if [ -d $HOME/repos/sparse_wf/.venv ]; then
-    source $HOME/repos/sparse_wf/.venv/bin/activate
-fi
-sleep 2m # random debug attempt
-sparse-wf-run full_config.yaml &
+source $HOME/repos/sparse_wf/.venv/bin/activate
+export OMP_NUM_THREADS=10
+export MKL_NUM_THREADS=10
+export NVIDIA_TF32_OVERRIDE=0
+export WANDB_MODE=offline
+
+srun uv run sparse-wf-run full_config.yaml &
 wait
