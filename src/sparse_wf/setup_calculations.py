@@ -169,6 +169,7 @@ def get_slurm_defaults(cluster, queue):
             time="2-00:00:00",
             n_gpus=4,
             partition="mcml-hgx-h100-92x4,mcml-hgx-a100-80x4",
+            qos="mcml",
         )
     elif cluster == "daml":
         defaults = dict(time="5-00:00:00", n_gpus=1, partition="gpu_a100,gpu_h100")

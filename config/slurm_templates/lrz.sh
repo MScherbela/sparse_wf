@@ -4,7 +4,7 @@
 #SBATCH -n 1
 #SBATCH --cpus-per-task {cpus_per_task}
 #SBATCH --partition {partition}
-#SBATCH --qos=mcml
+#SBATCH --qos={qos}
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
 #SBATCH --gres=gpu:{n_gpus}
