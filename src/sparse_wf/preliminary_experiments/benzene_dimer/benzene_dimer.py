@@ -4,16 +4,18 @@ import wandb
 import pandas as pd
 
 api = wandb.Api()
-runs = api.runs("tum_daml_nicholas/benzene")
-runs = [r for r in runs if r.name.startswith("benzene_dimer_T_")]
-runs = [r for r in runs if not "2024-11-20T" in r.metadata["startedAt"]]
-runs = [r for r in runs if not "5.0" in r.name]
+all_runs = api.runs("tum_daml_nicholas/benzene")
+runs_cutoff3 = [r for r in all_runs if r.name.startswith("benzene_dimer_T_")]
+runs_cutoff3 = [r for r in runs_cutoff3 if not "2024-11-20T" in r.metadata["startedAt"]]
+runs_cutoff3 = [r for r in runs_cutoff3 if not "5.0" in r.name]
+runs_cutoff5 = [r for r in all_runs if r.name.startswith("5.0_benzene_dimer_T_")]
+runs = runs_cutoff3 + runs_cutoff5
 
 data = []
 for r in runs:
     print(r.name)
-    metadata = dict(dist = 10.0 if "10.00A" in r.name else 4.95,
-    cutoff=5.0 if "_5.0" in r.name else 3.0,
+    metadata = dict(dist = 10.0 if (("10.00A" in r.name) or ("100.00A" in r.name)) else 4.95,
+    cutoff=5.0 if "5.0" in r.name else 3.0,
     run_name=r.name,)
 
     for h in r.scan_history(["opt/step", "opt/E", "opt/E_std"], page_size=10_000):
@@ -26,9 +28,9 @@ df_all.to_csv("benzene_energies.csv", index=False)
 import bokeh.plotting as bpl
 import bokeh
 
-window_length = 5000
-# cutoffs = [3.0, 5.0]
-cutoffs = [3.0]
+window_length = 10_000
+cutoffs = [3.0, 5.0]
+# cutoffs = [3.0]
 dists = [4.95, 10.0]
 
 df_all = pd.read_csv("benzene_energies.csv")
@@ -36,7 +38,7 @@ df_all = pd.read_csv("benzene_energies.csv")
 pivot = df_all.pivot_table(index="opt/step", columns=["cutoff", "dist"], values="opt/E", aggfunc="mean")
 for cutoff in cutoffs:
     for dist in dists:
-        smoothed = pivot[(cutoff, dist)].rolling(window=window_length).mean()
+        smoothed = pivot[(cutoff, dist)].fillna(method="ffill", limit=10).rolling(window=window_length).mean()
         pivot.loc[:, (cutoff, f"E{dist}_smooth")] = smoothed
     pivot.loc[:, (cutoff, "delta_smooth")] = (pivot[cutoff][f"E{dists[0]}_smooth"] - pivot[cutoff][f"E{dists[1]}_smooth"]) * 1000
 
@@ -53,22 +55,22 @@ refs = {
 # df_ref = df_ref.groupby("geom_comment")[["E"]].mean()
 # df_ref["delta"] = (df_ref - df_ref.mean(axis=0)) * 1000
 
-p = bpl.figure(width=900, title="Benzene dimer binding energy", x_axis_label="Optimization Step", y_axis_label="E_4.95 - E_10.0 / mHa", tools="box_zoom,hover,save", tooltips=[("step", "$x"), ("delta", "$y")])
+p = bpl.figure(width=900, title="Benzene dimer binding energy", x_axis_label="Opt Step / k", y_axis_label="E_4.95 - E_10.0 / mHa", tools="box_zoom,hover,save", tooltips=[("step", "$x"), ("delta", "$y")])
 for cutoff, color in zip(cutoffs, bokeh.palettes.HighContrast3):
-    p.line(pivot.index, pivot[(cutoff, "delta_smooth")], legend_label=f"SWANN cutoff={cutoff:.1f}", color=color, line_width=2)
+    p.line(pivot.index / 1000, pivot[(cutoff, "delta_smooth")], legend_label=f"SWANN cutoff={cutoff:.1f}", color=color, line_width=2)
     # p.add_layout(bokeh.models.Span(location=df_ref.loc[m, "delta"], dimension="width", line_color=color, line_dash="dashed", line_width=2))
 
 for (ref, E_ref), color in zip(refs.items(), ("black",) + bokeh.palettes.Category10[10]):
     line_dash = "solid" if ref == "Experiment" else "dashed"
-    p.line([0, max(pivot.index)], [E_ref, E_ref], legend_label=ref, color=color, line_dash=line_dash, line_width=2)
+    p.line([0, max(pivot.index / 1000)], [E_ref, E_ref], legend_label=ref, color=color, line_dash=line_dash, line_width=2)
 
 
-p.y_range.start = -20
+p.y_range.start = -10
 p.y_range.end = 10
 bpl.output_notebook()
 bpl.show(p)
 
-# bokeh.io.export_png(p, filename="mpconf.png")
+bokeh.io.export_png(p, filename="benzene_dimer.png")
 
 
 
