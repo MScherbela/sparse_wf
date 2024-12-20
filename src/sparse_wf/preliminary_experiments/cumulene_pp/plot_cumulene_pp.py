@@ -33,13 +33,13 @@ n_carbon_values = df.n_carbon.unique()
 colors = bokeh.palettes.Category10[10][:len(n_carbon_values)]
 for n_carbon, color in zip(n_carbon_values, colors):
     p_opt.line(pivot.index, df_delta_E[n_carbon], legend_label=f"C{n_carbon}H4", line_width=2, color=color)
-    try:
-        E_90 = df_ref.loc[f"cumulene_C{n_carbon}H4_90deg", "E"]
-        E_0 = df_ref.loc[f"cumulene_C{n_carbon}H4_0deg", "E"]
-        delta_E_ref = (E_90 - E_0) * 1000
-        p_opt.add_layout(bokeh.models.Span(location=delta_E_ref, dimension="width", line_color=color, line_dash="dashed", line_width=2))
-    except KeyError:
-        print(f"No reference for {n_carbon=}")
+    # try:
+    #     E_90 = df_ref.loc[f"cumulene_C{n_carbon}H4_90deg", "E"]
+    #     E_0 = df_ref.loc[f"cumulene_C{n_carbon}H4_0deg", "E"]
+    #     delta_E_ref = (E_90 - E_0) * 1000
+    #     p_opt.add_layout(bokeh.models.Span(location=delta_E_ref, dimension="width", line_color=color, line_dash="dashed", line_width=2))
+    # except KeyError:
+    #     print(f"No reference for {n_carbon=}")
 
 
 p_n_carbon = bpl.figure(width=figure_width, title="Cumulene PP", x_axis_label="Number of Carbons", y_axis_label="Delta E / mHa", tools="box_zoom,hover,save", tooltips=[("n_carbon", "$x"), ("delta", "$y")])
@@ -48,7 +48,7 @@ for n_carbon, delta_E, color in zip(df_final.n_carbon, df_final.delta_E, colors)
     p_n_carbon.scatter([n_carbon], [delta_E], size=10, color=color)
 
 def fit_model(n_carbon, scale):
-    return scale / (n_carbon- 1)
+    return scale / n_carbon
 
 popt = scipy.optimize.curve_fit(fit_model, df_final[df_final.n_carbon > 2].n_carbon, df_final[df_final.n_carbon > 2].delta_E, p0=[200])[0]
 
