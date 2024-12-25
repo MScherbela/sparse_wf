@@ -569,6 +569,7 @@ class PretrainingArgs(TypedDict):
     sample_from: Literal["hf", "wf"]
     reference: Literal["hf", "cas"]
     cas: CASArgs
+    x2c: bool
 
 
 class EvaluationArgs(TypedDict):

@@ -139,6 +139,7 @@ pretraining:
         args: []
         kwargs: {}
   reference: hf
+  x2c: false
   cas:
     active_orbitals: 8
     active_electrons: 8

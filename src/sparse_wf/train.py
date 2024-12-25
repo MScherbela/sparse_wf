@@ -157,9 +157,9 @@ def main(
         logging.info(f"Computing reference wavefunction for pretraining, using: {pretraining['reference']}")
         match pretraining["reference"].lower():
             case "hf":
-                hf_wf = HFWavefunction(mol)
+                hf_wf = HFWavefunction(mol, pretraining["x2c"])
             case "cas":
-                hf_wf = CASWavefunction(mol, model_args["n_determinants"], **pretraining["cas"])
+                hf_wf = CASWavefunction(mol, pretraining["x2c"], model_args["n_determinants"], **pretraining["cas"])
             case _:
                 raise ValueError(f"Invalid pretraining reference: {pretraining['reference']}")
 

@@ -20,8 +20,10 @@ class CASResult(NamedTuple):
     s2: float  # spin operator S^2
 
 
-def run_hf(mol):
+def run_hf(mol, x2c: bool):
     hf = pyscf.scf.RHF(mol)
+    if x2c:
+        hf = hf.x2c()
     hf.verbose = 0
     hf = pyscf.scf.addons.smearing_(hf, sigma=0.1, method="fermi")
     hf.max_cycle = 5
@@ -115,13 +117,13 @@ def eval_molecular_orbitals(mol, coeffs, electrons: Electrons):
 
 
 class HFWavefunction:
-    def __init__(self, mol: pyscf.gto.Mole):
+    def __init__(self, mol: pyscf.gto.Mole, x2c: bool):
         self.mol = mol
         self.n_up, self.n_dn = mol.nelec
         self.n_el = self.n_up + self.n_dn
         self.mo_coeffs = jnp.zeros((mol.nao, mol.nao))
         with only_on_main_process():
-            self.hf = run_hf(mol)
+            self.hf = run_hf(mol, x2c=x2c)
             self.mo_coeffs = jnp.asarray(self.hf.mo_coeff)  # type: ignore
         # We first copy for each local device and then synchronize across processes
         self.mo_coeffs = copy_from_main(replicate(self.mo_coeffs))[0]
@@ -161,13 +163,14 @@ class CASWavefunction(HFWavefunction):
     def __init__(
         self,
         mol: pyscf.gto.Mole,
+        x2c: bool,
         n_determinants: int,
         active_orbitals: int,
         active_electrons: int,
         det_threshold: float,
         s2: float,
     ):
-        super().__init__(mol)
+        super().__init__(mol, x2c)
         self.mol = mol
         self.idx_orbitals = jnp.zeros([n_determinants, self.n_el], dtype=jnp.int32)
         self.ci_coeffs = jnp.zeros([n_determinants], dtype=jnp.float32)
