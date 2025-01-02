@@ -150,6 +150,7 @@ def make_trainer(
         width_state = width_scheduler.update(state.width_state, stats.pmove)
         key, subkey = jax.random.split(key)
         keys = jax.random.split(subkey, batch_size)
+
         energy, stats.static_max["pp"] = batched_energy_fn(keys, state.params, electrons, statics.pp)
         energy_clipped = clip_local_energies(energy, **clipping_args)
         # Energy loss
@@ -176,7 +177,7 @@ def make_trainer(
         natgrad, precond_state, preconditioner_aux = preconditioner.precondition(
             state.params,
             electrons,
-            static.mcmc,
+            statics.mcmc,
             dloss_dlogpsi,
             spin_grad,
             state.opt_state.natgrad,
