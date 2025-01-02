@@ -554,6 +554,7 @@ class OptimizationArgs(TypedDict):
     spin_operator_args: SpinOperatorArgs
     energy_operator: Literal["dense", "sparse"]
     pp_grid_points: int  # number of spherical grid points for pseudopotential integration
+    variance_loss_weight: float  # relative weight of the variance loss
 
 
 class CASArgs(TypedDict):

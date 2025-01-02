@@ -85,6 +85,7 @@ def make_trainer(
     energy_operator: Literal["sparse", "dense"],
     pseudopotentials: Sequence[str],
     pp_grid_points: int,
+    variance_loss_weight: float,
 ):
     energy_fn = make_local_energy(wave_function, energy_operator, pseudopotentials, pp_grid_points)
     batched_energy_fn = vmap_reduction(
@@ -150,7 +151,19 @@ def make_trainer(
         key, subkey = jax.random.split(key)
         keys = jax.random.split(subkey, batch_size)
         energy, pp_static_max = batched_energy_fn(keys, state.params, electrons, pp_static)
-        energy_diff = local_energy_diff(energy, **clipping_args)
+        energy_clipped = clip_local_energies(energy, **clipping_args)
+        # Energy loss
+        energy_mean = pmean(energy_clipped.mean())
+        dE_dlogpsi = energy_clipped - energy_mean
+        # Variance loss
+        energy_squared = energy_clipped**2
+        dsigma2_dlogpsi = energy_squared - pmean(jnp.mean(energy_squared))
+        dsigma2_dlogpsi -= 2 * energy_mean * dE_dlogpsi
+        # Total loss
+        if variance_loss_weight > 0:  # Numerics
+            dloss_dlogpsi = dE_dlogpsi + variance_loss_weight * dsigma2_dlogpsi
+        else:
+            dloss_dlogpsi = dE_dlogpsi
 
         E_mean = pmean(energy.mean())
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
@@ -163,7 +176,7 @@ def make_trainer(
             state.params,
             electrons,
             static,
-            energy_diff,
+            dloss_dlogpsi,
             spin_grad,
             state.opt_state.natgrad,
         )
