@@ -87,9 +87,11 @@ def mcmc_steps_all_electron(
     _, electrons, _, static_mean, static_max, num_accept = lax.fori_loop(0, steps, step_fn, x0)
     stats = MCMCStats(
         pmove=pmean_if_pmap(jnp.mean(num_accept) / steps),
-        stepsize=width,
-        static_mean=jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
         static_max=jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
+        logs=dict(
+            stepsize=width,
+            static_mean=jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
+        ),
     )
     return electrons, stats
 
@@ -158,6 +160,38 @@ def proposal_cluster_update(
     return proposed_electrons, idx_el_changed, proposal_log_ratio, actual_cluster_size
 
 
+def proposal_jump_to_atom(
+    R: jax.Array,
+    sigma: jax.Array,
+    weight: jax.Array,
+    idx_step: int,
+    key: PRNGKeyArray,
+    electrons: Electrons,
+    width: Width,
+) -> tuple[Electrons, ElectronIdx, jax.Array, Int]:
+    """Propose to move a single electron to a random position drawn from a gaussian-mixture-model.
+
+    The GMM is specified by the centers `R`, the standard deviations `sigma` and the weights `weight`.
+    """
+    # Draw a random electron and atom and propose a new position for the electron
+    n_el = electrons.shape[-2]
+    key, key_select, key_propose = jax.random.split(key, 3)
+    idx_el_changed = jax.random.randint(key_select, [], 0, n_el)
+    idx_atom = jax.random.choice(key_select, len(R), p=weight)
+    delta_r = jax.random.normal(key_propose, [3], dtype=electrons.dtype) * sigma[idx_atom]
+
+    # Compute the proposal log-ratio
+    r_old = electrons[idx_el_changed]
+    r_new = R[idx_atom] + delta_r
+    proposed_electrons = electrons.at[idx_el_changed, :].set(r_new)
+    prop_forward = jnp.sum(weight * jnp.exp(-(0.5 / sigma**2) * jnp.sum((r_new - R) ** 2, axis=-1)))
+    prop_backward = jnp.sum(weight * jnp.exp(-(0.5 / sigma**2) * jnp.sum((r_old - R) ** 2, axis=-1)))
+    proposal_log_ratio = jnp.log(prop_backward / prop_forward)
+
+    actual_cluster_size = jnp.ones([], dtype=jnp.int32)
+    return proposed_electrons, idx_el_changed[None], proposal_log_ratio, actual_cluster_size
+
+
 def mcmc_steps_low_rank(
     logpsi_fn: ParameterizedWaveFunction[P, S, MS],
     get_static_fn: Callable,
@@ -222,10 +256,12 @@ def mcmc_steps_low_rank(
     _, electrons, _, _, static_mean, static_max, num_accept, mean_cluster_size = lax.fori_loop(0, steps, step_fn, x0)
     stats = MCMCStats(
         pmove=pmean_if_pmap(jnp.mean(num_accept) / steps),
-        stepsize=width,
-        static_mean=jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
         static_max=jtu.tree_map(lambda x: pmax_if_pmap(jnp.max(x)), static_max),
-        mean_cluster_size=pmean_if_pmap(jnp.mean(mean_cluster_size) / steps),
+        logs=dict(
+            stepsize=width,
+            static_mean=jtu.tree_map(lambda x: pmean_if_pmap(jnp.mean(x) / steps), static_mean),
+            mean_cluster_size=pmean_if_pmap(jnp.mean(mean_cluster_size) / steps),
+        ),
     )
     return electrons, stats
 
@@ -233,13 +269,14 @@ def mcmc_steps_low_rank(
 def make_mcmc(
     logpsi_fn: ParameterizedWaveFunction[P, S, MS],
     R: Nuclei,
+    Z: Charges,
     n_el: int,
     mcmc_args: MCMCArgs,
     get_static_fn: Optional[Callable] = None,
 ) -> tuple[MCStep[P, S], jax.Array]:
     proposal = mcmc_args["proposal"]
     proposal_args = dict(**mcmc_args[f"{proposal.replace('-', '_')}_args"])  # type: ignore
-    init_width = proposal_args["init_width"]
+    init_width = jnp.array(proposal_args["init_width"], dtype=jnp.float32)
 
     get_static_fn = get_static_fn or logpsi_fn.get_static_input
 
@@ -266,7 +303,29 @@ def make_mcmc(
             mcmc_step = functools.partial(mcmc_steps_low_rank, logpsi_fn, get_static_fn, proposal_fn, steps)
         case _:
             raise ValueError(f"Invalid proposal: {proposal}")
-    return mcmc_step, jnp.array(init_width, dtype=jnp.float32)
+
+    if mcmc_args["jump_steps"] > 0:
+        gmm_centers = jnp.array(R, dtype=jnp.float32)
+        weights = jnp.array(Z, dtype=jnp.float32) / jnp.sum(Z)
+        sigma = jnp.ones(len(R)) * 2.0
+        jump_proposal = functools.partial(proposal_jump_to_atom, gmm_centers, sigma, weights)
+        mcmc_jump_step = functools.partial(
+            mcmc_steps_low_rank, logpsi_fn, get_static_fn, jump_proposal, mcmc_args["jump_steps"]
+        )
+
+        def full_mcmc_step(key, params, electrons, static, width):
+            electrons, stats_jump = mcmc_jump_step(key, params, electrons, static, 0.0)
+            electrons, stats_regular = mcmc_step(key, params, electrons, static, width)
+            stats = MCMCStats(
+                pmove=stats_regular.pmove,
+                static_max=tree_maximum(stats_regular.static_max, stats_jump.static_max),
+                logs=stats_regular.logs | {"pmove_jump": stats_jump.pmove},
+            )
+            return electrons, stats
+
+        return full_mcmc_step, init_width
+
+    return mcmc_step, init_width
 
 
 def make_width_scheduler(

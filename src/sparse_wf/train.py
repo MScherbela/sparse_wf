@@ -115,7 +115,7 @@ def main(
     # We want to initialize differently per process so we use the proc_key here
     proc_key, subkey = jax.random.split(proc_key)
     electrons = init_electrons(subkey, mol, batch_size)
-    mcmc_step, mcmc_state = make_mcmc(wf, R, n_el, mcmc_args)
+    mcmc_step, mcmc_state = make_mcmc(wf, R, Z, n_el, mcmc_args)
     mcmc_width_scheduler = make_width_scheduler(target_pmove=mcmc_args["acceptance_target"])
     static_scheduler = StaticScheduler(n_el, n_up, len(R))
     pp_static_scheduler = StaticScheduler(n_el, n_up, len(R))
@@ -174,7 +174,7 @@ def main(
     if pretraining["steps"] > 0:
         match pretraining["sample_from"].lower():
             case "hf":
-                pretrain_mcmc_step = make_mcmc(hf_wf, R, n_el, mcmc_args, wf.get_static_input)[0]  # type: ignore
+                pretrain_mcmc_step = make_mcmc(hf_wf, R, Z, n_el, mcmc_args, wf.get_static_input)[0]  # type: ignore
             case "wf":
                 pretrain_mcmc_step = mcmc_step
             case _:

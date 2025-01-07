@@ -179,3 +179,5 @@ mcmc_args:
     init_width: 0.2
     max_cluster_radius: 2.0
     max_cluster_size: 5
+  jump_steps: 0
+
