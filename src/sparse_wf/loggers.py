@@ -5,10 +5,10 @@ import logging
 import numpy as np
 
 import wandb
-from sparse_wf.api import Logger, LoggingArgs, MCMCStats
+from sparse_wf.api import Logger, LoggingArgs, MCMCStats, TrainingState
 from sparse_wf.jax_utils import only_on_main_process, is_main_process
-import jax.tree_util as jtu
 from sparse_wf.tree_utils import tree_to_flat_dict
+import jax.tree_util as jtu
 import jax.numpy as jnp
 
 
@@ -178,3 +178,23 @@ class MultiLogger(Logger):
         fname = f"{prefix}chkpt{step:06d}.msgpk"
         self.store_blob(state, fname)
         return fname
+
+
+def save_expanded_checkpoint(state: TrainingState, output_dir):
+    os.makedirs(output_dir)
+
+    keys = [
+        "key",
+        "params",
+        "electrons",
+        "opt_state",
+        "width_state",
+        "spin_state",
+        "step",
+    ]
+
+    for key in keys:
+        data = getattr(state, key)
+        flat_data = tree_to_flat_dict(data)
+        fname = os.path.join(output_dir, key + ".npz")
+        np.savez(fname, **flat_data)

@@ -49,7 +49,7 @@ def get_benzene_dimer(dist_in_angstrom):
     Z = np.array([atom.Z for atom in mol])
     return Geometry(R, Z, name="benzene_dimer_T", comment=f"benzene_dimer_T_{dist_in_angstrom:.2f}A")
 
-geoms = [get_benzene_dimer(d) for d in [5.5]]
+geoms = [get_benzene_dimer(d) for d in [8.0]]
 geom_benzene_single = Geometry(geoms[0].R[:12], geoms[0].Z[:12], name="C6H6_benzene", comment="C6H6_benzene")
 save_geometries(geoms + [geom_benzene_single])
 

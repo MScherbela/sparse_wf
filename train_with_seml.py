@@ -97,4 +97,5 @@ def seml_main(
         seed=seed,
         logging_args=logging_args,
         load_checkpoint=load_checkpoint,
+        extract_checkpoint=False,
     )
