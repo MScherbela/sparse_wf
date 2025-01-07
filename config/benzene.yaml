@@ -1,0 +1,11 @@
+optimization:
+  preconditioner_args:
+    preconditioner: spring_dense
+    spring_dense_args:
+      max_batch_size: 4096
+batch_size: 64
+
+molecule_args:
+  method: database
+  database_args:
+    comment: "molecules_file_Benzene_C6H6"

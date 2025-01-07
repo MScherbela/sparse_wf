@@ -1,0 +1,15 @@
+molecule_args:
+  pseudopotentials: [Li]
+
+pretraining:
+  steps: 1
+  hf:
+    restricted: false
+    restart: false
+    cache_dir: ~/.hf_cache
+    newton: true
+
+optimization:
+  burn_in: 0
+
+batch_size: 128

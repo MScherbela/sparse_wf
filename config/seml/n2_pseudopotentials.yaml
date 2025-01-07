@@ -1,0 +1,48 @@
+seml:
+  executable: train_with_seml.py
+  project_root_dir: ../../
+  output_dir: ~/slurm-output/
+
+slurm:
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:1
+      cpus-per-task: 4
+      mem: 32G
+      partition: gpu_h100
+  - experiments_per_job: 1
+    sbatch_options:
+      gres: gpu:2
+      cpus-per-task: 4
+      mem: 32G
+      partition: gpu_a100
+
+fixed:
+  logging_args.wandb.project: ngao_pp
+  pretraining.steps: 1_000
+
+  logging_args.name_keys:
+    - molecule_args.from_str_args.atom
+    - molecule_args.pseudopotentials
+
+  molecule_args.method: from_str
+  batch_size: 4096
+  logging_args.python.use: False
+  optimization.steps: 100_000
+  pretraining.reference: hf
+
+grid:
+  molecule_args.from_str_args.atom:
+    type: choice
+    options:
+      - "N 0 0 0; N 2.068 0 0"
+      # - "N 0 0 0; N 3.0 0 0"
+      - "N 0 0 0; N 4.0 0 0"
+      # - "N 0 0 0; N 5.0 0 0"
+      - "N 0 0 0; N 6.0 0 0"
+
+  molecule_args.pseudopotentials:
+    type: choice
+    options:
+      - [] # no
+      # - ["N"] # yes

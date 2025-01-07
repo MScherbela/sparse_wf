@@ -1,0 +1,6 @@
+molecule_args:
+  method: from_str
+  from_str_args:
+    atom: "N 0 0 0; N 2.068 0 0"
+
+batch_size: 4096
