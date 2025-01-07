@@ -154,6 +154,7 @@ pretraining:
     s2: -1
 
 load_checkpoint: ""
+extract_checkpoint: false
 auto_requeue: 1
 
 evaluation:

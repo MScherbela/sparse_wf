@@ -2,6 +2,7 @@
 import bokeh.layouts
 import wandb
 import pandas as pd
+import re
 
 api = wandb.Api()
 all_runs = api.runs("tum_daml_nicholas/benzene")
@@ -14,7 +15,8 @@ runs = runs_cutoff3 + runs_cutoff5
 data = []
 for r in runs:
     print(r.name)
-    metadata = dict(dist = 10.0 if (("10.00A" in r.name) or ("100.00A" in r.name)) else 4.95,
+    dist = float(re.search(r"(\d+\.\d+)A", r.name).group(1))
+    metadata = dict(dist = dist,
     cutoff=5.0 if "5.0" in r.name else 3.0,
     run_name=r.name,)
 

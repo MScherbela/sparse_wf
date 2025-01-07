@@ -74,6 +74,7 @@ dev-dependencies = [
     "ipykernel>=6.29.5",
     "mypy>=1.12.0",
     "wandb-workspaces",
+    "seaborn>=0.13.2",
 ]
 find-links = [
     "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html",

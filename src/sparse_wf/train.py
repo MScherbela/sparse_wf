@@ -27,7 +27,7 @@ from sparse_wf.jax_utils import (
     pmax,
     get_from_main_process,
 )
-from sparse_wf.loggers import MultiLogger, to_log_data, mcmc_to_log_data
+from sparse_wf.loggers import MultiLogger, to_log_data, mcmc_to_log_data, save_expanded_checkpoint
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
@@ -64,6 +64,7 @@ def main(
     seed: int,
     logging_args: LoggingArgs,
     load_checkpoint: str,
+    extract_checkpoint: bool,
     auto_requeue: int = 0,
     metadata: Optional[dict[str, Any]] = None,
 ):
@@ -146,8 +147,13 @@ def main(
     # The state will only be fed into pmapped functions, i.e., we need a per device key
     state = trainer.init(device_keys, params, electrons, mcmc_state)
     if load_checkpoint:
+        logging.info(f"Loading checkpoint {load_checkpoint}")
         with open(load_checkpoint, "rb") as f:
             state = state.deserialize(f.read(), batch_size)
+        if extract_checkpoint:
+            output_dir = load_checkpoint.replace(".msgpk", "")
+            logging.info(f"Saveing expanded checkpoint to {output_dir}")
+            save_expanded_checkpoint(state, output_dir)
 
     assert_identical_copies(state.params)
     model_static = pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons)

@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import itertools
 import pandas as pd
 
+#%%
 BOHR_PER_ANGSTROM = 1.8897259886
 
 def get_mol(distance_in_angstrom, basis):
