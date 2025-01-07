@@ -20,12 +20,11 @@ def to_log_data(data, prefix="") -> dict[str, float]:
 def mcmc_to_log_data(data: MCMCStats):
     log_data = {
         "mcmc/pmove": float(jnp.mean(data.pmove)),
-        "mcmc/stepsize": float(jnp.mean(data.stepsize)),
+        **to_log_data(data.static_max, "static/max/"),
     }
-    if data.mean_cluster_size is not None:
-        log_data["mcmc/mean_cluster_size"] = float(jnp.mean(data.mean_cluster_size))
-    log_data = log_data | to_log_data(data.static_mean, "static/mean/")
-    log_data = log_data | to_log_data(data.static_max, "static/max/")
+    if "static_mean" in data.logs:
+        log_data |= to_log_data(data.logs.pop("static_mean"), "static/mean/")
+    log_data |= to_log_data(data.logs, "mcmc/")
     return log_data
 
 

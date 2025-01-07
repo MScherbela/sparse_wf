@@ -168,10 +168,8 @@ class StaticInput:
 
 class MCMCStats(NamedTuple):
     pmove: jax.Array
-    stepsize: jax.Array
-    static_mean: StaticInput
     static_max: StaticInput
-    mean_cluster_size: Optional[jax.Array] = None
+    logs: dict[str, jax.Array]
 
 
 class ClosedLogLikelihood(Protocol):
@@ -605,6 +603,7 @@ class MCMCArgs(TypedDict):
     all_electron_args: MCMCAllElectronArgs
     single_electron_args: MCMCSingleElectronArgs
     cluster_update_args: MCMCClusterUpdateArgs
+    jump_steps: int
 
 
 class MoleculeDatabaseArgs(TypedDict):
