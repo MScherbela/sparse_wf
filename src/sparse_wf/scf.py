@@ -78,7 +78,12 @@ def run_hf(mol: pyscf.gto.Mole, args: HFArgs):
 
     # Run HF
     hf.max_cycle = 100
-    hf.kernel()
+    try:
+        hf.kernel()
+    except TypeError:
+        logging.info("HF failed loading.")
+        hf.init_guess = "minao"
+        hf.kernel()
     logging.info(f"HF energy: {hf.e_tot}")
     return hf
 
@@ -123,7 +128,10 @@ def get_most_important_determinants(cas: CASResult, n_dets, threshold=0.05):
     if len(idx_large) > n_dets:
         idx_large = idx_large[:n_dets]
         ci_coeffs_large = ci_coeffs_large[:n_dets]
-    idx_orbitals = np.concatenate([cas.idx_orbitals_up[idx_large[:, 0]], cas.idx_orbitals_dn[idx_large[:, 1]]], axis=1)
+    idx_orbitals = np.concatenate(
+        [cas.idx_orbitals_up[idx_large[:, 0]], cas.idx_orbitals_dn[idx_large[:, 1]]],
+        axis=1,
+    )
     return idx_orbitals, ci_coeffs_large
 
 
@@ -162,7 +170,7 @@ def eval_molecular_orbitals(mol, coeffs, electrons: Electrons):
         dn_orbitals = mo_values[..., n_up:, :]
     else:
         up_orbitals = jnp.array(ao[..., :n_up, :] @ coeffs[0], electrons.dtype)
-        dn_orbitals = jnp.array(ao[..., :n_dn, :] @ coeffs[1], electrons.dtype)
+        dn_orbitals = jnp.array(ao[..., n_up:, :] @ coeffs[1], electrons.dtype)
     return up_orbitals, dn_orbitals
 
 
