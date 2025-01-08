@@ -12,21 +12,21 @@ from sparse_wf.api import (
     ParameterizedWaveFunction,
     MCStep,
     WidthScheduler,
-    StaticInput,
+    StaticInputs,
     MCMCStats,
 )
 from sparse_wf.jax_utils import pmap, pmean, PMAP_AXIS_NAME
 
-P, S, MS, SS = TypeVar("P"), TypeVar("S"), TypeVar("MS"), TypeVar("SS")
+P, MS, SS = TypeVar("P"), TypeVar("MS"), TypeVar("SS")
 
 
 def make_pretrainer(
-    wave_function: ParameterizedWaveFunction[P, S, MS],
-    mcmc_step: MCStep[P, S],
+    wave_function: ParameterizedWaveFunction[P, MS],
+    mcmc_step: MCStep[P],
     width_scheduler: WidthScheduler,
     source_model: HFOrbitalFn,
     optimizer: optax.GradientTransformation,
-) -> Pretrainer[P, S, SS]:
+) -> Pretrainer[P, SS]:
     batch_orbitals = jax.vmap(wave_function.orbitals, in_axes=(None, 0, None))
     batch_src_orbitals = jax.vmap(source_model, in_axes=(0,))
 
@@ -43,12 +43,12 @@ def make_pretrainer(
         )
 
     # @pmap(static_broadcasted_argnums=1)
-    def step(state: PretrainState[P, SS], static: StaticInput) -> tuple[PretrainState[P, SS], AuxData, MCMCStats]:
+    def step(state: PretrainState[P, SS], statics: StaticInputs) -> tuple[PretrainState[P, SS], AuxData, MCMCStats]:
         targets = wave_function.hf_transformation(batch_src_orbitals(state.electrons))
 
         @jax.value_and_grad
         def loss_and_grad(params):
-            predicted_orbitals = batch_orbitals(params, state.electrons, static)
+            predicted_orbitals = batch_orbitals(params, state.electrons, statics.mcmc)
             return sum(((o - p_o) ** 2).mean() for o, p_o in zip(targets, predicted_orbitals))
 
         # Update
@@ -58,7 +58,7 @@ def make_pretrainer(
 
         # MCMC
         key, subkey = jax.random.split(state.key)
-        electrons, stats = mcmc_step(subkey, params, state.electrons, static, state.width_state.width)
+        electrons, stats = mcmc_step(subkey, params, state.electrons, statics, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, stats.pmove)
 
         return (

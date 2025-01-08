@@ -14,11 +14,12 @@ from sparse_wf.api import (
     Preconditioner,
     PreconditionerArgs,
     PreconditionerState,
+    StaticInput,
 )
 from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum, vector_to_tree_like
 from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub, ravel_with_padding
 
-P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
+P, MS = TypeVar("P"), TypeVar("MS")
 
 
 def symmetric_inv_with_damping(H, damping, max_cond_nr=1e10):
@@ -33,7 +34,7 @@ def symmetric_inv_with_damping(H, damping, max_cond_nr=1e10):
 
 
 def make_identity_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S, MS],
+    wave_function: ParameterizedWaveFunction[P, MS],
 ):
     def init(params: P) -> PreconditionerState[P]:
         return PreconditionerState(last_grad=jax.tree_map(jnp.zeros_like, params), damping=jnp.zeros([]))
@@ -41,7 +42,7 @@ def make_identity_preconditioner(
     def precondition(
         params: P,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         dE_dlogpsi: EnergyCotangent,
         aux_grad: P,
         natgrad_state: PreconditionerState[P],
@@ -61,7 +62,7 @@ def make_identity_preconditioner(
 
 
 def make_cg_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S, MS],
+    wave_function: ParameterizedWaveFunction[P, MS],
     damping: float = 1e-3,
     maxiter: int = 100,
 ):
@@ -74,7 +75,7 @@ def make_cg_preconditioner(
     def precondition(
         params: P,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         dE_dlogpsi: EnergyCotangent,
         aux_grad: P,
         natgrad_state: PreconditionerState[P],
@@ -153,7 +154,7 @@ def get_jacjacT(local_jacT, global_block_size, use_float64: bool = True):
 
 
 def make_dense_spring_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S, MS],
+    wave_function: ParameterizedWaveFunction[P, MS],
     damping: float,
     decay_factor: float,
     max_batch_size: int,
@@ -173,7 +174,7 @@ def make_dense_spring_preconditioner(
     def precondition(
         params: P,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         dE_dlogpsi: EnergyCotangent,
         aux_grad: P,
         natgrad_state: PreconditionerState[P],
@@ -185,7 +186,7 @@ def make_dense_spring_preconditioner(
         # We could cast the params first to float64, or at the jacobian, or at solving? Or not at all?
         flat_params, unravel = ravel_with_padding(params, global_param_block_size)
 
-        def log_p(params: jax.Array, electrons: Electrons, static: S):
+        def log_p(params: jax.Array, electrons: Electrons, static: StaticInput):
             return wave_function(unravel(params), electrons, static) * normalization  # type: ignore
 
         jac_fn = batched_vmap(jax.grad(log_p), in_axes=(None, 0, None), out_axes=1, max_batch_size=max_batch_size)
@@ -225,7 +226,7 @@ def make_dense_spring_preconditioner(
 
 
 def make_spring_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S, MS],
+    wave_function: ParameterizedWaveFunction[P, MS],
     damping: float = 1e-3,
     decay_factor: float = 0.99,
 ):
@@ -238,7 +239,7 @@ def make_spring_preconditioner(
     def precondition(
         params: P,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         dE_dlogpsi: EnergyCotangent,
         aux_grad: P,
         natgrad_state: PreconditionerState[P],
@@ -249,7 +250,7 @@ def make_spring_preconditioner(
         N = local_batch_size * n_dev
         normalization = 1 / jnp.sqrt(N)
 
-        def log_p(params: P, electrons: Electrons, static: S):
+        def log_p(params: P, electrons: Electrons, static: StaticInput):
             return wave_function(params, electrons, static) * normalization  # type: ignore
 
         # Gather individual jacobians
@@ -316,7 +317,7 @@ class SVDPreconditionerState(NamedTuple):
 
 
 def make_svd_preconditioner(
-    wave_function: ParameterizedWaveFunction[P, S, MS],
+    wave_function: ParameterizedWaveFunction[P, MS],
     damping: float,
     ema_natgrad: float,
     ema_S: float,
@@ -332,7 +333,7 @@ def make_svd_preconditioner(
     def precondition(
         params: P,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         dE_dlogpsi: EnergyCotangent,
         aux_grad: P,  # TODO: this doesn't work currently
         natgrad_state,
@@ -377,7 +378,7 @@ def make_svd_preconditioner(
     return Preconditioner(init, precondition)  # type: ignore
 
 
-def make_preconditioner(wf: ParameterizedWaveFunction[P, S, MS], args: PreconditionerArgs):
+def make_preconditioner(wf: ParameterizedWaveFunction[P, MS], args: PreconditionerArgs):
     preconditioner = args["preconditioner"].lower()
     if preconditioner == "identity":
         return make_identity_preconditioner(wf)

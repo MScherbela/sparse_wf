@@ -24,6 +24,7 @@ from sparse_wf.api import (
     MCMCArgs,
     ElectronIdx,
     StaticInput,
+    StaticInputs,
     MCMCStats,
 )
 from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap
@@ -31,11 +32,11 @@ from sparse_wf.model.graph_utils import NO_NEIGHBOUR
 from sparse_wf.tree_utils import tree_add, tree_maximum, tree_zeros_like
 
 
-P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
+P, MS = TypeVar("P"), TypeVar("MS")
 
 
 def mcmc_steps_all_electron(
-    logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    logpsi_fn: ParameterizedWaveFunction[P, MS],
     get_static_fn: Callable,
     steps: int,
     key: PRNGKeyArray,
@@ -193,7 +194,7 @@ def proposal_jump_to_atom(
 
 
 def mcmc_steps_low_rank(
-    logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    logpsi_fn: ParameterizedWaveFunction[P, MS],
     get_static_fn: Callable,
     proposal_fn: Callable,
     steps: int,
@@ -267,13 +268,13 @@ def mcmc_steps_low_rank(
 
 
 def make_mcmc(
-    logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    logpsi_fn: ParameterizedWaveFunction[P, MS],
     R: Nuclei,
     Z: Charges,
     n_el: int,
     mcmc_args: MCMCArgs,
     get_static_fn: Optional[Callable] = None,
-) -> tuple[MCStep[P, S], jax.Array]:
+) -> tuple[MCStep[P], jax.Array]:
     proposal = mcmc_args["proposal"]
     proposal_args = dict(**mcmc_args[f"{proposal.replace('-', '_')}_args"])  # type: ignore
     init_width = jnp.array(proposal_args["init_width"], dtype=jnp.float32)
@@ -313,19 +314,24 @@ def make_mcmc(
             mcmc_steps_low_rank, logpsi_fn, get_static_fn, jump_proposal, mcmc_args["jump_steps"]
         )
 
-        def full_mcmc_step(key, params, electrons, static, width):
-            electrons, stats_jump = mcmc_jump_step(key, params, electrons, static, 0.0)
-            electrons, stats_regular = mcmc_step(key, params, electrons, static, width)
-            stats = MCMCStats(
-                pmove=stats_regular.pmove,
-                static_max=tree_maximum(stats_regular.static_max, stats_jump.static_max),
-                logs=stats_regular.logs | {"pmove_jump": stats_jump.pmove},
-            )
-            return electrons, stats
+    def full_mcmc_step(key, params, electrons, statics: StaticInputs, width):
+        static_max = dict()
+        extra_logs = dict()
+        if mcmc_args["jump_steps"] > 0:
+            electrons, stats_jump = mcmc_jump_step(key, params, electrons, statics.mcmc_jump, 0.0)
+            static_max["mcmc_jump"] = stats_jump.static_max
+            extra_logs["pmove_jump"] = stats_jump.pmove
+        electrons, stats_regular = mcmc_step(key, params, electrons, statics.mcmc, width)
+        static_max["mcmc"] = stats_regular.static_max
 
-        return full_mcmc_step, init_width
+        stats = MCMCStats(
+            pmove=stats_regular.pmove,
+            static_max=static_max,
+            logs=stats_regular.logs | extra_logs,
+        )
+        return electrons, stats
 
-    return mcmc_step, init_width
+    return full_mcmc_step, init_width
 
 
 def make_width_scheduler(

@@ -5,27 +5,36 @@ import logging
 import numpy as np
 
 import wandb
-from sparse_wf.api import Logger, LoggingArgs, MCMCStats, TrainingState
+from sparse_wf.api import Logger, LoggingArgs, MCMCStats, TrainingState, StaticInputs
 from sparse_wf.jax_utils import only_on_main_process, is_main_process
 from sparse_wf.tree_utils import tree_to_flat_dict
 import jax.tree_util as jtu
 import jax.numpy as jnp
 
 
-def to_log_data(data, prefix="") -> dict[str, float]:
+def to_log_data(mcmc_stats: MCMCStats, statics: StaticInputs, aux: dict[str, Any] | None = None) -> dict:
+    # MCMC
+    log_data = {
+        "mcmc/pmove": float(jnp.mean(mcmc_stats.pmove)),
+        **tree_to_log_data(mcmc_stats.logs, "mcmc/"),
+    }
+
+    # Statics
+    for k, v in statics.as_dict().items():
+        log_data |= tree_to_log_data(v, f"statics/{k}/")
+
+    # Auxiliary log data
+    if aux is not None:
+        log_data |= tree_to_log_data(aux)
+
+    return log_data
+
+
+def tree_to_log_data(data: dict[str, Any], prefix="") -> dict[str, float]:
+    if data is None:
+        return dict()
     data = jtu.tree_map(lambda x: x if isinstance(x, (int, float)) else float(np.mean(x)), data)
     return tree_to_flat_dict(data, prefix)
-
-
-def mcmc_to_log_data(data: MCMCStats):
-    log_data = {
-        "mcmc/pmove": float(jnp.mean(data.pmove)),
-        **to_log_data(data.static_max, "static/max/"),
-    }
-    if "static_mean" in data.logs:
-        log_data |= to_log_data(data.logs.pop("static_mean"), "static/mean/")
-    log_data |= to_log_data(data.logs, "mcmc/")
-    return log_data
 
 
 class FileLogger(Logger):

@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import timeit
 from sparse_wf.pseudopotentials import make_pseudopotential
 from sparse_wf.hamiltonian import potential_energy
-from sparse_wf.loggers import to_log_data
+from sparse_wf.loggers import tree_to_log_data
 import argparse
 
 
@@ -221,8 +221,8 @@ if __name__ == "__main__":
             t_wf_lr=t_wf_lr,
             t_E_kin=t_E_kin,
             t_E_pot=t_E_pot,
-            **to_log_data(static, "static/"),
-            **to_log_data(pp_static, "pp_static/"),
+            **tree_to_log_data(static, "static/"),
+            **tree_to_log_data(pp_static, "pp_static/"),
         )
 
         with open(args.output, "a") as f:

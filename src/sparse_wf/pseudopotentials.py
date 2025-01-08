@@ -19,7 +19,6 @@ from sparse_wf.tree_utils import tree_maximum
 from sparse_wf.jax_utils import vmap_reduction
 
 P = TypeVar("P")
-S = TypeVar("S", bound=StaticInput)
 MS = TypeVar("MS")
 
 
@@ -284,10 +283,10 @@ def make_spherical_integral(n_quad_points: int):
 
     def spherical_integral(
         key: Array,
-        logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+        logpsi_fn: ParameterizedWaveFunction[P, MS],
         params: P,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         electron_atom_distance: Float[Array, ""],
         electron_atom_vector: Float[Array, "3"],
         electron_index: Integer[Array, ""],
@@ -315,7 +314,7 @@ def make_spherical_integral(n_quad_points: int):
                 jnp.array([i], dtype=jnp.int32),
             )
 
-        def _body_fun(i, vals: tuple[Array, S]):
+        def _body_fun(i, vals: tuple[Array, StaticInput]):
             val, static = vals
             legendre_val, new_static = project_legendre(
                 aligned_points[i],
@@ -351,10 +350,10 @@ def make_nonlocal_pseudopotential(
 
     def pp_nonloc(
         key: Array,
-        logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+        logpsi_fn: ParameterizedWaveFunction[P, MS],
         params: P,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         electron_atom_distance_i: Float[Array, ""],
         electron_atom_vector_i: Float[Array, "3"],
         electron_index: Integer[Array, ""],
@@ -384,7 +383,7 @@ def make_nonlocal_pseudopotential(
         params: P,
         electrons: Electrons,
         static: Any,
-    ) -> tuple[Float[Array, ""], S]:
+    ) -> tuple[Float[Array, ""], StaticInput]:
         """Evaluates electron-atom contribution to non-local pseudopotential."""
         n_elec = electrons.shape[0]
         n_nonloc = v_grid_nonloc.shape[1]
@@ -457,10 +456,10 @@ def make_nonlocal_pseudopotential(
 
 def mock_nl_pp(
     key: Array,
-    logpsi_fn: ParameterizedWaveFunction[P, S, MS],
+    logpsi_fn: ParameterizedWaveFunction[P, MS],
     params: P,
     electrons: Electrons,
-    static: S,
+    static: StaticInput,
 ):
     return jnp.zeros(()), static
 

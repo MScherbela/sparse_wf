@@ -19,6 +19,7 @@ from sparse_wf.api import (
     TrainingState,
     Width,
     WidthScheduler,
+    StaticInputs,
 )
 from sparse_wf.hamiltonian import make_local_energy
 from sparse_wf.jax_utils import (
@@ -68,20 +69,19 @@ def local_energy_diff(e_loc: LocalEnergy, clip_local_energy: float, stat: str | 
 
 
 P = TypeVar("P")
-S = TypeVar("S")
 MS = TypeVar("MS")
 SS = TypeVar("SS")
 
 
 def make_trainer(
-    wave_function: ParameterizedWaveFunction[P, S, MS],
-    mcmc_step: MCStep[P, S],
+    wave_function: ParameterizedWaveFunction[P, MS],
+    mcmc_step: MCStep[P],
     width_scheduler: WidthScheduler,
     optimizer: optax.GradientTransformation,
-    preconditioner: Preconditioner[P, S],
+    preconditioner: Preconditioner[P],
     clipping_args: ClippingArgs,
     max_batch_size: int,
-    spin_operator: SpinOperator[P, S, SS],
+    spin_operator: SpinOperator[P, SS],
     energy_operator: Literal["sparse", "dense"],
     pseudopotentials: Sequence[str],
     pp_grid_points: int,
@@ -112,26 +112,26 @@ def make_trainer(
 
     # @pmap(static_broadcasted_argnums=(1, 2, 3))
     def sampling_step(
-        state: TrainingState[P, SS], static: S, pp_static: S, compute_energy: bool, overlap_fn: Callable | None = None
+        state: TrainingState[P, SS], statics: StaticInputs, compute_energy: bool, overlap_fn: Callable | None = None
     ):
         batch_size = state.electrons.shape[0]
         key, subkey = jax.random.split(state.key)
-        electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
+        electrons, stats = mcmc_step(subkey, state.params, state.electrons, statics, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, stats.pmove)
         state = state.replace(key=key, electrons=electrons, width_state=width_state)
         aux_data = {}
         if compute_energy:
             key, subkey = jax.random.split(key)
             keys = jax.random.split(subkey, batch_size)
-            E_loc, pp_static_max = batched_energy_fn(keys, state.params, electrons, pp_static)
+            E_loc, stats.static_max["pp"] = batched_energy_fn(keys, state.params, electrons, statics.pp)
             E_mean = pmean(E_loc.mean())
             E_std = pmean(((E_loc - E_mean) ** 2).mean()) ** 0.5
             aux_data["eval/E"] = E_mean
             aux_data["eval/E_std"] = E_std
-        else:
-            pp_static_max = pp_static
         if overlap_fn is not None:
-            signpsi, logpsi = jax.vmap(wave_function.signed, in_axes=(None, 0, None))(state.params, electrons, static)
+            signpsi, logpsi = jax.vmap(wave_function.signed, in_axes=(None, 0, None))(
+                state.params, electrons, statics.mcmc
+            )
             signphi, logphi = jax.vmap(overlap_fn)(electrons)
             overlap_signs = signphi * signpsi[:, None]
             log_overlap_ratios = logphi - logpsi[:, None]
@@ -140,17 +140,17 @@ def make_trainer(
                 aux_data[f"eval/log_overlap_{i}"] = o
                 aux_data[f"eval/sign_overlap_{i}"] = s
 
-        return state, aux_data, stats, pp_static_max
+        return state, aux_data, stats
 
-    # @pmap(static_broadcasted_argnums=(1, 2))
-    def step(state: TrainingState[P, SS], static: S, pp_static: S):
+    # @pmap(static_broadcasted_argnums=(1,))
+    def step(state: TrainingState[P, SS], statics: StaticInputs):
         batch_size = state.electrons.shape[0]
         key, subkey = jax.random.split(state.key)
-        electrons, stats = mcmc_step(subkey, state.params, state.electrons, static, state.width_state.width)
+        electrons, stats = mcmc_step(subkey, state.params, state.electrons, statics, state.width_state.width)
         width_state = width_scheduler.update(state.width_state, stats.pmove)
         key, subkey = jax.random.split(key)
         keys = jax.random.split(subkey, batch_size)
-        energy, pp_static_max = batched_energy_fn(keys, state.params, electrons, pp_static)
+        energy, stats.static_max["pp"] = batched_energy_fn(keys, state.params, electrons, statics.pp)
         energy_clipped = clip_local_energies(energy, **clipping_args)
         # Energy loss
         energy_mean = pmean(energy_clipped.mean())
@@ -169,13 +169,14 @@ def make_trainer(
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
         aux_data = {"opt/E": E_mean, "opt/E_std": E_std}
 
-        spin_op_value, spin_grad, spin_state = spin_operator(state.params, electrons, static, state.spin_state)
+        # TODO: Spin operator might potentially also need separate statics
+        spin_op_value, spin_grad, spin_state = spin_operator(state.params, electrons, statics.mcmc, state.spin_state)
         aux_data["opt/S"] = spin_op_value
 
         natgrad, precond_state, preconditioner_aux = preconditioner.precondition(
             state.params,
             electrons,
-            static,
+            static.mcmc,
             dloss_dlogpsi,
             spin_grad,
             state.opt_state.natgrad,
@@ -200,13 +201,12 @@ def make_trainer(
             energy,
             aux_data,
             stats,
-            pp_static_max,
         )
 
     return Trainer(
         init=init,
-        step=jax.pmap(step, PMAP_AXIS_NAME, static_broadcasted_argnums=(1, 2)),
-        sampling_step=jax.pmap(sampling_step, PMAP_AXIS_NAME, static_broadcasted_argnums=(1, 2, 3, 4)),
+        step=jax.pmap(step, PMAP_AXIS_NAME, static_broadcasted_argnums=(1,)),
+        sampling_step=jax.pmap(sampling_step, PMAP_AXIS_NAME, static_broadcasted_argnums=(1, 2, 3)),
         wave_function=wave_function,
         mcmc=mcmc_step,
         width_scheduler=width_scheduler,

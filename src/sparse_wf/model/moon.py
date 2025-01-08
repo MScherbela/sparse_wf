@@ -480,7 +480,7 @@ def get_neighbour_coordinates(electrons: Electrons, R: Nuclei, idx_nb: Neighbour
     return spin_nb_ee, r_nb_ee, spin_nb_ne, r_nb_ne, R_nb_en, R_nb_en_1el, r_nb_ee_out, spin_nb_ee_out
 
 
-class MoonEmbedding(PyTreeNode, Embedding[MoonEmbeddingParams, StaticInputMoon, MoonState]):
+class MoonEmbedding(PyTreeNode, Embedding[MoonEmbeddingParams, MoonState]):
     # Molecule
     R: Nuclei
     Z: Charges

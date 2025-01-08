@@ -61,6 +61,29 @@ DependencyMap = Integer[Array, "n_center n_neighbour n_deps"]
 # Wave function
 ############################################################################
 # Static input
+
+
+# TODO: For some reason PyTreeNode and Generics don't work together
+# Seems a bit ugly to use to PyTreeNodes for some stuff and dataclasses for others, but here we go...
+@struct.dataclass
+class StaticInput:
+    def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
+        return jax.tree_map(lambda x: x * padding_factor, self)
+
+    def to_static(self):
+        return jtu.tree_map(lambda x: int(jnp.max(x)), self)
+
+
+@struct.dataclass
+class StaticInputs:
+    mcmc: StaticInput
+    mcmc_jump: StaticInput | None
+    pp: StaticInput | None
+
+    def as_dict(self):
+        return {"mcmc": self.mcmc, "mcmc_jump": self.mcmc_jump, "pp": self.pp}
+
+
 S = TypeVar("S")
 S_contra = TypeVar("S_contra", contravariant=True)
 # Parameters
@@ -78,7 +101,7 @@ P2 = TypeVar("P2", bound=Parameters)
 ES = TypeVar("ES")
 
 
-class Embedding(Protocol[P2, S, ES]):
+class Embedding(Protocol[P2, ES]):
     feature_dim: int
 
     @overload
@@ -86,7 +109,7 @@ class Embedding(Protocol[P2, S, ES]):
         self,
         params: P2,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         return_scales: Literal[False] = False,
         return_state: Literal[False] = False,
     ) -> ElectronEmb: ...
@@ -96,7 +119,7 @@ class Embedding(Protocol[P2, S, ES]):
         self,
         params: P2,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         return_scales: Literal[True],
         return_state: Literal[False] = False,
     ) -> tuple[ElectronEmb, PyTree[ScalingParam]]: ...
@@ -106,7 +129,7 @@ class Embedding(Protocol[P2, S, ES]):
         self,
         params: P2,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         return_scales: Literal[False],
         return_state: Literal[True],
     ) -> tuple[ElectronEmb, ES]: ...
@@ -115,21 +138,23 @@ class Embedding(Protocol[P2, S, ES]):
         self,
         params: P2,
         electrons: Electrons,
-        static: S,
+        static: StaticInput,
         return_scales: bool = False,
         return_state: bool = False,
     ): ...
-    def init(self, key: PRNGKeyArray, electrons: Electrons, static: S) -> P2: ...
+    def init(self, key: PRNGKeyArray, electrons: Electrons, static: StaticInput) -> P2: ...
     def get_static_input(
         self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
-    ) -> S: ...
+    ) -> StaticInput: ...
     def low_rank_update(
-        self, params: P2, electrons: Electrons, changed_electrons: ElectronIdx, static: S, state: ES
+        self, params: P2, electrons: Electrons, changed_electrons: ElectronIdx, static: StaticInput, state: ES
     ) -> tuple[ElectronEmb, ElectronIdx, ES]: ...
-    def apply_with_fwd_lap(self, params: P2, electrons: Electrons, static: S) -> tuple[ElectronEmb, Dependency]: ...
+    def apply_with_fwd_lap(
+        self, params: P2, electrons: Electrons, static: StaticInput
+    ) -> tuple[ElectronEmb, Dependency]: ...
 
 
-class ParameterizedWaveFunction(Protocol[P, S, MS]):
+class ParameterizedWaveFunction(Protocol[P, MS]):
     R: Nuclei
     Z: Charges
     n_up: int
@@ -137,28 +162,19 @@ class ParameterizedWaveFunction(Protocol[P, S, MS]):
     def init(self, key: PRNGKeyArray, electrons: Electrons) -> P: ...
     def get_static_input(
         self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
-    ) -> S: ...
-    def orbitals(self, params: P, electrons: Electrons, static: S) -> SlaterMatrices: ...
+    ) -> StaticInput: ...
+    def orbitals(self, params: P, electrons: Electrons, static: StaticInput) -> SlaterMatrices: ...
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices: ...
-    def kinetic_energy(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
-    def kinetic_energy_dense(self, params: P, electrons: Electrons, static: S) -> LocalEnergy: ...
-    def signed(self, params: P, electrons: Electrons, static: S) -> SignedLogAmplitude: ...
-    def __call__(self, params: P, electrons: Electrons, static: S) -> LogAmplitude: ...
-    def log_psi_with_state(self, params: P, electrons: Electrons, static: S) -> tuple[SignedLogAmplitude, MS]: ...
-    def log_psi_low_rank_update(
-        self, params: P, electrons: Electrons, changed_electrons: ElectronIdx, static: S, state: MS
+    def kinetic_energy(self, params: P, electrons: Electrons, static: StaticInput) -> LocalEnergy: ...
+    def kinetic_energy_dense(self, params: P, electrons: Electrons, static: StaticInput) -> LocalEnergy: ...
+    def signed(self, params: P, electrons: Electrons, static: StaticInput) -> SignedLogAmplitude: ...
+    def __call__(self, params: P, electrons: Electrons, static: StaticInput) -> LogAmplitude: ...
+    def log_psi_with_state(
+        self, params: P, electrons: Electrons, static: StaticInput
     ) -> tuple[SignedLogAmplitude, MS]: ...
-
-
-# TODO: For some reason PyTreeNode and Generics don't work together
-# Seems a bit ugly to use to PyTreeNodes for some stuff and dataclasses for others, but here we go...
-@struct.dataclass
-class StaticInput:
-    def round_with_padding(self, padding_factor, n_el, n_up, n_nuc):
-        return jax.tree_map(lambda x: x * padding_factor, self)
-
-    def to_static(self):
-        return jtu.tree_map(lambda x: int(jnp.max(x)), self)
+    def log_psi_low_rank_update(
+        self, params: P, electrons: Electrons, changed_electrons: ElectronIdx, static: StaticInput, state: MS
+    ) -> tuple[SignedLogAmplitude, MS]: ...
 
 
 ############################################################################
@@ -168,7 +184,7 @@ class StaticInput:
 
 class MCMCStats(NamedTuple):
     pmove: jax.Array
-    static_max: StaticInput
+    static_max: dict[str, StaticInput]
     logs: dict[str, jax.Array]
 
 
@@ -176,9 +192,15 @@ class ClosedLogLikelihood(Protocol):
     def __call__(self, electrons: Electrons) -> LogAmplitude: ...
 
 
-class MCStep(Protocol[P_contra, S_contra]):
+# TODO: MyPy does not like the dict[str, S_contra] type hint here
+class MCStep(Protocol[P_contra]):  # type: ignore
     def __call__(
-        self, key: PRNGKeyArray, params: P_contra, electrons: Electrons, static: S_contra, width: Width
+        self,
+        key: PRNGKeyArray,
+        params: P_contra,
+        electrons: Electrons,
+        statics: StaticInputs,
+        width: Width,
     ) -> tuple[Electrons, MCMCStats]: ...
 
 
@@ -213,21 +235,21 @@ class PreconditionerInit(Protocol[P]):
     def __call__(self, params: P) -> PreconditionerState[P]: ...
 
 
-class ApplyPreconditioner(Protocol[P, S_contra]):
+class ApplyPreconditioner(Protocol[P]):
     def __call__(
         self,
         params: P,
         electrons: Electrons,
-        static: S_contra,
+        static: StaticInput,
         dE_dlogpsi: EnergyCotangent,
         aux_grad: P,
         natgrad_state: PreconditionerState[P],
     ) -> tuple[P, PreconditionerState[P], AuxData]: ...
 
 
-class Preconditioner(NamedTuple, Generic[P, S]):
+class Preconditioner(NamedTuple, Generic[P]):
     init: PreconditionerInit[P]
-    precondition: ApplyPreconditioner[P, S]
+    precondition: ApplyPreconditioner[P]
 
 
 ############################################################################
@@ -237,9 +259,9 @@ SS = TypeVar("SS")  # spin state
 SpinValue = Float[Array, ""]
 
 
-class SpinOperator(Protocol[P, S_contra, SS]):
+class SpinOperator(Protocol[P, SS]):
     def init_state(self) -> SS: ...
-    def __call__(self, params: P, electrons: Electrons, static: S_contra, state: SS) -> tuple[SpinValue, P, SS]: ...
+    def __call__(self, params: P, electrons: Electrons, static: StaticInput, state: SS) -> tuple[SpinValue, P, SS]: ...
 
 
 ############################################################################
@@ -299,19 +321,18 @@ class TrainingState(Generic[P, SS], struct.PyTreeNode):  # the order of inherita
         return result
 
 
-class VMCStepFn(Protocol[P, S, SS]):
+class VMCStepFn(Protocol[P, SS]):
     def __call__(
         self,
         state: TrainingState[P, SS],
-        static: S,
-        pp_static: S,
-    ) -> tuple[TrainingState[P, SS], LocalEnergy, AuxData, MCMCStats, S]: ...
+        static: StaticInput,
+    ) -> tuple[TrainingState[P, SS], LocalEnergy, AuxData, MCMCStats]: ...
 
 
-class SamplingStepFn(Protocol[P, S, SS]):
+class SamplingStepFn(Protocol[P, SS]):
     def __call__(
-        self, state: TrainingState[P, SS], static: S, pp_static: S, compute_energy: bool, overlap_fn: Callable | None
-    ) -> tuple[TrainingState[P, SS], AuxData, MCMCStats, S]: ...
+        self, state: TrainingState[P, SS], static: StaticInput, compute_energy: bool, overlap_fn: Callable | None
+    ) -> tuple[TrainingState[P, SS], AuxData, MCMCStats]: ...
 
 
 class InitTrainState(Protocol[P, SS]):
@@ -325,16 +346,16 @@ class InitTrainState(Protocol[P, SS]):
 
 
 @dataclass(frozen=True)
-class Trainer(Generic[P, S, SS]):
+class Trainer(Generic[P, SS]):
     init: InitTrainState[P, SS]
-    step: VMCStepFn[P, S, SS]
-    sampling_step: SamplingStepFn[P, S, SS]
-    wave_function: ParameterizedWaveFunction[P, S, MS]
-    mcmc: MCStep[P, S]
+    step: VMCStepFn[P, SS]
+    sampling_step: SamplingStepFn[P, SS]
+    wave_function: ParameterizedWaveFunction[P, MS]
+    mcmc: MCStep[P]
     width_scheduler: WidthScheduler
     optimizer: optax.GradientTransformation
-    preconditioner: Preconditioner[P, S]
-    spin_operator: SpinOperator[P, S, SS]
+    preconditioner: Preconditioner[P]
+    spin_operator: SpinOperator[P, SS]
 
 
 ############################################################################
@@ -365,15 +386,15 @@ class InitPretrainState(Protocol[P, SS]):
     ) -> PretrainState[P, SS]: ...
 
 
-class UpdatePretrainFn(Protocol[P, S_contra, SS]):
+class UpdatePretrainFn(Protocol[P, SS]):
     def __call__(
-        self, state: PretrainState[P, SS], static: S_contra
+        self, state: PretrainState[P, SS], static: StaticInput
     ) -> tuple[PretrainState[P, SS], AuxData, MCMCStats]: ...
 
 
-class Pretrainer(NamedTuple, Generic[P, S, SS]):
+class Pretrainer(NamedTuple, Generic[P, SS]):
     init: InitPretrainState[P, SS]
-    step: UpdatePretrainFn[P, S, SS]
+    step: UpdatePretrainFn[P, SS]
 
 
 ############################################################################

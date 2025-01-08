@@ -7,12 +7,11 @@ import jax.tree_util as jtu
 import numpy as np
 from flax.struct import PyTreeNode
 
-from sparse_wf.api import Electrons, Int, ParameterizedWaveFunction, SpinOperator, SpinOperatorArgs
+from sparse_wf.api import Electrons, Int, ParameterizedWaveFunction, SpinOperator, SpinOperatorArgs, StaticInput
 from sparse_wf.jax_utils import psum
 from sparse_wf.tree_utils import tree_mul, tree_add
 
 P = TypeVar("P")
-S = TypeVar("S")
 L = TypeVar("L")
 
 
@@ -20,14 +19,14 @@ class SplusState(NamedTuple):
     alpha: Int
 
 
-class SplusOperator(SpinOperator[P, S, SplusState], PyTreeNode):
-    wf: ParameterizedWaveFunction[P, S, L]
+class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
+    wf: ParameterizedWaveFunction[P, L]
     grad_scale: float
 
     def init_state(self):
         return SplusState(alpha=jnp.zeros((), dtype=jnp.int32))
 
-    def __call__(self, params: P, electrons: Electrons, static: S, state: SplusState):
+    def __call__(self, params: P, electrons: Electrons, static: StaticInput, state: SplusState):
         n_electrons = electrons.shape[-2]
         n_up = self.wf.n_up
         batch_size = np.prod(electrons.shape[:-2]) * jax.device_count()
@@ -84,17 +83,17 @@ class SplusOperator(SpinOperator[P, S, SplusState], PyTreeNode):
         return P_plus, gradient, new_spin_state
 
 
-class NoSpinOperator(SpinOperator[P, S, jax.Array], PyTreeNode):
-    wf: ParameterizedWaveFunction[P, S, L]
+class NoSpinOperator(SpinOperator[P, jax.Array], PyTreeNode):
+    wf: ParameterizedWaveFunction[P, L]
 
     def init_state(self):
         return jnp.zeros(())
 
-    def __call__(self, params: P, electrons: Electrons, static: S, state: jax.Array):
+    def __call__(self, params: P, electrons: Electrons, static: StaticInput, state: jax.Array):
         return jnp.zeros(()), jtu.tree_map(jnp.zeros_like, params), state
 
 
-def make_spin_operator(wf: ParameterizedWaveFunction[P, S, L], args: SpinOperatorArgs):
+def make_spin_operator(wf: ParameterizedWaveFunction[P, L], args: SpinOperatorArgs):
     match args["operator"].lower():
         case "splus":
             return SplusOperator(wf=wf, grad_scale=args["grad_scale"])
