@@ -14,8 +14,6 @@ SLURM_EXPORT_ENV=ALL
 
 trap 'touch SPARSEWF_ABORT && wait' SIGUSR1
 
-export OMP_NUM_THREADS=10
-export MKL_NUM_THREADS=10
 export NVIDIA_TF32_OVERRIDE=0
 
 srun uv run sparse-wf-run full_config.yaml &

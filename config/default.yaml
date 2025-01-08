@@ -140,7 +140,13 @@ pretraining:
         args: []
         kwargs: {}
   reference: hf
-  x2c: false
+  hf:
+    x2c: false
+    newton: false
+    restricted: false
+    restart: false
+    smearing: 0.0
+    cache_dir: null
   cas:
     active_orbitals: 8
     active_electrons: 8
