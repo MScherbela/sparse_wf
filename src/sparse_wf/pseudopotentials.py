@@ -1,5 +1,5 @@
 import functools
-from typing import Any, Callable, Sequence, TypeVar
+from typing import Any, Callable, Sequence, TypeVar, cast
 
 import jax
 import jax.numpy as jnp
@@ -480,7 +480,8 @@ def make_pseudopotential(
     }
     n_cores, v_grid_dict, grid_radius, max_channels = eval_ecp_on_grid(ecp_data)
     # residual atomic charge
-    effective_charges = np.asarray([z - n_cores.get(z, 0) for z in charges.tolist()])
+    charge_list = cast(list[int], charges.tolist())
+    effective_charges = np.asarray([z - n_cores.get(z, 0) for z in charge_list])
     # mask to separate pseudo atoms from regular atoms
     ecp_mask: EcpMask = np.abs(np.asarray(charges) - effective_charges) > 2.0e-6
     # construct v_grids
