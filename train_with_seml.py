@@ -82,6 +82,7 @@ def seml_main(
     db_collection: str | None,
     logging_args: LoggingArgs,
     load_checkpoint: str,
+    extract_checkpoint=False,
 ):
     mol = get_molecule(molecule_args)
     logging_args = update_logging_configuration(mol, db_collection, logging_args, locals())

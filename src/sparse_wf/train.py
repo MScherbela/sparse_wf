@@ -139,6 +139,7 @@ def main(
         optimization["energy_operator"],
         mol._ecp.keys(),
         optimization["pp_grid_points"],
+        optimization["variance_loss_weight"],
     )
 
     # The state will only be fed into pmapped functions, i.e., we need a per device key
@@ -161,9 +162,9 @@ def main(
         logging.info(f"Computing reference wavefunction for pretraining, using: {pretraining['reference']}")
         match pretraining["reference"].lower():
             case "hf":
-                hf_wf = HFWavefunction(mol)
+                hf_wf = HFWavefunction(mol, pretraining["hf"])
             case "cas":
-                hf_wf = CASWavefunction(mol, model_args["n_determinants"], **pretraining["cas"])
+                hf_wf = CASWavefunction(mol, pretraining["hf"], model_args["n_determinants"], **pretraining["cas"])
             case _:
                 raise ValueError(f"Invalid pretraining reference: {pretraining['reference']}")
 

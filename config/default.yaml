@@ -83,12 +83,15 @@ logging_args:
 optimization:
   energy_operator: sparse
   pp_grid_points: 4 # number of grid points for pseudopotential quadrature
+  variance_loss_weight: 0.0
   steps: 100_000
   burn_in: 500
   max_batch_size: 16
   optimizer_args:
     lr_schedule: hyperbolic
     lr_schedule_args:
+      constant:
+        value: 1.0
       hyperbolic:
         init_value: 0.1
         decay: 1.0
@@ -137,6 +140,13 @@ pretraining:
         args: []
         kwargs: {}
   reference: hf
+  hf:
+    x2c: false
+    newton: false
+    restricted: false
+    restart: false
+    smearing: 0.0
+    cache_dir: null
   cas:
     active_orbitals: 8
     active_electrons: 8
@@ -170,4 +180,3 @@ mcmc_args:
     max_cluster_radius: 2.0
     max_cluster_size: 5
   jump_steps: 0
-
