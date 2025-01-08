@@ -8,7 +8,8 @@ name = "sparse_wf"
 version = "0.0.1"
 readme = "README.md"
 dependencies = [
-    "jax[cuda12]>=0.4.35",               # lates jax with monolitic cuda12
+    "jax[cuda12-pip]==0.4.29",
+    # lates jax with monolitic cuda12
     "flax",
     "optax",
     "chex",
@@ -61,6 +62,7 @@ disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["-n", "auto"]
 
 [tool.uv]
 constraint-dependencies = [
@@ -75,6 +77,7 @@ dev-dependencies = [
     "mypy>=1.12.0",
     "wandb-workspaces",
     "seaborn>=0.13.2",
+    "pytest-xdist>=3.6.1",
 ]
 find-links = [
     "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html",
