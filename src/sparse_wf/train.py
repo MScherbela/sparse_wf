@@ -18,7 +18,7 @@ from sparse_wf.api import (
     EvaluationArgs,
     MCMCArgs,
 )
-from sparse_wf.static_args import StaticScheduler
+from sparse_wf.static_args import StaticSchedulers
 from sparse_wf.jax_utils import (
     assert_identical_copies,
     copy_from_main,
@@ -27,7 +27,7 @@ from sparse_wf.jax_utils import (
     pmax,
     get_from_main_process,
 )
-from sparse_wf.loggers import MultiLogger, to_log_data, mcmc_to_log_data, save_expanded_checkpoint
+from sparse_wf.loggers import MultiLogger, to_log_data, save_expanded_checkpoint
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
@@ -40,7 +40,6 @@ from sparse_wf.system import get_molecule, get_atomic_numbers
 from sparse_wf.update import make_trainer
 from sparse_wf.auto_requeue import should_abort, requeue_job
 import functools
-import copy
 
 
 jax.config.update("jax_default_matmul_precision", "float32")
@@ -117,8 +116,7 @@ def main(
     electrons = init_electrons(subkey, mol, batch_size)
     mcmc_step, mcmc_state = make_mcmc(wf, R, Z, n_el, mcmc_args)
     mcmc_width_scheduler = make_width_scheduler(target_pmove=mcmc_args["acceptance_target"])
-    static_scheduler = StaticScheduler(n_el, n_up, len(R))
-    pp_static_scheduler = StaticScheduler(n_el, n_up, len(R))
+    static_schedulers = StaticSchedulers(n_el, n_up, len(R))
 
     # We want the parameters to be identical so we use the main_key here
     main_key, subkey = jax.random.split(main_key)
@@ -156,7 +154,7 @@ def main(
 
     assert_identical_copies(state.params)
     model_static = pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons)
-    static = static_scheduler(model_static)
+    statics = static_schedulers({"mcmc": model_static, "mcmc_jump": model_static, "pp": model_static})
 
     # Build pre-training wavefunction and sampling step
     if (pretraining["steps"] > 0) or evaluation["overlap_states"]:
@@ -191,9 +189,9 @@ def main(
         logging.info("Pretraining")
         for step in range(pretraining["steps"]):
             t0 = time.perf_counter()
-            state, aux_data, mcmc_stats = pretrainer.step(state, static)
-            static = static_scheduler(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
-            log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
+            state, aux_data, mcmc_stats = pretrainer.step(state, statics)
+            statics = static_schedulers(mcmc_stats.static_max, pretrainer.step._cache_size)  # type: ignore
+            log_data = to_log_data(mcmc_stats, statics, aux_data)
             t1 = time.perf_counter()
             log_data["pretrain/t_step"] = t1 - t0
             log_data["pretrain/step"] = step
@@ -207,15 +205,13 @@ def main(
     # Variational optimization
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
-        state, aux_data, mcmc_stats, _ = trainer.sampling_step(state, static, static, False, None)
-        static = static_scheduler(mcmc_stats.static_max, trainer.sampling_step._cache_size)  # type: ignore
-        log_data = to_log_data(aux_data) | mcmc_to_log_data(mcmc_stats) | to_log_data(static, "static/padded/")
+        state, aux_data, mcmc_stats, _ = trainer.sampling_step(state, statics, False, None)
+        statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
+        log_data = to_log_data(mcmc_stats, statics, aux_data)
         loggers.log(log_data)
 
     logging.info("Training")
     n_steps_prev = int(state.step[0])
-    # Use regular statics as initial guess for pp_static
-    pp_static_scheduler, pp_static = copy.deepcopy((static_scheduler, static))
     for opt_step in range(n_steps_prev, optimization["steps"] + 1):
         loggers.store_checkpoint(opt_step, state, "opt")
         if should_abort():
@@ -226,16 +222,9 @@ def main(
             raise SystemExit(0)
 
         t0 = time.perf_counter()
-        state, _, aux_data, mcmc_stats, pp_static_max = trainer.step(state, static, pp_static)
-        static = static_scheduler(mcmc_stats.static_max, trainer.step._cache_size)  # type: ignore
-        pp_static = pp_static_scheduler(pp_static_max, trainer.step._cache_size)  # type: ignore
-        log_data = (
-            to_log_data(aux_data)
-            | mcmc_to_log_data(mcmc_stats)
-            | to_log_data(static, "static/padded/")
-            | to_log_data(pp_static_max, "pp_static/max/")
-            | to_log_data(pp_static, "pp_static/padded/")
-        )
+        state, _, aux_data, mcmc_stats = trainer.step(state, statics)
+        statics = static_schedulers(mcmc_stats.static_max, trainer.step._cache_size)
+        log_data = to_log_data(mcmc_stats, statics, aux_data)
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0
         log_data["opt/step"] = opt_step
@@ -255,18 +244,9 @@ def main(
     )
     for eval_step in range(evaluation["steps"]):
         t0 = time.perf_counter()
-        state, aux_data, mcmc_stats, pp_static_max = trainer.sampling_step(
-            state, static, pp_static, evaluation["compute_energy"], overlap_fn
-        )
-        static = static_scheduler(mcmc_stats.static_max, trainer.sampling_step._cache_size)  # type: ignore
-        pp_static = pp_static_scheduler(pp_static_max, trainer.sampling_step._cache_size)  # type: ignore
-        log_data = (
-            to_log_data(aux_data)
-            | mcmc_to_log_data(mcmc_stats)
-            | to_log_data(static, "static/padded/")
-            | to_log_data(pp_static_max, "pp_static/max/")
-            | to_log_data(pp_static, "pp_static/padded/")
-        )
+        state, aux_data, mcmc_stats = trainer.sampling_step(state, statics, evaluation["compute_energy"], overlap_fn)
+        statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
+        log_data = to_log_data(mcmc_stats, statics, aux_data)
         t1 = time.perf_counter()
         log_data["eval/t_step"] = t1 - t0
         log_data["eval/step"] = eval_step

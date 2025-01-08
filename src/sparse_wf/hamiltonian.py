@@ -4,17 +4,11 @@ import folx
 import jax
 import jax.numpy as jnp
 
-from sparse_wf.api import (
-    Charges,
-    Electrons,
-    LocalEnergy,
-    Nuclei,
-    ParameterizedWaveFunction,
-)
+from sparse_wf.api import Charges, Electrons, LocalEnergy, Nuclei, ParameterizedWaveFunction, StaticInput
 from sparse_wf.jax_utils import vectorize
 from sparse_wf.pseudopotentials import make_pseudopotential
 
-P, S, MS = TypeVar("P"), TypeVar("S"), TypeVar("MS")
+P, MS = TypeVar("P"), TypeVar("MS")
 
 
 @vectorize(signature="(n,d),(m,d),(m)->()")
@@ -31,11 +25,11 @@ def potential_energy(r: Electrons, R: Nuclei, Z: Charges):
     return E_ee + E_en + E_nn
 
 
-def make_kinetic_energy(wf: ParameterizedWaveFunction[P, S, MS], use_fwd_lap=True):
+def make_kinetic_energy(wf: ParameterizedWaveFunction[P, MS], use_fwd_lap=True):
     """Create a kinetic energy function from a wave function"""
 
     @vectorize(signature="(n,d)->()", excluded=frozenset({0, 2}))
-    def kinetic(params: P, electrons: Electrons, static: S) -> LocalEnergy:
+    def kinetic(params: P, electrons: Electrons, static: StaticInput) -> LocalEnergy:
         """Compute the local energy of the system"""
 
         def closed_wf(electrons):
@@ -52,7 +46,7 @@ def make_kinetic_energy(wf: ParameterizedWaveFunction[P, S, MS], use_fwd_lap=Tru
 
 
 def make_local_energy(
-    wf: ParameterizedWaveFunction[P, S, MS],
+    wf: ParameterizedWaveFunction[P, MS],
     energy_operator: Literal["sparse", "dense"],
     pseudopotentials: Sequence[str],  # list of atoms for which to use pseudopotentials
     pp_grid_points: int,
@@ -68,7 +62,9 @@ def make_local_energy(
 
     eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials, pp_grid_points)
 
-    def local_energy(key: jax.Array, params: P, electrons: Electrons, static: S) -> tuple[LocalEnergy, S]:
+    def local_energy(
+        key: jax.Array, params: P, electrons: Electrons, static: StaticInput
+    ) -> tuple[LocalEnergy, StaticInput]:
         """Compute the local energy of the system"""
         kinetic_energy = kin_fn(params, electrons, static)
         potential = potential_energy(electrons, wf.R, eff_charges)
