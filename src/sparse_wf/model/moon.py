@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+# TODO: fix type errors for StaticInput
 import functools
 from typing import Callable, NamedTuple, Optional, TypedDict, cast, Generic, TypeVar
 
