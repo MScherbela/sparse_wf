@@ -325,7 +325,7 @@ class VMCStepFn(Protocol[P, SS]):
     def __call__(
         self,
         state: TrainingState[P, SS],
-        static: StaticInput,
+        statics: StaticInputs,
     ) -> tuple[TrainingState[P, SS], LocalEnergy, AuxData, MCMCStats]: ...
 
 
@@ -388,7 +388,7 @@ class InitPretrainState(Protocol[P, SS]):
 
 class UpdatePretrainFn(Protocol[P, SS]):
     def __call__(
-        self, state: PretrainState[P, SS], static: StaticInput
+        self, state: PretrainState[P, SS], statics: StaticInputs
     ) -> tuple[PretrainState[P, SS], AuxData, MCMCStats]: ...
 
 

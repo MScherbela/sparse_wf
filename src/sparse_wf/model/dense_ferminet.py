@@ -138,7 +138,7 @@ class FermiNetOrbitals(nn.Module):
 FermiNetParams = dict[str, "FermiNetParams"] | Array
 
 
-class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None, None], PyTreeNode):
+class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode):
     mol: pyscf.gto.Mole
     ferminet: FermiNetOrbitals
 
