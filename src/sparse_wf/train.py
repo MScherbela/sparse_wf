@@ -206,7 +206,7 @@ def main(
     # Variational optimization
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
-        state, aux_data, mcmc_stats, _ = trainer.sampling_step(state, statics, False, None)
+        state, aux_data, mcmc_stats = trainer.sampling_step(state, statics, False, None)
         statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
         log_data = to_log_data(mcmc_stats, statics, aux_data)
         loggers.log(log_data)
