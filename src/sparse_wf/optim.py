@@ -28,6 +28,10 @@ def make_schedule(schedule: Schedule | str, kwargs: dict[str, dict[str, Any]]) -
         raise ValueError(f"Unknown schedule: {schedule}")
 
 
+def scale_by_hyperbolic_schedule(init_value: float, delay: float, decay: float):
+    return optax.scale_by_schedule(hyperbolic_schedule(init_value, delay, decay))
+
+
 def make_optimizer(
     lr_schedule: Schedule | str,
     lr_schedule_args: dict[str, dict[str, Any]],

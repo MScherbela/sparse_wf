@@ -161,9 +161,9 @@ def main(
         logging.info(f"Computing reference wavefunction for pretraining, using: {pretraining['reference']}")
         match pretraining["reference"].lower():
             case "hf":
-                hf_wf = HFWavefunction(mol)
+                hf_wf = HFWavefunction(mol, pretraining["hf"])
             case "cas":
-                hf_wf = CASWavefunction(mol, model_args["n_determinants"], **pretraining["cas"])
+                hf_wf = CASWavefunction(mol, pretraining["hf"], model_args["n_determinants"], **pretraining["cas"])
             case _:
                 raise ValueError(f"Invalid pretraining reference: {pretraining['reference']}")
 
@@ -205,7 +205,7 @@ def main(
     # Variational optimization
     logging.info("MCMC Burn-in")
     for _ in range(optimization["burn_in"]):
-        state, aux_data, mcmc_stats, _ = trainer.sampling_step(state, statics, False, None)
+        state, aux_data, mcmc_stats = trainer.sampling_step(state, statics, False, None)
         statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
         log_data = to_log_data(mcmc_stats, statics, aux_data)
         loggers.log(log_data)
