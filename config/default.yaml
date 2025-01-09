@@ -83,7 +83,6 @@ logging_args:
 optimization:
   energy_operator: sparse
   pp_grid_points: 4 # number of grid points for pseudopotential quadrature
-  variance_loss_weight: 0.0
   steps: 100_000
   burn_in: 500
   max_batch_size: 16

@@ -139,7 +139,6 @@ def main(
         optimization["energy_operator"],
         mol._ecp.keys(),
         optimization["pp_grid_points"],
-        optimization["variance_loss_weight"],
     )
 
     # The state will only be fed into pmapped functions, i.e., we need a per device key
