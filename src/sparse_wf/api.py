@@ -589,6 +589,7 @@ class HFArgs(TypedDict):
     restricted: bool
     restart: bool
     cache_dir: str
+    antiferromagnetic_broken_symmetry: bool  # This initializes the spin opposing for two irons.
 
 
 class PretrainingArgs(TypedDict):

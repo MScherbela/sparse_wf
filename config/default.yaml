@@ -146,6 +146,7 @@ pretraining:
     restart: false
     smearing: 0.0
     cache_dir: null
+    antiferromagnetic_broken_symmetry: false
   cas:
     active_orbitals: 8
     active_electrons: 8

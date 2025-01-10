@@ -36,6 +36,28 @@ def mean_field_chkfile(mol: pyscf.gto.Mole, args: HFArgs):
     return cache_dir / file_name
 
 
+def antiferromagnetic_broken_symmetry(mf: pyscf.scf.uhf.UHF):
+    fe_idx = np.array([i for i in range(mf.mol.natm) if mf.mol.atom_symbol(i) == "Fe"])
+    assert len(fe_idx) == 2, f"Only two Fe atoms are supported for antiferromagnetic broken symmetry, {fe_idx}"
+    if mf.init_guess == "chk":
+        try:
+            dm = mf.init_guess_by_chkfile()
+            logging.info("Ignoring antiferromagnetic broken symmetry due to chkfile.")
+            return dm
+        except Exception:  # failed to read chkfile
+            pass
+    dm = np.array(mf.get_init_guess())
+    assert dm.ndim == 3, f"Must be a UHF density matrix for antiferromagnetic broken symmetry, {dm.shape}"
+    dm_alpha, dm_beta = dm[0].copy(), dm[1].copy()
+    fe1, fe2 = mf.mol.aoslice_by_atom()[fe_idx][:, -2:]
+    dm_alpha[fe1[0] : fe1[1], fe1[0] : fe1[1]] += 0.5
+    dm_beta[fe1[0] : fe1[1], fe1[0] : fe1[1]] -= 0.5
+    dm_alpha[fe2[0] : fe2[1], fe2[0] : fe2[1]] -= 0.5
+    dm_beta[fe2[0] : fe2[1], fe2[0] : fe2[1]] += 0.5
+    logging.info("Applied antiferromagnetic broken symmetry to Fe atoms.")
+    return (dm_alpha, dm_beta)
+
+
 class CASResult(NamedTuple):
     mo_coeff: np.ndarray  # [n_basis x n_orbitals]
     ci_coeffs: np.ndarray  # [n_dets_up x n_dets_dn]
@@ -76,14 +98,20 @@ def run_hf(mol: pyscf.gto.Mole, args: HFArgs):
         logging.info("HF smearing completed. Starting main SCF.")
         hf.sigma = 1e-6
 
+    # Get initial guess
+    if args["antiferromagnetic_broken_symmetry"]:
+        dm0 = antiferromagnetic_broken_symmetry(hf)
+    else:
+        try:
+            dm0 = hf.get_init_guess()
+        except TypeError:
+            logging.info("HF failed loading.")
+            hf.init_guess = "minao"
+            dm0 = hf.get_init_guess()
+
     # Run HF
     hf.max_cycle = 100
-    try:
-        hf.kernel()
-    except TypeError:
-        logging.info("HF failed loading.")
-        hf.init_guess = "minao"
-        hf.kernel()
+    hf.kernel(dm0=dm0)
     logging.info(f"HF energy: {hf.e_tot}")
     return hf
 
