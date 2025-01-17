@@ -68,6 +68,7 @@ dev-dependencies = [
     "wandb-workspaces",
     "seaborn>=0.13.2",
     "pytest-xdist>=3.6.1",
+    "scienceplots>=2.1.1",
 ]
 find-links = [
     "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html",
