@@ -1,15 +1,14 @@
 #%%
-import bokeh.layouts
 import wandb
 import pandas as pd
 import re
 
 api = wandb.Api()
 all_runs = api.runs("tum_daml_nicholas/benzene")
-runs_cutoff3 = [r for r in all_runs if r.name.startswith("benzene_dimer_T_")]
-runs_cutoff3 = [r for r in runs_cutoff3 if not "2024-11-20T" in r.metadata["startedAt"]]
-runs_cutoff3 = [r for r in runs_cutoff3 if not "5.0" in r.name]
+runs_cutoff3 = [r for r in all_runs if r.name.startswith("3.0_benzene_dimer_T_")]
 runs_cutoff5 = [r for r in all_runs if r.name.startswith("5.0_benzene_dimer_T_")]
+# runs_cutoff5 = [r for r in runs_cutoff5 if not "leonardo" in r.name]
+runs_cutoff5 = [r for r in runs_cutoff5 if "leonardo" in r.name]
 runs = runs_cutoff3 + runs_cutoff5
 
 data = []
@@ -27,6 +26,7 @@ df_all = pd.DataFrame(data)
 df_all.to_csv("benzene_energies.csv", index=False)
 
 #%%
+import bokeh.layouts
 import bokeh.plotting as bpl
 import bokeh
 
