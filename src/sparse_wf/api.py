@@ -582,12 +582,22 @@ class CASArgs(TypedDict):
     s2: float
 
 
+class HFArgs(TypedDict):
+    x2c: bool
+    newton: bool
+    smearing: float
+    restricted: bool
+    restart: bool
+    cache_dir: str
+
+
 class PretrainingArgs(TypedDict):
     steps: int
     optimizer_args: OptimizerArgs
     sample_from: Literal["hf", "wf"]
     reference: Literal["hf", "cas"]
     cas: CASArgs
+    hf: HFArgs
 
 
 class EvaluationArgs(TypedDict):

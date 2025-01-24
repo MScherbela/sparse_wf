@@ -67,7 +67,7 @@ def convert_to_default_datatype(config_dict, default_dict, allow_new_keys=False)
         if (target_type is bool) and isinstance(config_dict, str):
             assert config_dict.lower() in ["true", "false", "0", "1"]
             config_dict = config_dict.lower() in ["true", "1"]
-        else:
+        elif default_dict is not None:
             config_dict = target_type(config_dict)
     return config_dict
 
@@ -169,6 +169,7 @@ def get_slurm_defaults(cluster, queue):
             time="2-00:00:00",
             n_gpus=4,
             partition="mcml-hgx-h100-92x4,mcml-hgx-a100-80x4",
+            qos="mcml",
         )
     elif cluster == "daml":
         defaults = dict(time="5-00:00:00", n_gpus=1, partition="gpu_a100,gpu_h100")

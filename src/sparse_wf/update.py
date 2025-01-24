@@ -150,7 +150,11 @@ def make_trainer(
         key, subkey = jax.random.split(key)
         keys = jax.random.split(subkey, batch_size)
         energy, stats.static_max["pp"] = batched_energy_fn(keys, state.params, electrons, statics.pp)
-        energy_diff = local_energy_diff(energy, **clipping_args)
+        energy_clipped = clip_local_energies(energy, **clipping_args)
+        # Energy loss
+        energy_mean = pmean(energy_clipped.mean())
+        dE_dlogpsi = energy_clipped - energy_mean
+        dloss_dlogpsi = dE_dlogpsi
 
         E_mean = pmean(energy.mean())
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
@@ -164,7 +168,7 @@ def make_trainer(
             state.params,
             electrons,
             statics.mcmc,
-            energy_diff,
+            dloss_dlogpsi,
             spin_grad,
             state.opt_state.natgrad,
         )
