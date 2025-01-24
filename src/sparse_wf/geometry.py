@@ -53,7 +53,7 @@ class Geometry:
         self.name = name
 
     @classmethod
-    def from_xyz(cls, fname, comment="", name=""):
+    def from_xyz(cls, fname, comment="", name="", sep=None):
         with open(fname) as f:
             n_atoms = f.readline().strip()
             try:
@@ -68,7 +68,7 @@ class Geometry:
                 line = line.strip()
                 if len(line) == 0:
                     break
-                tokens = line.split()
+                tokens = line.split(sep)
                 assert len(tokens) == 4
                 R.append([float(x) / BOHR_IN_ANGSTROM for x in tokens[1:]])
                 Z.append(int(tokens[0]) if tokens[0].isdigit() else PERIODIC_TABLE.index(tokens[0].capitalize()) + 1)
