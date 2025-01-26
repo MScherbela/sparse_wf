@@ -28,12 +28,63 @@ def hash_mol(mol: pyscf.gto.Mole):
 
 
 def mean_field_chkfile(mol: pyscf.gto.Mole, args: HFArgs):
-    method = "RHF" if args["restricted"] else "UHF"
+    if args["xc"] is not None:
+        method = "RKS" if args["restricted"] else "UKS"
+        method = f"{method}_{args['xc']}"
+    else:
+        method = "RHF" if args["restricted"] else "UHF"
     x2c = "_x2c" if args["x2c"] else ""
     file_name = Path(f"{hash_mol(mol)}_{method}{x2c}.h5")
     cache_dir = Path(args["cache_dir"]).expanduser()
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / file_name
+
+
+def antiferromagnetic_broken_symmetry(mf: pyscf.scf.uhf.UHF):
+    fe_idx = np.array([i for i in range(mf.mol.natm) if mf.mol.atom_symbol(i) == "Fe"])
+    assert len(fe_idx) == 2, f"Only two Fe atoms are supported for antiferromagnetic broken symmetry, {fe_idx}"
+    if mf.init_guess == "chk":
+        try:
+            dm = mf.init_guess_by_chkfile()
+            logging.info("Ignoring antiferromagnetic broken symmetry due to chkfile.")
+            return dm
+        except Exception:  # failed to read chkfile
+            pass
+    dm = np.array(mf.get_init_guess())
+    assert dm.ndim == 3, f"Must be a UHF density matrix for antiferromagnetic broken symmetry, {dm.shape}"
+    dm_alpha, dm_beta = dm[0].copy(), dm[1].copy()
+    fe1, fe2 = mf.mol.aoslice_by_atom()[fe_idx][:, -2:]
+    # antiferromagntic broken spin symmetry
+    dm_alpha[fe1[0] : fe1[1], fe1[0] : fe1[1]] += 0.5
+    dm_beta[fe1[0] : fe1[1], fe1[0] : fe1[1]] -= 0.5
+    dm_alpha[fe2[0] : fe2[1], fe2[0] : fe2[1]] -= 0.5
+    dm_beta[fe2[0] : fe2[1], fe2[0] : fe2[1]] += 0.5
+    logging.info("Applied antiferromagnetic broken symmetry to Fe atoms.")
+    return (dm_alpha, dm_beta)
+
+
+def from_other_calc(mf: pyscf.scf.uhf.UHF, args: HFArgs):
+    mol_sub = mf.mol.copy()
+    mf_sub = run_hf(mol_sub, args["init_calc"])
+    return mf_sub.make_rdm1()
+
+
+def from_all_electron(mf: pyscf.scf.uhf.UHF, args: HFArgs):
+    assert getattr(mf.mol, "ecp", None) is not None, "No ECP found for all-electron conversion."
+    mol_all = mf.mol.copy()
+    mol_all.basis = mol_all.basis.replace("ccecp", "")
+    mol_all.ecp = {}
+    mol_all._ecp = {}
+    mol_all._ecpbas = []
+    mol_all.build()
+    logging.info("Running HF on all-electron system.")
+    mf_all = run_hf(mol_all, args | {"x2c": True, "from_all_electron": False})
+    aos = mf.mol.ao_labels(fmt=False)
+    ao_mask = np.array([ao in aos for ao in mol_all.ao_labels(fmt=False)])
+    ncore_orb = mol_all.nao - mf.mol.nao
+    mf.mo_occ = mf_all.mo_occ[..., ncore_orb:]
+    mf.mo_coeff = mf_all.mo_coeff[..., ao_mask, :][..., ncore_orb:]
+    return mf.make_rdm1()
 
 
 class CASResult(NamedTuple):
@@ -49,9 +100,17 @@ def run_hf(mol: pyscf.gto.Mole, args: HFArgs):
     logging.info("Running HF with args:")
     rich.print_json(data=args)
     if args["restricted"]:
-        hf = pyscf.scf.RHF(mol)
+        if args["xc"] is not None:
+            hf = pyscf.scf.RKS(mol)
+            hf.xc = args["xc"]
+        else:
+            hf = pyscf.scf.RHF(mol)
     else:
-        hf = pyscf.scf.UHF(mol)
+        if args["xc"] is not None:
+            hf = pyscf.scf.UKS(mol)
+            hf.xc = args["xc"]
+        else:
+            hf = pyscf.scf.UHF(mol)
     # output energy at each iteration
     hf.verbose = 4
 
@@ -76,14 +135,24 @@ def run_hf(mol: pyscf.gto.Mole, args: HFArgs):
         logging.info("HF smearing completed. Starting main SCF.")
         hf.sigma = 1e-6
 
+    # Get initial guess
+    if args["init_calc"] is not None:
+        dm0 = from_other_calc(hf, args)
+    elif args["from_all_electron"]:
+        dm0 = from_all_electron(hf, args)
+    elif args["antiferromagnetic_broken_symmetry"]:
+        dm0 = antiferromagnetic_broken_symmetry(hf)
+    else:
+        try:
+            dm0 = hf.get_init_guess()
+        except TypeError:
+            logging.info("HF failed loading.")
+            hf.init_guess = "minao"
+            dm0 = hf.get_init_guess()
+
     # Run HF
     hf.max_cycle = 100
-    try:
-        hf.kernel()
-    except TypeError:
-        logging.info("HF failed loading.")
-        hf.init_guess = "minao"
-        hf.kernel()
+    hf.kernel(dm0=dm0)
     logging.info(f"HF energy: {hf.e_tot}")
     return hf
 
