@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Generic, NamedTuple, Optional, Protocol, Self, Sequence, TypeAlias, TypedDict, TypeVar, overload
+from typing import Any, Generic, NamedTuple, Optional, Protocol, Sequence, TypeAlias, TypedDict, TypeVar, overload
 import jax
 import jax.tree_util as jtu
 import jax.numpy as jnp
@@ -591,7 +591,7 @@ class HFArgs(TypedDict):
     cache_dir: str
     antiferromagnetic_broken_symmetry: bool  # This initializes the spin opposing for two irons.
     from_all_electron: bool  # This initializes the HF guess with one from an all-electron calculation.
-    init_calc: Self | None
+    init_calc: "HFArgs | None"
     xc: str | None  # If specified run DFT with this XC functional instead of HF.
 
 

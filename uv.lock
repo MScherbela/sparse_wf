@@ -2061,6 +2061,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pyscf-dispersion"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyscf" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/91/3a9de70294d6af77ce82866f83bc6460192b8880eb4c9c773f2ca772d3d8/pyscf_dispersion-1.2.0-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:7cc5c1a063f2811b41f9cd7e9d30b543c6d26016533087376c48f4e9fbf95713", size = 2922901 },
+    { url = "https://files.pythonhosted.org/packages/03/f6/c1e44609ebd38a961541243c3c28a5710b8383edfbe9eb9599a523d5d78f/pyscf_dispersion-1.2.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7f21e02469a0affd3bb4f84484431dba3528300a9e228aca810580d33f90782a", size = 5854707 },
+    { url = "https://files.pythonhosted.org/packages/a1/ec/95a167a67421296ee7b621d1a4ac28ae18afb14a29114c1123cfdb936121/pyscf_dispersion-1.2.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8d3069ca33274245ba9798f15951fdbf01d0d5d8cb8ec2be0b821751516eaf3c", size = 12083478 },
+]
+
+[[package]]
 name = "pysocks"
 version = "1.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2555,6 +2568,7 @@ dependencies = [
     { name = "numpy" },
     { name = "optax" },
     { name = "pyscf" },
+    { name = "pyscf-dispersion" },
     { name = "pytest" },
     { name = "seml", version = "0.5.3", source = { registry = "https://pypi.org/simple" }, extra = ["ssh-forward"], marker = "python_full_version >= '3.13'" },
     { name = "seml", version = "0.5.4", source = { registry = "https://pypi.org/simple" }, extra = ["ssh-forward"], marker = "python_full_version < '3.13'" },
@@ -2600,6 +2614,7 @@ requires-dist = [
     { name = "numpy" },
     { name = "optax" },
     { name = "pyscf" },
+    { name = "pyscf-dispersion", specifier = ">=1.2.0" },
     { name = "pytest" },
     { name = "selenium", marker = "extra == 'bokeh'", specifier = ">=4.26.1" },
     { name = "seml", extras = ["ssh-forward"] },

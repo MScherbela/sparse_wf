@@ -25,6 +25,7 @@ dependencies = [
     "pytest",
     "wonderwords",
     "argcomplete",
+    "pyscf-dispersion>=1.2.0",
 ]
 
 [project.optional-dependencies]

@@ -65,6 +65,7 @@ def antiferromagnetic_broken_symmetry(mf: pyscf.scf.uhf.UHF):
 
 def from_other_calc(mf: pyscf.scf.uhf.UHF, args: HFArgs):
     mol_sub = mf.mol.copy()
+    assert args["init_calc"] is not None
     mf_sub = run_hf(mol_sub, args["init_calc"])
     return mf_sub.make_rdm1()
 
