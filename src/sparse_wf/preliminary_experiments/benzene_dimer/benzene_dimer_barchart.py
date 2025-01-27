@@ -57,7 +57,7 @@ rel_energies |= {
 }
 
 ## SWANN
-reload_data = False
+reload_data = True
 if reload_data:
     name_template_cutoff3 = f"3.0_({'|'.join(geom_names)})_vsc"
     name_template_cutoff5 = f"5.0_({'|'.join(geom_names)})_singleEl_jumps_leonardo"
