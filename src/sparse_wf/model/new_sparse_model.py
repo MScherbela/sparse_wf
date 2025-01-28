@@ -63,7 +63,7 @@ class StaticArgs(StaticInput, Generic[T]):
             n_el,
             max_pairs_same,
             max_pairs_diff,
-            n_el,
+            n_el * n_nuc * 12,  # TODO: This 12 is the maximum number of integration points for the pseudopotential
         )
 
     # @override

@@ -49,7 +49,7 @@ def make_local_energy(
     wf: ParameterizedWaveFunction[P, MS],
     energy_operator: Literal["sparse", "dense"],
     pseudopotentials: Sequence[str],  # list of atoms for which to use pseudopotentials
-    pp_grid_points: int,
+    pp_grid_points: dict[str, int],
 ):
     """Create a local energy function from a wave function"""
     match energy_operator.lower():

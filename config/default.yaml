@@ -82,7 +82,21 @@ logging_args:
 
 optimization:
   energy_operator: sparse
-  pp_grid_points: 4 # number of grid points for pseudopotential quadrature
+  pp_grid_points:
+    default: 12
+    C: 4
+    N: 4
+    O: 4
+    F: 4
+    Ne: 4
+    Na: 6
+    Mg: 6
+    Al: 6
+    Si: 6
+    P: 6
+    S: 6
+    Cl: 6
+    Ar: 6
   steps: 100_000
   burn_in: 500
   max_batch_size: 16

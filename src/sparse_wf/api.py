@@ -572,7 +572,7 @@ class OptimizationArgs(TypedDict):
     max_batch_size: int
     spin_operator_args: SpinOperatorArgs
     energy_operator: Literal["dense", "sparse"]
-    pp_grid_points: int  # number of spherical grid points for pseudopotential integration
+    pp_grid_points: dict[str, int]  # number of spherical grid points for pseudopotential integration
 
 
 class CASArgs(TypedDict):

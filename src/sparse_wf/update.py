@@ -84,7 +84,7 @@ def make_trainer(
     spin_operator: SpinOperator[P, SS],
     energy_operator: Literal["sparse", "dense"],
     pseudopotentials: Sequence[str],
-    pp_grid_points: int,
+    pp_grid_points: dict[str, int],
 ):
     energy_fn = make_local_energy(wave_function, energy_operator, pseudopotentials, pp_grid_points)
     batched_energy_fn = vmap_reduction(
