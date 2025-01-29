@@ -184,7 +184,7 @@ def make_dense_spring_preconditioner(
         normalization = 1 / jnp.sqrt(N)
 
         # We could cast the params first to float64, or at the jacobian, or at solving? Or not at all?
-        flat_params, unravel = ravel_with_padding(params, global_param_block_size)
+        flat_params, unravel = ravel_params(params)
 
         def log_p(params: jax.Array, electrons: Electrons, static: StaticInput):
             return wave_function(unravel(params), electrons, static) * normalization  # type: ignore

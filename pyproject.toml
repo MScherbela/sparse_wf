@@ -76,3 +76,4 @@ find-links = [
 [project.scripts]
 sparse-wf-run = "sparse_wf.train_with_config:train_with_config"
 sparse-wf-setup = "sparse_wf.setup_calculations:setup_calculations"
+sparse-wf-setup-cutoff-transfer = "sparse_wf.setup_cutoff_transfer:main"

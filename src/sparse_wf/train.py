@@ -217,7 +217,7 @@ def main(
     logging.info("Training")
     n_steps_prev = int(state.step[0])
     for opt_step in range(n_steps_prev, optimization["steps"] + 1):
-        loggers.store_checkpoint(opt_step, state, "opt")
+        loggers.store_checkpoint(opt_step, state, "opt", force=(opt_step == optimization["steps"]))
         if should_abort():
             chkpt_fname = loggers.store_checkpoint(opt_step, state, "opt", force=True)
             logging.info(f"Requeueing with checkpoint: {chkpt_fname}")

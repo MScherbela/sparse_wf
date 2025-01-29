@@ -249,10 +249,10 @@ def is_code_committed():
     return not git_status.stdout
 
 
-def setup_calculations(depends_on: list[int] | None = None):
+def setup_calculations(args=None, depends_on: list[int] | None = None):
     job_ids = []
     parser = get_argparser()
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     if (not args.no_commit_check) and (not is_code_committed()):
         print(
