@@ -144,8 +144,13 @@ def submit_to_slurm(run_dir, slurm_config, dry_run=False):
         f.write(job_file)
 
     if not dry_run:
-        subprocess.run(["sbatch", "job.sh"])
+        result = subprocess.run(["sbatch", "job.sh"], capture_output=True, text=True)
+        job_id = int(result.stdout.strip().split()[-1])
+    else:
+        job_id = None
+        
     os.chdir(current_dir)
+    return job_id
 
 
 def get_slurm_defaults(cluster, queue):
@@ -240,6 +245,7 @@ def is_code_committed():
 
 
 def setup_calculations():
+    job_ids = []
     parser = get_argparser()
     args = parser.parse_args()
 
@@ -303,9 +309,11 @@ def setup_calculations():
         success = setup_run_dir(run_name, run_config, full_config, args.force)
         if success:
             slurm_config["job_name"] = run_name
-            # Get the job id returned by sbatch and return all job-ids as a list of ints from setup_calculations() AI!
-            submit_to_slurm(run_name, slurm_config, args.dry_run)
-
+            job_id = submit_to_slurm(run_name, slurm_config, args.dry_run)
+            if job_id is not None:
+                job_ids.append(job_id)
+    
+    return job_ids
 
 if __name__ == "__main__":
     setup_calculations()
