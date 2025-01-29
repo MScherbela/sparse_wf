@@ -148,7 +148,7 @@ def submit_to_slurm(run_dir, slurm_config, dry_run=False):
         job_id = int(result.stdout.strip().split()[-1])
     else:
         job_id = None
-        
+
     os.chdir(current_dir)
     return job_id
 
@@ -244,6 +244,7 @@ def is_code_committed():
     return not git_status.stdout
 
 
+# Add an argument depends_on: Iterable[int] = None. If a list of ints is provided, use this as the job_ids to wait for in sbatch invocation. AI!
 def setup_calculations():
     job_ids = []
     parser = get_argparser()
@@ -312,8 +313,9 @@ def setup_calculations():
             job_id = submit_to_slurm(run_name, slurm_config, args.dry_run)
             if job_id is not None:
                 job_ids.append(job_id)
-    
+
     return job_ids
+
 
 if __name__ == "__main__":
     setup_calculations()
