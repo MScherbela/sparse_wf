@@ -129,7 +129,7 @@ def get_slurm_template(cluster=None):
         return f.read()
 
 
-def submit_to_slurm(run_dir, slurm_config, dry_run=False):
+def submit_to_slurm(run_dir, slurm_config, dry_run=False, depends_on: list[int] | None = None):
     current_dir = os.getcwd()
     os.chdir(run_dir)
 
@@ -144,7 +144,12 @@ def submit_to_slurm(run_dir, slurm_config, dry_run=False):
         f.write(job_file)
 
     if not dry_run:
-        result = subprocess.run(["sbatch", "job.sh"], capture_output=True, text=True)
+        cmd = ["sbatch"]
+        if depends_on:
+            dependency_list = ":".join(str(j) for j in depends_on)
+            cmd.extend(["-d", f"afterany:{dependency_list}"])
+        cmd.append("job.sh")
+        result = subprocess.run(cmd, capture_output=True, text=True)
         job_id = int(result.stdout.strip().split()[-1])
     else:
         job_id = None
@@ -244,8 +249,7 @@ def is_code_committed():
     return not git_status.stdout
 
 
-# Add an argument depends_on: Iterable[int] = None. If a list of ints is provided, use this as the job_ids to wait for in sbatch invocation. AI!
-def setup_calculations():
+def setup_calculations(depends_on: list[int] | None = None):
     job_ids = []
     parser = get_argparser()
     args = parser.parse_args()
@@ -310,7 +314,7 @@ def setup_calculations():
         success = setup_run_dir(run_name, run_config, full_config, args.force)
         if success:
             slurm_config["job_name"] = run_name
-            job_id = submit_to_slurm(run_name, slurm_config, args.dry_run)
+            job_id = submit_to_slurm(run_name, slurm_config, args.dry_run, depends_on=depends_on)
             if job_id is not None:
                 job_ids.append(job_id)
 
