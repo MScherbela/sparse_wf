@@ -177,6 +177,11 @@ def main(
             case _:
                 raise ValueError(f"Invalid pretraining sample_from: {pretraining['sample_from']}")
 
+        if molecule_args["pseudopotentials"] and ("ccecp" not in molecule_args["basis"]):
+            raise ValueError("Pretraining with pseudopotentials requires 'ccecp' basis")
+        elif (not molecule_args["pseudopotentials"]) and ("ccecp" in molecule_args["basis"]):
+            raise ValueError("Pretraining without pseudopotentials requires a basis without 'ccecp'")
+
         pretrainer = make_pretrainer(
             wf,
             pretrain_mcmc_step,

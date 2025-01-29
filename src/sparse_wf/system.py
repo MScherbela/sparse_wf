@@ -59,11 +59,6 @@ def get_molecule(molecule_args: MoleculeArgs) -> pyscf.gto.Mole:
     molecule.basis = molecule_args["basis"]
     if molecule_args["pseudopotentials"]:
         molecule.ecp = {atom: "ccecp" for atom in molecule_args["pseudopotentials"]}
-        if "ccecp" not in molecule_args["basis"]:
-            raise ValueError("Pseudopotentials should use a 'ccecp' basis set for pretraining.")
-    else:
-        if "ccecp" in molecule_args["basis"]:
-            raise ValueError("No pseudopotentials specified, but using a 'ccecp' basis set.")
     molecule.build()
     return molecule
 
