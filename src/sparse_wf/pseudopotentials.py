@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import pyscf
 from jaxtyping import ArrayLike, Float, Array, Bool, Integer
+from folx import batched_vmap
 
 from sparse_wf.api import (
     ParameterizedWaveFunction,
@@ -380,7 +381,9 @@ def make_nonlocal_pseudopotential(
             # vmap over l-values
             return jax.vmap(lambda v: jnp.interp(dist_ae, xp=r_grid, fp=v))(v_grid_nonloc[idx_ecp_atom])
 
-        psi_ratio, actual_static = jax.vmap(get_psi_ratio)(r_integration, idx_el)  # [n_integrations]
+        psi_ratio, actual_static = batched_vmap(get_psi_ratio, max_batch_size=64)(
+            r_integration, idx_el
+        )  # [n_integrations]
         V_nonloc = get_radial_potential(dist_ae, idx_ecp_atom)  # [n_integrations * n_l_values]
         legendre_poly = eval_leg0to3(cos_theta)[:, :n_l_values]  # [n_integrations * n_l_values]
         angular_l = np.arange(n_l_values)
