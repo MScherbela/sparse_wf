@@ -303,6 +303,7 @@ def setup_calculations():
         success = setup_run_dir(run_name, run_config, full_config, args.force)
         if success:
             slurm_config["job_name"] = run_name
+            # Get the job id returned by sbatch and return all job-ids as a list of ints from setup_calculations() AI!
             submit_to_slurm(run_name, slurm_config, args.dry_run)
 
 
