@@ -200,12 +200,18 @@ def make_dense_spring_preconditioner(
 
         last_grad = natgrad_state.last_grad
         decayed_last_grad = decay_factor * last_grad
-        decayed_last_grad += ravel_params(aux_grad)[0] / actual_damping
+        flat_aux_grad = ravel_params(aux_grad)[0]
         cotangent = dE_dlogpsi.reshape(-1) * normalization
         cotangent -= decayed_last_grad @ jacT
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
         local_T_inv = T_inv.reshape([n_dev, local_batch_size, N])[pidx()]
+        # Here we decompose the aux_grad into a part that is in the jacobian and a part that is not
+        # The part that is in the span of J is added as linear combination to the cotangent
+        # The remainder is added to the update as is
+        aux_in_J = local_T_inv @ (flat_aux_grad @ jacT)
+        aux_not_in_J = flat_aux_grad - jacT @ aux_in_J
+        cotangent += aux_in_J
         local_precond_cotangents = local_T_inv @ cotangent  # T^(-1)@contangent for local samples
         local_precond_cotangents = local_precond_cotangents.astype(jnp.float32)
         local_natgrad = jacT @ local_precond_cotangents
@@ -219,7 +225,8 @@ def make_dense_spring_preconditioner(
         is_nan = ~jnp.all(jnp.isfinite(natgrad))
         natgrad = jnp.where(is_nan, jnp.zeros_like(natgrad), natgrad)
 
-        update = unravel(natgrad.astype(jnp.float32))
+        # Add the aux_not_in_J part to the update
+        update = unravel((natgrad + aux_not_in_J).astype(jnp.float32))
         return update, PreconditionerState(last_grad=natgrad, damping=actual_damping), aux_data
 
     return Preconditioner(init, precondition)
