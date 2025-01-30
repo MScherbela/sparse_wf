@@ -31,6 +31,7 @@ from sparse_wf.loggers import MultiLogger, to_log_data, save_expanded_checkpoint
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
 from sparse_wf.model.dense_ferminet import DenseFermiNet  # noqa: F401
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
+from sparse_wf.model.utils import inverse_sigmoid
 from sparse_wf.optim import make_optimizer
 from sparse_wf.preconditioner import make_preconditioner
 from sparse_wf.pretraining import make_pretrainer
@@ -64,6 +65,7 @@ def main(
     logging_args: LoggingArgs,
     load_checkpoint: str,
     extract_checkpoint: bool,
+    checkpoint_cutoff: Optional[float] = None,
     auto_requeue: int = 0,
     metadata: Optional[dict[str, Any]] = None,
 ):
@@ -139,6 +141,7 @@ def main(
         optimization["energy_operator"],
         mol._ecp.keys(),
         optimization["pp_grid_points"],
+        optimization["cutoff_transition_steps"],
     )
 
     # The state will only be fed into pmapped functions, i.e., we need a per device key
@@ -151,6 +154,13 @@ def main(
             output_dir = load_checkpoint.replace(".msgpk", "")
             logging.info(f"Saveing expanded checkpoint to {output_dir}")
             save_expanded_checkpoint(state, output_dir)
+        if checkpoint_cutoff is not None:
+            old_cutoff_param = state.params.embedding.cutoff_param
+            old_cutoff = jax.nn.sigmoid(old_cutoff_param) * checkpoint_cutoff
+            new_cutoff_param = inverse_sigmoid(old_cutoff / model_args["embedding"]["new"]["cutoff"])
+            state = state.replace(
+                params=state.params._replace(embedding=state.params.embedding._replace(cutoff_param=new_cutoff_param))
+            )
 
     assert_identical_copies(state.params)
     model_static = pmap(jax.vmap(lambda r: pmax(wf.get_static_input(r))))(state.electrons)

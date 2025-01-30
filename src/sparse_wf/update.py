@@ -34,6 +34,7 @@ from sparse_wf.jax_utils import (
     copy_from_main,
 )
 from sparse_wf.tree_utils import tree_dot
+import logging
 
 
 class ClipStatistic(Enum):
@@ -85,6 +86,7 @@ def make_trainer(
     energy_operator: Literal["sparse", "dense"],
     pseudopotentials: Sequence[str],
     pp_grid_points: dict[str, int],
+    cutoff_transition_steps: float,
 ):
     energy_fn = make_local_energy(wave_function, energy_operator, pseudopotentials, pp_grid_points)
     batched_energy_fn = vmap_reduction(
@@ -178,6 +180,17 @@ def make_trainer(
 
         updates, opt = optimizer.update(natgrad, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)
+        try:
+            # Ensure that the cutoff_param grows by at least 1/cutoff_transition steps and is clipped at 10.0 for stability
+            new_cutoff_param = jnp.clip(
+                params.embedding.cutoff_param,
+                state.params.embedding.cutoff_param + 1 / cutoff_transition_steps,  # type: ignore
+                10.0,
+            )
+            params = params._replace(embedding=params.embedding._replace(cutoff_param=new_cutoff_param))
+            aux_data["cutoff"] = jax.nn.sigmoid(new_cutoff_param) * wave_function.embedding.cutoff  # type: ignore
+        except AttributeError:
+            logging.warning("No cutoff parameter found: params.embedding.cutoff_param")
 
         return (
             state.replace(

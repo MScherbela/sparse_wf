@@ -377,7 +377,7 @@ class DynamicFilterParams(NamedTuple):
 
 def scale_initializer(rng, cutoff, shape, dtype=jnp.float32):
     n_scales = shape[-1]
-    max_length_scale = min(20, 0.75 * cutoff)
+    max_length_scale = jnp.minimum(20, 0.75 * cutoff)
     scale = jnp.linspace(0.5 * max_length_scale, max_length_scale, n_scales, dtype=dtype)
     scale *= 1 + 0.1 * jax.random.normal(rng, shape, dtype)
     return scale.astype(jnp.float32)
@@ -391,12 +391,14 @@ def zeros_initializer(dtype=jnp.float32):
 
 
 class PairwiseFilter(nn.Module):
-    cutoff: float
     filter_dims: tuple[int, int]
 
     @nn.compact
     def __call__(
-        self, dist_diff: Float[Array, "*batch_dims features_in"], dynamic_params: Optional[DynamicFilterParams] = None
+        self,
+        cutoff,
+        dist_diff: Float[Array, "*batch_dims features_in"],
+        dynamic_params: Optional[DynamicFilterParams] = None,
     ) -> Float[Array, "*batch_dims features_out"]:
         """Compute the pairwise filters between two particles.
 
@@ -408,7 +410,7 @@ class PairwiseFilter(nn.Module):
         if dynamic_params is None:
             dynamic_params = DynamicFilterParams(
                 scales=self.param(
-                    "scale", lambda key, shape: scale_initializer(key, self.cutoff, shape), (self.filter_dims[0],)
+                    "scale", lambda key, shape: scale_initializer(key, cutoff, shape), (self.filter_dims[0],)
                 ),
                 kernel=self.param("kernel", lecun_normal, (4, self.filter_dims[0])),
                 bias=self.param(
@@ -425,7 +427,7 @@ class PairwiseFilter(nn.Module):
         # scales = self.param("scales", self.scale_initializer, (self.n_envelopes,), jnp.float32)
         scales = jax.nn.softplus(dynamic_params.scales)
         envelopes = jnp.exp(-((dist[..., None] / scales) ** 2))
-        envelopes *= cutoff_function(dist / self.cutoff)[..., None]
+        envelopes *= cutoff_function(dist / cutoff)[..., None]
         envelopes = nn.Dense(self.filter_dims[1], use_bias=False)(envelopes)
         beta = directional_features * envelopes
         return beta
@@ -470,6 +472,10 @@ def iter_list_with_pad(lst, pad=None):
     yield from lst
     while True:
         yield pad
+
+
+def inverse_sigmoid(x):
+    return jnp.log(x / (1 - x))
 
 
 class AppendingList(list):

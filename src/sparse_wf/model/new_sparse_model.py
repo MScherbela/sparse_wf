@@ -141,7 +141,7 @@ class ElecNucEdge(nn.Module):
         dynamic_params: NucleusDependentParams,
     ):
         features = get_diff_features(r_center, r_neighbour)
-        beta = PairwiseFilter(self.cutoff, self.filter_dims)(features, dynamic_params.filter)
+        beta = PairwiseFilter(self.filter_dims)(self.cutoff, features, dynamic_params.filter)
         gamma = nn.Dense(self.feature_dim, use_bias=False)(beta)
         scaled_features = features / features[..., :1] * jnp.log1p(features[..., :1])
         edge_embedding = nn.Dense(self.feature_dim, use_bias=False)(scaled_features) + dynamic_params.nuc_embedding
@@ -149,7 +149,6 @@ class ElecNucEdge(nn.Module):
 
 
 class ElecElecEdges(nn.Module):
-    cutoff: float
     filter_dims: tuple[int, int]
     feature_dim: int
     n_envelopes: int
@@ -158,11 +157,12 @@ class ElecElecEdges(nn.Module):
     @nn.compact
     def __call__(
         self,
+        cutoff,
         r: Float[Array, " dim=3"],
         r_nb: Float[Array, " dim=3"],
     ):
         features_ee = get_diff_features(r, r_nb)
-        beta = PairwiseFilter(self.cutoff, self.filter_dims, name="beta_ee")(features_ee)
+        beta = PairwiseFilter(self.filter_dims, name="beta_ee")(cutoff, features_ee)
         gamma = nn.Dense(self.feature_dim * self.n_updates, use_bias=False)(beta)
 
         # logarithmic rescaling
@@ -207,6 +207,7 @@ class EmbeddingParams(NamedTuple):
     edge_diff: Parameters
     updates: Parameters
     scales: tuple[ScalingParam, ...]
+    cutoff_param: jax.Array
 
 
 class EmbeddingState(NamedTuple):
@@ -316,8 +317,8 @@ class NewSparseEmbedding(PyTreeNode):
             n_updates=n_updates,
             low_rank_buffer=low_rank_buffer,
             elec_init=ElecInit(cutoff_1el, pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
-            edge_same=ElecElecEdges(cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
-            edge_diff=ElecElecEdges(cutoff, pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
+            edge_same=ElecElecEdges(pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
+            edge_diff=ElecElecEdges(pair_mlp_widths, feature_dim, pair_n_envelopes, n_updates),
             updates=tuple([SparseMLP([feature_dim] * 2) for _ in range(n_updates)]),
         )
 
@@ -341,8 +342,8 @@ class NewSparseEmbedding(PyTreeNode):
         params = EmbeddingParams(
             dynamic_params_en=self._init_nuc_dependant_params(next(rng_seq)),
             elec_init=self.elec_init.init(next(rng_seq), r_dummy, R_nb_dummy, dummy_dyn_param),
-            edge_same=self.edge_same.init(next(rng_seq), r_dummy, r_nb_dummy),
-            edge_diff=self.edge_diff.init(next(rng_seq), r_dummy, r_nb_dummy),
+            edge_same=self.edge_same.init(next(rng_seq), self.cutoff, r_dummy, r_nb_dummy),
+            edge_diff=self.edge_diff.init(next(rng_seq), self.cutoff, r_dummy, r_nb_dummy),
             updates=tuple(
                 upd.init(
                     next(rng_seq),
@@ -351,6 +352,7 @@ class NewSparseEmbedding(PyTreeNode):
                 for upd in self.updates
             ),
             scales=(),
+            cutoff_param=jnp.ones((), jnp.float32) * 10.0,
         )
         _, scales = self.apply(params, electrons, static, return_scales=True)
         params = params._replace(scales=scales)
@@ -475,9 +477,11 @@ class NewSparseEmbedding(PyTreeNode):
             lambda r: self.get_neighbouring_nuclei(r, params.dynamic_params_en, static.n_neighbours_en)
         )(electrons)
 
+        cutoff = self.cutoff * nn.sigmoid(params.cutoff_param)
+
         h0_fn = functools.partial(self.elec_init.apply, params.elec_init)
-        edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same)
-        edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff)
+        edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same, cutoff)
+        edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff, cutoff)
 
         h0, (msg_ct_same, msg_ct_diff, msg_nb_same, msg_nb_diff) = cast(
             tuple[
@@ -578,8 +582,9 @@ class NewSparseEmbedding(PyTreeNode):
         msg_nb_diff = [msg_state.at[idx_changed_el].set(msg) for msg_state, msg in zip(state.msg_nb_diff, msg_nb_diff)]
 
         # Get all pairs, which are required to update h_out
-        edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same)
-        edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff)
+        cutoff = self.cutoff * nn.sigmoid(params.cutoff_param)
+        edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same, cutoff)
+        edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff, cutoff)
         Gamma_same, edge_same = cast(
             tuple[list[jax.Array], list[jax.Array]],
             jax.vmap(edge_fn_same)(
@@ -648,8 +653,9 @@ class NewSparseEmbedding(PyTreeNode):
         )(electrons)
 
         h0_fn = functools.partial(self.elec_init.apply, params.elec_init)
-        edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same)
-        edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff)
+        cutoff = self.cutoff * nn.sigmoid(params.cutoff_param)
+        edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same, cutoff)
+        edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff, cutoff)
 
         h0, (h_ct_same, h_ct_diff, h_nb_same, h_nb_diff) = jax.vmap(fwd_lap(h0_fn, argnums=0))(
             electrons, R_nb_en, nuc_params_en

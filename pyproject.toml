@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-requires-python = ">=3.11"
+requires-python = ">=3.11, <3.13" # < 3.13 required for tensorflow/numpy compatiblity for profiling
 name = "sparse_wf"
 version = "0.0.1"
 readme = "README.md"
@@ -17,7 +17,7 @@ dependencies = [
     "einops",
     "numpy",
     "matplotlib",
-    "folx",
+    "folx>=0.2.14",
     "pyscf",
     "seml[ssh_forward]",
     "tqdm",
@@ -33,7 +33,10 @@ bokeh = [
     "chromedriver-binary>=132.0.6821.0.0",
     "selenium>=4.26.1",
 ]
-profiling = ["tensorboard-plugin-profile>=2.17.0", "tensorflow>=2.18.0"]
+profiling = [
+    "tensorboard-plugin-profile>=2.17.0",
+    "tensorflow>=2.18.0"
+]
 
 [tool.ruff]
 line-length = 120
@@ -56,8 +59,8 @@ addopts = ["-n", "auto"]
 
 [tool.uv]
 constraint-dependencies = [
-    "scipy<=1.12.0", # required for jax==0.4.23
-    "numpy<2.0.0",   # required for jax==0.4.23
+    # "scipy<=1.12.0", # required for jax==0.4.23
+    # "numpy<2.0.0",   # required for jax==0.4.23
     # "nvidia_cudnn_cu12<9.0", # required for jax==0.4.23
 ]
 dev-dependencies = [

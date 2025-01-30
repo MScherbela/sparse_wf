@@ -573,6 +573,7 @@ class OptimizationArgs(TypedDict):
     spin_operator_args: SpinOperatorArgs
     energy_operator: Literal["dense", "sparse"]
     pp_grid_points: dict[str, int]  # number of spherical grid points for pseudopotential integration
+    cutoff_transition_steps: float
 
 
 class CASArgs(TypedDict):

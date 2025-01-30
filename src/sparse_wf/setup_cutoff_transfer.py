@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--opt-steps-per-cutoff", type=int, default=1000, help="Number of optimization steps per job")
     parser.add_argument("--burn-in", type=int, default=20, help="Number of burn-in steps")
     parser.add_argument("--experiment-name", type=str, default="cutoff_transfer", help="Experiment name")
+    parser.add_argument("--force", action="store_true", help="Force overwrite of existing files")
     args = parser.parse_args()
 
     # Get checkpoint path and config
@@ -60,7 +61,10 @@ def main():
             yaml.dump(config, f)
 
         # Setup calculation with dependency on previous job
-        job_ids = setup_calculations(["-i", "tmp_config.yaml", "--no-commit-check"], depends_on=prev_job_ids)
+        setup_calc_args = ["-i", "tmp_config.yaml", "--no-commit-check"]
+        if args.force:
+            setup_calc_args.append("--force")
+        job_ids = setup_calculations(setup_calc_args, depends_on=prev_job_ids)
 
         # Update for next iteration
         prev_job_ids = job_ids
