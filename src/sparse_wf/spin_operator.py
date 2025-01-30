@@ -16,7 +16,7 @@ L = TypeVar("L")
 
 
 class SplusState(NamedTuple):
-    alpha: Int
+    beta: Int
 
 
 class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
@@ -24,11 +24,13 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
     grad_scale: float
 
     def init_state(self):
-        return SplusState(alpha=jnp.zeros((), dtype=jnp.int32))
+        return SplusState(beta=jnp.array(self.wf.n_up, dtype=jnp.int32))
 
     def __call__(self, params: P, electrons: Electrons, static: StaticInput, state: SplusState):
+        # https://www.nature.com/articles/s43588-024-00730-4
         n_electrons = electrons.shape[-2]
         n_up = self.wf.n_up
+        n_down = n_electrons - n_up
         batch_size = np.prod(electrons.shape[:-2]) * jax.device_count()
 
         # compute the base state and prepare its vjp function
@@ -39,47 +41,49 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
 
         # Here we compute the gradient of the operator in two steps, first we compute it for every swap
         # and then we compute it for the initial state in the outer loop.
-        def R_alpha_element(params: P, base_logpsi, logpsi_state, beta: Int):
-            idx = jnp.array([beta, state.alpha])
+        def ratio_alpha_beta(params: P, base_logpsi, logpsi_state, alpha: Int):
+            idx = jnp.array([alpha, state.beta], dtype=jnp.int32)
             new_electrons = electrons.at[:, idx].set(electrons[:, idx[::-1]])
             new_sign, new_logpsi = jax.vmap(
                 self.wf.log_psi_low_rank_update,
                 in_axes=(None, 0, None, None, 0),
             )(params, new_electrons, idx, static, logpsi_state)[0]
-            summation_elements = -new_sign * base_sign * jnp.exp(new_logpsi - base_logpsi)
-            return summation_elements.sum(), summation_elements
+            swap_ratio = new_sign * base_sign * jnp.exp(new_logpsi - base_logpsi)
+            return swap_ratio.sum(), swap_ratio
 
         # The loop aggregates the gradient towards the parameters and the gradients w.r.t. the base case.
         def loop_fn(gradient, beta):
-            (_, R_alpha_element_val), R_alpha_element_grad = jax.value_and_grad(
-                R_alpha_element, argnums=(0, 1, 2), has_aux=True
-            )(params, base_logpsi, logpsi_state, beta)
-            return tree_add(gradient, R_alpha_element_grad), R_alpha_element_val
+            (_, swap_ratio), ratio_grad = jax.value_and_grad(ratio_alpha_beta, argnums=(0, 1, 2), has_aux=True)(
+                params, base_logpsi, logpsi_state, beta
+            )
+            return tree_add(gradient, ratio_grad), swap_ratio
 
-        gradient, R_alpha = jax.lax.scan(
+        gradient, swap_ratio = jax.lax.scan(
             loop_fn,
             jax.tree_map(jnp.zeros_like, (params, base_logpsi, logpsi_state)),
-            jnp.arange(n_up, n_electrons),
+            jnp.arange(n_up),
         )
         gradient, dlogpsi, dlogpsi_state = gradient
         # summation over swaps
-        R_alpha = 1 + R_alpha.sum(0)
+        R_beta = 1 - swap_ratio.sum(0)
         # summation over batch
-        P_plus = R_alpha.sum()
-        P_plus = psum(P_plus) / batch_size
+        P_plus = psum(R_beta.sum()) / batch_size
         # Compute the full gradient, this adds remaining gradient from the loop with the local operator deviation
         gradient = tree_add(
-            gradient, vjp_fn(((jnp.zeros_like(base_sign), dlogpsi + 2 * (R_alpha - P_plus)), dlogpsi_state))[0]
+            gradient, vjp_fn(((jnp.zeros_like(base_sign), dlogpsi + 2 * (R_beta - P_plus)), dlogpsi_state))[0]
         )
         gradient = psum(gradient)
 
         # Rescale
+        # 2 * P_plus as in equation
+        # 1 / batch_size for the mean in the vjp above
+        # self.grad_scale for the gap scaling
         gradient = tree_mul(gradient, 2 * P_plus / batch_size * self.grad_scale)
         # Catch NaNs
         is_nan = jnp.isnan(jfu.ravel_pytree(gradient)[0]).any()
         gradient = jtu.tree_map(lambda x: jnp.where(is_nan, jnp.zeros_like(x), x), gradient)
-        # Round robin on the alpha electron
-        new_spin_state = SplusState(alpha=(state.alpha + 1) % n_up)
+        # Round robin on the beta electron
+        new_spin_state = SplusState(beta=(state.beta - n_up + 1) % n_down + n_up)
         return P_plus, gradient, new_spin_state
 
 

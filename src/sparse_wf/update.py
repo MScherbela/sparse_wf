@@ -160,8 +160,13 @@ def make_trainer(
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
         aux_data = {"opt/E": E_mean, "opt/E_std": E_std}
 
-        # TODO: Spin operator might potentially also need separate statics
-        spin_op_value, spin_grad, spin_state = spin_operator(state.params, electrons, statics.mcmc, state.spin_state)
+        # TODO: Spin operator might potentially also need separate statics - jump should be nough?
+        spin_op_value, spin_grad, spin_state = spin_operator(
+            state.params,
+            electrons,
+            statics.mcmc_jump,  # type: ignore
+            state.spin_state,
+        )
         aux_data["opt/S"] = spin_op_value
 
         natgrad, precond_state, preconditioner_aux = preconditioner.precondition(
