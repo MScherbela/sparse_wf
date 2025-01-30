@@ -48,7 +48,7 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
                 self.wf.log_psi_low_rank_update,
                 in_axes=(None, 0, None, None, 0),
             )(params, new_electrons, idx, static, logpsi_state)[0]
-            swap_ratio = new_sign * base_sign * jnp.exp(new_logpsi - base_logpsi)
+            swap_ratio = -new_sign * base_sign * jnp.exp(new_logpsi - base_logpsi)
             return swap_ratio.sum(), swap_ratio
 
         # The loop aggregates the gradient towards the parameters and the gradients w.r.t. the base case.
@@ -58,19 +58,19 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
             )
             return tree_add(gradient, ratio_grad), swap_ratio
 
-        gradient, swap_ratio = jax.lax.scan(
+        grad_components, swap_ratio = jax.lax.scan(
             loop_fn,
             jax.tree_map(jnp.zeros_like, (params, base_logpsi, logpsi_state)),
             jnp.arange(n_up),
         )
-        gradient, dlogpsi, dlogpsi_state = gradient
+        gradient, dR_dlogpsi, dR_dlogpsi_state = grad_components
         # summation over swaps
-        R_beta = 1 - swap_ratio.sum(0)
+        R_beta = 1 + swap_ratio.sum(0)
         # summation over batch
         P_plus = psum(R_beta.sum()) / batch_size
         # Compute the full gradient, this adds remaining gradient from the loop with the local operator deviation
         gradient = tree_add(
-            gradient, vjp_fn(((jnp.zeros_like(base_sign), dlogpsi + 2 * (R_beta - P_plus)), dlogpsi_state))[0]
+            gradient, vjp_fn(((jnp.zeros_like(base_sign), dR_dlogpsi + 2 * (R_beta - P_plus)), dR_dlogpsi_state))[0]
         )
         gradient = psum(gradient)
 
