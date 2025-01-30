@@ -209,9 +209,9 @@ def make_dense_spring_preconditioner(
         # Here we decompose the aux_grad into a part that is in the jacobian and a part that is not
         # The part that is in the span of J is added as linear combination to the cotangent
         # The remainder is added to the update as is
-        aux_in_J = T_inv @ (flat_aux_grad @ jacT)
-        aux_not_in_J = flat_aux_grad - jacT @ aux_in_J
-        cotangent += aux_in_J
+        aux_in_J = (flat_aux_grad @ jacT) @ local_T_inv  # N_per_device
+        aux_not_in_J = flat_aux_grad - psum(jacT @ aux_in_J)  # Params
+        cotangent += psum(aux_in_J)
         local_precond_cotangents = local_T_inv @ cotangent  # T^(-1)@contangent for local samples
         local_precond_cotangents = local_precond_cotangents.astype(jnp.float32)
         local_natgrad = jacT @ local_precond_cotangents
