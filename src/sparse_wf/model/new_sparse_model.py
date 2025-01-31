@@ -494,14 +494,14 @@ class NewSparseEmbedding(PyTreeNode):
             tuple[list[jax.Array], list[jax.Array]],
             jax.vmap(edge_fn_same)(
                 get(electrons, idx_ct_same, 0.0),
-                get(electrons, idx_nb_same, cutoff),
+                get(electrons, idx_nb_same, self.cutoff),
             ),
         )
         Gamma_diff, edge_diff = cast(
             tuple[list[jax.Array], list[jax.Array]],
             jax.vmap(edge_fn_diff)(
                 get(electrons, idx_ct_diff, 0.0),
-                get(electrons, idx_nb_diff, cutoff),
+                get(electrons, idx_nb_diff, self.cutoff),
             ),
         )
 
@@ -589,14 +589,14 @@ class NewSparseEmbedding(PyTreeNode):
             tuple[list[jax.Array], list[jax.Array]],
             jax.vmap(edge_fn_same)(
                 get(electrons, idx_ct_same, 0.0),
-                get(electrons, idx_nb_same, cutoff),
+                get(electrons, idx_nb_same, self.cutoff),
             ),
         )
         Gamma_diff, edge_diff = cast(
             tuple[list[jax.Array], list[jax.Array]],
             jax.vmap(edge_fn_diff)(
                 get(electrons, idx_ct_diff, 0.0),
-                get(electrons, idx_nb_diff, cutoff),
+                get(electrons, idx_nb_diff, self.cutoff),
             ),
         )
 
