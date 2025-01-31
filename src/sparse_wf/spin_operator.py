@@ -8,7 +8,7 @@ import numpy as np
 from flax.struct import PyTreeNode
 
 from sparse_wf.api import Electrons, Int, ParameterizedWaveFunction, SpinOperator, SpinOperatorArgs, StaticInput
-from sparse_wf.jax_utils import psum, pmean, pgather
+from sparse_wf.jax_utils import psum, pgather
 from sparse_wf.tree_utils import tree_mul, tree_add
 
 P = TypeVar("P")
@@ -23,7 +23,7 @@ def outlier_mask(ratio, threshold: float):
     if threshold > 0.0:
         full = pgather(ratio, axis=0, tiled=True)
         clip_center = jnp.median(full)
-        mad = pmean(jnp.mean(jnp.abs(full - clip_center), keepdims=True))
+        mad = jnp.mean(jnp.abs(full - clip_center), keepdims=True)
         lower = clip_center - threshold * mad
         upper = clip_center + threshold * mad
         return (ratio > lower) & (ratio < upper)
@@ -120,6 +120,7 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
             "spin/estimator": sz * (sz + 1) + P_plus,
             "spin/var": mask_mean((R_beta - P_plus) ** 2, mask),
             "spin/num_outlier": psum((~mask).sum()),
+            "spin/num_nans": psum(jnp.isnan(swap_ratio).sum()),
         }
         return P_plus, gradient, new_spin_state, aux_data
 
