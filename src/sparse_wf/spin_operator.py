@@ -23,7 +23,7 @@ def outlier_mask(ratio, threshold: float):
     if threshold > 0.0:
         full = pgather(ratio, axis=0, tiled=True)
         clip_center = jnp.median(full)
-        mad = jnp.mean(jnp.abs(full - clip_center), keepdims=True)
+        mad = jnp.mean(jnp.abs(full - clip_center)) + 1e-8
         lower = clip_center - threshold * mad
         upper = clip_center + threshold * mad
         return (ratio > lower) & (ratio < upper)
@@ -115,10 +115,12 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
         new_spin_state = SplusState(beta=(state.beta - n_up + 1) % n_down + n_up)
 
         sz = jnp.abs(n_up - n_down) * 0.5
+        spin_var = mask_mean((R_beta - P_plus) ** 2, mask)
         aux_data = {
             "spin/P_plus": P_plus,
             "spin/estimator": sz * (sz + 1) + P_plus,
-            "spin/var": mask_mean((R_beta - P_plus) ** 2, mask),
+            "spin/var": spin_var,
+            "spin/std": spin_var**0.5,
             "spin/num_outlier": psum((~mask).sum()),
             "spin/num_nans": psum(jnp.isnan(swap_ratio).sum()),
         }
