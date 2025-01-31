@@ -209,7 +209,6 @@ def make_dense_spring_preconditioner(
         decayed_last_grad = decay_factor * last_grad
         flat_aux_grad = ravel_params(aux_grad)[0]
         cotangent = dE_dlogpsi.reshape(-1) * normalization
-        # cotangent -= decayed_last_grad @ jacT
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
         # Here we decompose the aux_grad into a part that is in the jacobian and a part that is not
