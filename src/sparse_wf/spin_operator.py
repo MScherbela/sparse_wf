@@ -50,7 +50,7 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
     mask_threshold: float
 
     def init_state(self):
-        return SplusState(beta=jnp.array(self.wf.n_up, dtype=jnp.int32))
+        return SplusState(beta=jnp.array(0, dtype=jnp.int32))
 
     def __call__(self, params: P, electrons: Electrons, static: StaticInput, state: SplusState):
         # https://www.nature.com/articles/s43588-024-00730-4
@@ -68,7 +68,7 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
         # Here we compute the gradient of the operator in two steps, first we compute it for every swap
         # and then we compute it for the initial state in the outer loop.
         def ratio_alpha_beta(params: P, base_logpsi, logpsi_state, alpha: Int):
-            idx = jnp.array([alpha, state.beta], dtype=jnp.int32)
+            idx = jnp.array([alpha, state.beta + self.wf.n_up], dtype=jnp.int32)
             new_electrons = electrons.at[:, idx].set(electrons[:, idx[::-1]])
             new_sign, new_logpsi = jax.vmap(
                 self.wf.log_psi_low_rank_update,
@@ -78,9 +78,9 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
             return swap_ratio.sum(), swap_ratio
 
         # The loop aggregates the gradient towards the parameters and the gradients w.r.t. the base case.
-        def loop_fn(gradient, beta):
+        def loop_fn(gradient, alpha):
             (_, swap_ratio), ratio_grad = jax.value_and_grad(ratio_alpha_beta, argnums=(0, 1, 2), has_aux=True)(
-                params, base_logpsi, logpsi_state, beta
+                params, base_logpsi, logpsi_state, alpha
             )
             return tree_add(gradient, ratio_grad), swap_ratio
 
@@ -112,7 +112,7 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
         is_nan = jnp.isnan(jfu.ravel_pytree(gradient)[0]).any()
         gradient = jtu.tree_map(lambda x: jnp.where(is_nan, jnp.zeros_like(x), x), gradient)
         # Round robin on the beta electron
-        new_spin_state = SplusState(beta=(state.beta - n_up + 1) % n_down + n_up)
+        new_spin_state = SplusState(beta=(state.beta + 1) % n_down)
 
         sz = jnp.abs(n_up - n_down) * 0.5
         spin_var = mask_mean((R_beta - P_plus) ** 2, mask)
