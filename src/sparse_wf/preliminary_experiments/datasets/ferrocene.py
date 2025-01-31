@@ -1,7 +1,6 @@
 #%%
 import numpy as np
 from sparse_wf.geometry import Geometry, save_geometries
-from ase.visualize import view
 import copy
 
 geoms = []
@@ -19,6 +18,13 @@ for geom in geoms:
     geom_charged.comment += "_charged"
     geoms_charged.append(geom_charged)
 
-save_geometries(geoms + geoms_charged)
+geoms_triplet = []
+for geom in geoms:
+    geom_triplet = copy.deepcopy(geom)
+    geom_triplet.spin = 2
+    geom_triplet.comment += "_triplet"
+    geoms_triplet.append(geom_triplet)
+
+save_geometries(geoms + geoms_charged + geoms_triplet)
 
 

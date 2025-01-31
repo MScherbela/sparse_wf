@@ -74,7 +74,7 @@ def run_orca(g, directory, method, basis_set, frozen_core, n_proc, total_memory,
 def worker(args):
     ind_calc, geom_hash, g, method, basis_set, n_proc, total_memory, orca_path, frozen_core = args
     geom_comment = g.get("comment", "")
-    directory = f"{ind_calc:04d}_{geom_hash}"
+    directory = f"{ind_calc:04d}_{geom_comment}_{method}_{basis_set}"
     if os.path.isdir(directory):
         shutil.rmtree(directory)
     os.makedirs(directory)

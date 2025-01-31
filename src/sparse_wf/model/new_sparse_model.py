@@ -127,7 +127,7 @@ class NucleusDependentParams(NamedTuple):
 
 
 class ElecNucEdge(nn.Module):
-    cutoff: float
+    cutoff: float  # 1-electron cutoff
     filter_dims: tuple[int, int]
     feature_dim: int
     n_envelopes: int
@@ -494,14 +494,14 @@ class NewSparseEmbedding(PyTreeNode):
             tuple[list[jax.Array], list[jax.Array]],
             jax.vmap(edge_fn_same)(
                 get(electrons, idx_ct_same, 0.0),
-                get(electrons, idx_nb_same, self.cutoff),
+                get(electrons, idx_nb_same, cutoff),
             ),
         )
         Gamma_diff, edge_diff = cast(
             tuple[list[jax.Array], list[jax.Array]],
             jax.vmap(edge_fn_diff)(
                 get(electrons, idx_ct_diff, 0.0),
-                get(electrons, idx_nb_diff, self.cutoff),
+                get(electrons, idx_nb_diff, cutoff),
             ),
         )
 
@@ -589,14 +589,14 @@ class NewSparseEmbedding(PyTreeNode):
             tuple[list[jax.Array], list[jax.Array]],
             jax.vmap(edge_fn_same)(
                 get(electrons, idx_ct_same, 0.0),
-                get(electrons, idx_nb_same, self.cutoff),
+                get(electrons, idx_nb_same, cutoff),
             ),
         )
         Gamma_diff, edge_diff = cast(
             tuple[list[jax.Array], list[jax.Array]],
             jax.vmap(edge_fn_diff)(
                 get(electrons, idx_ct_diff, 0.0),
-                get(electrons, idx_nb_diff, self.cutoff),
+                get(electrons, idx_nb_diff, cutoff),
             ),
         )
 
