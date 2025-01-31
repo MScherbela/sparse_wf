@@ -194,31 +194,53 @@ def make_dense_spring_preconditioner(
         T = get_jacjacT(jacT, global_param_block_size, use_float64)
         T += 1 / N
         T_inv, actual_damping, cond_nr = symmetric_inv_with_damping(T, damping)
+        local_T_inv = T_inv.reshape([n_dev, local_batch_size, N])[pidx()]
 
         # The remainder needs a centered jacobian - this can be done in float32
         jacT -= pmean(jacT.mean(axis=1, keepdims=True))
 
+        @jax.vmap
+        def split_grad_by_J(grad):
+            coeffs = psum((grad @ jacT) @ local_T_inv)
+            grad_in_J = psum(jacT @ coeffs.reshape(n_dev, local_batch_size)[pidx()])
+            return coeffs, grad_in_J, grad - grad_in_J
+
         last_grad = natgrad_state.last_grad
         decayed_last_grad = decay_factor * last_grad
-        decayed_last_grad += ravel_params(aux_grad)[0] / actual_damping
+        flat_aux_grad = ravel_params(aux_grad)[0]
         cotangent = dE_dlogpsi.reshape(-1) * normalization
-        cotangent -= decayed_last_grad @ jacT
         cotangent = pgather(cotangent, axis=0, tiled=True)
 
-        local_T_inv = T_inv.reshape([n_dev, local_batch_size, N])[pidx()]
+        # Here we decompose the aux_grad into a part that is in the jacobian and a part that is not
+        # The part that is in the span of J is added as linear combination to the cotangent
+        # The remainder is added to the update as is
+        ((coeff_aux, coeff_last_grad), (aux_in_J, last_grad_in_J), (aux_not_J, last_grad_not_J)) = split_grad_by_J(
+            jnp.stack([flat_aux_grad, decayed_last_grad], axis=0)
+        )
+        cotangent += coeff_aux + coeff_last_grad * actual_damping
         local_precond_cotangents = local_T_inv @ cotangent  # T^(-1)@contangent for local samples
         local_precond_cotangents = local_precond_cotangents.astype(jnp.float32)
         local_natgrad = jacT @ local_precond_cotangents
         natgrad = psum(local_natgrad)
-        natgrad += decayed_last_grad
+        # Add momentum term
+        natgrad += last_grad_not_J
+        # Add aux_not_in_J part without rescaling with damping
+        natgrad += aux_not_J
 
         # Diagnose and adjust stability
         aux_data = {}
         aux_data["opt/log10_S_cond_nr"] = jnp.log10(cond_nr)
         aux_data["opt/damping"] = actual_damping
+        aux_data["opt/spring/aux_grad_norm"] = jnp.sqrt(jnp.sum(flat_aux_grad**2))
+        aux_data["opt/spring/aux_in_J_norm"] = jnp.sqrt(jnp.sum(aux_in_J**2))
+        aux_data["opt/spring/aux_not_in_J_norm"] = jnp.sqrt(jnp.sum(aux_not_J**2))
+        aux_data["opt/spring/last_grad_norm"] = jnp.sqrt(jnp.sum(last_grad**2))
+        aux_data["opt/spring/last_grad_in_J_norm"] = jnp.sqrt(jnp.sum(last_grad_in_J**2))
+        aux_data["opt/spring/last_grad_not_in_J_norm"] = jnp.sqrt(jnp.sum(last_grad_not_J**2))
         is_nan = ~jnp.all(jnp.isfinite(natgrad))
         natgrad = jnp.where(is_nan, jnp.zeros_like(natgrad), natgrad)
 
+        # Add the aux_not_in_J part to the update
         update = unravel(natgrad.astype(jnp.float32))
         return update, PreconditionerState(last_grad=natgrad, damping=actual_damping), aux_data
 

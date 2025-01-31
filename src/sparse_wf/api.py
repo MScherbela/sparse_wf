@@ -261,7 +261,9 @@ SpinValue = Float[Array, ""]
 
 class SpinOperator(Protocol[P, SS]):
     def init_state(self) -> SS: ...
-    def __call__(self, params: P, electrons: Electrons, static: StaticInput, state: SS) -> tuple[SpinValue, P, SS]: ...
+    def __call__(
+        self, params: P, electrons: Electrons, static: StaticInput, state: SS
+    ) -> tuple[SpinValue, P, SS, AuxData]: ...
 
 
 ############################################################################
@@ -561,6 +563,8 @@ class OptimizerArgs(TypedDict):
 class SpinOperatorArgs(TypedDict):
     operator: str
     grad_scale: float
+    clip_threshold: float
+    mask_threshold: float
 
 
 class OptimizationArgs(TypedDict):
@@ -590,6 +594,10 @@ class HFArgs(TypedDict):
     restricted: bool
     restart: bool
     cache_dir: str
+    antiferromagnetic_broken_symmetry: bool  # This initializes the spin opposing for two irons.
+    from_all_electron: bool  # This initializes the HF guess with one from an all-electron calculation.
+    init_calc: "HFArgs | None"
+    xc: str | None  # If specified run DFT with this XC functional instead of HF.
 
 
 class PretrainingArgs(TypedDict):

@@ -137,7 +137,9 @@ optimization:
     stat: median
   spin_operator_args:
     operator: none
-    grad_scale: 1.e-4
+    grad_scale: 10
+    clip_threshold: 5.0
+    mask_threshold: 10.0
   cutoff_transition_steps: 2000
 
 pretraining:
@@ -162,6 +164,10 @@ pretraining:
     restart: false
     smearing: 0.0
     cache_dir: null
+    antiferromagnetic_broken_symmetry: false
+    init_calc: null
+    from_all_electron: false
+    xc: null
   cas:
     active_orbitals: 8
     active_electrons: 8
