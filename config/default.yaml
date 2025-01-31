@@ -123,6 +123,7 @@ optimization:
   spin_operator_args:
     operator: none
     grad_scale: 10
+    clip_threshold: 5.0
 
 pretraining:
   steps: 2_000

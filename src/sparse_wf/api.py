@@ -561,6 +561,7 @@ class OptimizerArgs(TypedDict):
 class SpinOperatorArgs(TypedDict):
     operator: str
     grad_scale: float
+    clip_threshold: float
 
 
 class OptimizationArgs(TypedDict):
