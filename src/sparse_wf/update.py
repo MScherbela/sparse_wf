@@ -161,7 +161,7 @@ def make_trainer(
         aux_data = {"opt/E": E_mean, "opt/E_std": E_std}
 
         # TODO: Spin operator might potentially also need separate statics - jump should be nough?
-        spin_op_value, spin_grad, spin_state = spin_operator(
+        spin_op_value, spin_grad, spin_state, spin_aux = spin_operator(
             state.params,
             electrons,
             statics.mcmc_jump,  # type: ignore
@@ -177,6 +177,7 @@ def make_trainer(
             spin_grad,
             state.opt_state.natgrad,
         )
+        aux_data.update(spin_aux)
         aux_data.update(preconditioner_aux)
         aux_data["opt/s_update_norm"] = tree_dot(spin_grad, spin_grad) ** 0.5
         aux_data["opt/update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
