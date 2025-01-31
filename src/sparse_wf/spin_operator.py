@@ -65,6 +65,10 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
             lambda p: vmapped_logpsi(p, electrons, static), params
         )
 
+        # The only reasonable way we could expect outliers to occur is if the denominator is close to zero.
+        # Thus here we define the mask based on 1/psi
+        mask = outlier_mask(jnp.exp(-(base_logpsi - base_logpsi.min())), self.mask_threshold)
+
         # Here we compute the gradient of the operator in two steps, first we compute it for every swap
         # and then we compute it for the initial state in the outer loop.
         def ratio_alpha_beta(params: P, base_logpsi, logpsi_state, alpha: Int):
@@ -75,7 +79,7 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
                 in_axes=(None, 0, None, None, 0),
             )(params, new_electrons, idx, static, logpsi_state)[0]
             swap_ratio = -new_sign * base_sign * jnp.exp(new_logpsi - base_logpsi)
-            return swap_ratio.sum(), swap_ratio
+            return jnp.vdot(swap_ratio, mask), swap_ratio
 
         # The loop aggregates the gradient towards the parameters and the gradients w.r.t. the base case.
         def loop_fn(gradient, alpha):
@@ -92,7 +96,6 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
         gradient, dR_dlogpsi, dR_dlogpsi_state = grad_components
         # summation over swaps
         R_beta = 1 + swap_ratio.sum(0)
-        mask = outlier_mask(R_beta, self.mask_threshold)
         R_beta = clip_ratios(R_beta, self.clip_threshold, mask)
         # summation over batch
         P_plus = mask_mean(R_beta, mask)
