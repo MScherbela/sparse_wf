@@ -8,7 +8,7 @@ import numpy as np
 from flax.struct import PyTreeNode
 
 from sparse_wf.api import Electrons, Int, ParameterizedWaveFunction, SpinOperator, SpinOperatorArgs, StaticInput
-from sparse_wf.jax_utils import psum, pgather
+from sparse_wf.jax_utils import psum
 from sparse_wf.tree_utils import tree_mul, tree_add
 
 P = TypeVar("P")
@@ -20,14 +20,15 @@ def mask_mean(x, mask):
 
 
 def outlier_mask(ratio, threshold: float):
+    mask = jnp.ones_like(ratio, dtype=jnp.bool_)
     if threshold > 0.0:
-        full = pgather(ratio, axis=0, tiled=True)
-        clip_center = jnp.median(full)
-        mad = jnp.mean(jnp.abs(full - clip_center)) + 1e-8
-        lower = clip_center - threshold * mad
-        upper = clip_center + threshold * mad
-        return (ratio > lower) & (ratio < upper)
-    return jnp.ones_like(ratio, dtype=jnp.bool_)
+        for _ in range(5):
+            clip_center = mask_mean(ratio, mask)
+            mad = mask_mean(jnp.abs(ratio - clip_center), mask)
+            lower = clip_center - threshold * mad
+            upper = clip_center + threshold * mad
+            mask = (ratio > lower) & (ratio < upper)
+    return mask
 
 
 def clip_ratios(ratio, clip_threshold: float, mask):
