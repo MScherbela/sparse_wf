@@ -242,7 +242,8 @@ class StableSplusOperator(SpinOperator[P, SplusState], PyTreeNode):
         gradient = tree_mul(gradient, rescaling)
 
         sz = jnp.abs(n_up - n_down) * 0.5
-        spin_var = mask_mean((sum_ratios - P_plus) ** 2, mask)
+        R_beta = 1 - sum_ratios
+        spin_var = mask_mean((R_beta - P_plus) ** 2, mask)
         aux_data = {
             "spin/P_plus": P_plus,
             "spin/estimator": sz * (sz + 1) + P_plus,
