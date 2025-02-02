@@ -207,10 +207,10 @@ class StableSplusOperator(SpinOperator[P, SplusState], PyTreeNode):
         )
         # average ratio
         sum_ratios = swap_ratio.sum(0)  # sum over alpha
+        sum_ratios = clip_ratios(sum_ratios, self.clip_threshold, mask)
         avg_sum_ratio = mask_mean(sum_ratios, mask)  # average over batch
         # compute operator value
-        R_beta = 1 - sum_ratios
-        P_plus = mask_mean(R_beta, mask)
+        P_plus = 1 - avg_sum_ratio
         # Compute the full gradient, this adds remaining gradient from the loop with the local operator deviation
         dP_dsign = jnp.zeros_like(base_sign)
         # we still multiply the avg_sum_ratio with the mask to avoid the gradients of the outliers
@@ -223,10 +223,8 @@ class StableSplusOperator(SpinOperator[P, SplusState], PyTreeNode):
         prefactor = 2 * P_plus / batch_size * self.grad_scale
         grad_part1 = psum(tree_mul(grad_part1, prefactor))
         grad_part2 = psum(tree_mul(grad_part2, prefactor))
-        grad1_norm = tree_squared_norm(grad_part1) ** 0.5
-        grad2_norm = tree_squared_norm(grad_part2) ** 0.5
-        grad1_norm = jnp.nan_to_num(grad1_norm)
-        grad2_norm = jnp.nan_to_num(grad2_norm)
+        grad1_norm = jnp.nan_to_num(tree_squared_norm(grad_part1) ** 0.5)
+        grad2_norm = jnp.nan_to_num(tree_squared_norm(grad_part2) ** 0.5)
 
         # Accumulate both parts
         gradient = tree_add(grad_part1, grad_part2)
@@ -244,7 +242,7 @@ class StableSplusOperator(SpinOperator[P, SplusState], PyTreeNode):
         gradient = tree_mul(gradient, rescaling)
 
         sz = jnp.abs(n_up - n_down) * 0.5
-        spin_var = mask_mean((R_beta - P_plus) ** 2, mask)
+        spin_var = mask_mean((sum_ratios - P_plus) ** 2, mask)
         aux_data = {
             "spin/P_plus": P_plus,
             "spin/estimator": sz * (sz + 1) + P_plus,
