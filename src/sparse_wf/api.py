@@ -565,6 +565,7 @@ class SpinOperatorArgs(TypedDict):
     grad_scale: float
     clip_threshold: float
     mask_threshold: float
+    max_grad_norm: float
 
 
 class OptimizationArgs(TypedDict):

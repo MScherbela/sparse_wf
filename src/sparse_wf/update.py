@@ -179,7 +179,6 @@ def make_trainer(
         )
         aux_data.update(spin_aux)
         aux_data.update(preconditioner_aux)
-        aux_data["opt/s_update_norm"] = tree_dot(spin_grad, spin_grad) ** 0.5
         aux_data["opt/update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
         aux_data["opt/elec_max_extend"] = jnp.abs(electrons).max()
 

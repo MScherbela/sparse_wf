@@ -8,11 +8,16 @@ import numpy as np
 from flax.struct import PyTreeNode
 
 from sparse_wf.api import Electrons, Int, ParameterizedWaveFunction, SpinOperator, SpinOperatorArgs, StaticInput
-from sparse_wf.jax_utils import psum
-from sparse_wf.tree_utils import tree_mul, tree_add
+from sparse_wf.jax_utils import psum, pgather
+from sparse_wf.tree_utils import tree_mul, tree_add, tree_squared_norm
 
 P = TypeVar("P")
 L = TypeVar("L")
+
+
+def mask_median(x, mask):
+    x_nan = jnp.where(mask, x, jnp.nan)
+    return jnp.nanmedian(pgather(x_nan, tiled=True))
 
 
 def mask_mean(x, mask):
@@ -22,8 +27,8 @@ def mask_mean(x, mask):
 def outlier_mask(ratio, threshold: float):
     mask = jnp.ones_like(ratio, dtype=jnp.bool_)
     if threshold > 0.0:
-        for _ in range(5):
-            clip_center = mask_mean(ratio, mask)
+        for _ in range(10):
+            clip_center = mask_median(ratio, mask)
             mad = mask_mean(jnp.abs(ratio - clip_center), mask)
             lower = clip_center - threshold * mad
             upper = clip_center + threshold * mad
@@ -49,6 +54,7 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
     grad_scale: float
     clip_threshold: float
     mask_threshold: float
+    max_grad_norm: float
 
     def init_state(self):
         return SplusState(beta=jnp.array(0, dtype=jnp.int32))
@@ -68,7 +74,7 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
 
         # The only reasonable way we could expect outliers to occur is if the denominator is close to zero.
         # Thus here we define the mask based on 1/psi
-        mask = outlier_mask(jnp.exp(-(base_logpsi - base_logpsi.min())), self.mask_threshold)
+        mask = outlier_mask(base_sign * jnp.exp(-(base_logpsi - base_logpsi.min())), self.mask_threshold)
 
         # Here we compute the gradient of the operator in two steps, first we compute it for every swap
         # and then we compute it for the initial state in the outer loop.
@@ -94,29 +100,39 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
             jax.tree_map(jnp.zeros_like, (params, base_logpsi, logpsi_state)),
             jnp.arange(n_up),
         )
-        gradient, dR_dlogpsi, dR_dlogpsi_state = grad_components
+        grad_part1, dR_dlogpsi, dR_dlogpsi_state = grad_components
         # summation over swaps
         R_beta = 1 + swap_ratio.sum(0)
         R_beta = clip_ratios(R_beta, self.clip_threshold, mask)
         # summation over batch
         P_plus = mask_mean(R_beta, mask)
         # Compute the full gradient, this adds remaining gradient from the loop with the local operator deviation
-        gradient = tree_add(
-            gradient,
-            vjp_fn(((jnp.zeros_like(base_sign), dR_dlogpsi + 2 * mask * (R_beta - P_plus)), dR_dlogpsi_state))[0],
-        )
-        gradient = psum(gradient)
+        dP_dsign = jnp.zeros_like(base_sign)
+        grad_part2 = vjp_fn(((dP_dsign, dR_dlogpsi + 2 * mask * (R_beta - P_plus)), dR_dlogpsi_state))[0]
 
         # Rescale
         # 2 * P_plus as in equation
         # 1 / batch_size for the mean in the vjp above
         # self.grad_scale for the gap scaling
-        gradient = tree_mul(gradient, 2 * P_plus / batch_size * self.grad_scale)
+        prefactor = 2 * P_plus / batch_size * self.grad_scale
+        grad_part1 = tree_mul(grad_part1, prefactor)
+        grad_part2 = tree_mul(grad_part2, prefactor)
+
+        # Accumulate both parts
+        gradient = tree_add(grad_part1, grad_part2)
+        gradient = psum(gradient)
+
         # Catch NaNs
         is_nan = jnp.isnan(jfu.ravel_pytree(gradient)[0]).any()
         gradient = jtu.tree_map(lambda x: jnp.where(is_nan, jnp.zeros_like(x), x), gradient)
         # Round robin on the beta electron
         new_spin_state = SplusState(beta=(state.beta + 1) % n_down)
+
+        # Clipping
+        grad_norm = tree_squared_norm(gradient) ** 0.5
+        clipped_norm = jnp.minimum(self.max_grad_norm, grad_norm)
+        rescaling = clipped_norm / (grad_norm + 1e-8)
+        gradient = tree_mul(gradient, rescaling)
 
         sz = jnp.abs(n_up - n_down) * 0.5
         spin_var = mask_mean((R_beta - P_plus) ** 2, mask)
@@ -127,6 +143,10 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
             "spin/std": spin_var**0.5,
             "spin/num_outlier": psum((~mask).sum()),
             "spin/num_nans": psum(jnp.isnan(swap_ratio).sum()),
+            "spin/grad_1_norm": tree_squared_norm(grad_part1) ** 0.5,
+            "spin/grad_2_norm": tree_squared_norm(grad_part2) ** 0.5,
+            "spin/grad_norm": grad_norm,
+            "spin/grad_norm_clipped": clipped_norm,
         }
         return P_plus, gradient, new_spin_state, aux_data
 
@@ -149,6 +169,7 @@ def make_spin_operator(wf: ParameterizedWaveFunction[P, L], args: SpinOperatorAr
                 grad_scale=args["grad_scale"],
                 clip_threshold=args["clip_threshold"],
                 mask_threshold=args["mask_threshold"],
+                max_grad_norm=args["max_grad_norm"],
             )
         case "none":
             return NoSpinOperator(wf=wf)
