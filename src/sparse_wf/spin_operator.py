@@ -115,12 +115,15 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
         # 1 / batch_size for the mean in the vjp above
         # self.grad_scale for the gap scaling
         prefactor = 2 * P_plus / batch_size * self.grad_scale
-        grad_part1 = tree_mul(grad_part1, prefactor)
-        grad_part2 = tree_mul(grad_part2, prefactor)
+        grad_part1 = psum(tree_mul(grad_part1, prefactor))
+        grad_part2 = psum(tree_mul(grad_part2, prefactor))
+        grad1_norm = tree_squared_norm(grad_part1) ** 0.5
+        grad2_norm = tree_squared_norm(grad_part2) ** 0.5
+        grad1_norm = jnp.nan_to_num(grad1_norm)
+        grad2_norm = jnp.nan_to_num(grad1_norm)
 
         # Accumulate both parts
         gradient = tree_add(grad_part1, grad_part2)
-        gradient = psum(gradient)
 
         # Catch NaNs
         is_nan = jnp.isnan(jfu.ravel_pytree(gradient)[0]).any()
@@ -143,8 +146,8 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
             "spin/std": spin_var**0.5,
             "spin/num_outlier": psum((~mask).sum()),
             "spin/num_nans": psum(jnp.isnan(swap_ratio).sum()),
-            "spin/grad_1_norm": tree_squared_norm(grad_part1) ** 0.5,
-            "spin/grad_2_norm": tree_squared_norm(grad_part2) ** 0.5,
+            "spin/grad_1_norm": grad1_norm,
+            "spin/grad_2_norm": grad2_norm,
             "spin/grad_norm": grad_norm,
             "spin/grad_norm_clipped": clipped_norm,
         }
