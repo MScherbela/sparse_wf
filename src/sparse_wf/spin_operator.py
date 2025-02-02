@@ -120,7 +120,7 @@ class SplusOperator(SpinOperator[P, SplusState], PyTreeNode):
         grad1_norm = tree_squared_norm(grad_part1) ** 0.5
         grad2_norm = tree_squared_norm(grad_part2) ** 0.5
         grad1_norm = jnp.nan_to_num(grad1_norm)
-        grad2_norm = jnp.nan_to_num(grad1_norm)
+        grad2_norm = jnp.nan_to_num(grad2_norm)
 
         # Accumulate both parts
         gradient = tree_add(grad_part1, grad_part2)
