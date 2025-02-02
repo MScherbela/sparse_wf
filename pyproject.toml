@@ -51,6 +51,9 @@ strict = false
 exclude = ['src/sparse_wf/preliminary_experiments', 'analysis']
 disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 
+[tool.pytest_env]
+JAX_PLATFORMS = "cpu"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["-n", "auto"]
@@ -70,6 +73,7 @@ dev-dependencies = [
     "seaborn>=0.13.2",
     "pytest-xdist>=3.6.1",
     "scienceplots>=2.1.1",
+    "pytest-env>=1.1.5",
 ]
 find-links = [
     "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html",
