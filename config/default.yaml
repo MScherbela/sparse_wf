@@ -168,6 +168,7 @@ pretraining:
     init_calc: null
     from_all_electron: false
     xc: null
+    require_converged: true
   cas:
     active_orbitals: 8
     active_electrons: 8

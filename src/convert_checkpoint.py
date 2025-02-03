@@ -1,3 +1,4 @@
+# %%
 import os
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -106,8 +107,9 @@ def convert_checkpoint(checkpoint_fname, config_fname):
 
 if __name__ == "__main__":
     # run_dir = "/storage/scherbelam20/runs/sparse_wf/benzene_dimer/cutoff5.0/5.0_benzene_dimer_T_4.95A_singleEl_jumps_leonardo_from087695"
-    run_dir = "/storage/scherbelam20/runs/sparse_wf/benzene_dimer/cutoff5.0/3.0_benzene_dimer_T_4.95A_vsc_from_062500_from080341"
+    # run_dir = "/storage/scherbelam20/runs/sparse_wf/benzene_dimer/cutoff5.0/3.0_benzene_dimer_T_4.95A_vsc_from_062500_from080341"
     # run_dir = "/storage/scherbelam20/runs/sparse_wf/benzene_dimer/cutoff5.0/3.0_benzene_dimer_T_10.00A_vsc_from062500"
+    run_dir = "/storage/scherbelam20/runs/sparse_wf/benzene_dimer/cutoff5.0/5.0_benzene_dimer_T_10.00A_singleEl_jumps_leonardo_from095538"
     config_fname = f"{run_dir}/full_config.yaml"
     checkpoint_fname = f"{run_dir}/optchkpt100000.msgpk"
     convert_checkpoint(checkpoint_fname, config_fname)

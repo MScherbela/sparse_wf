@@ -317,6 +317,7 @@ def setup_calculations(args=None, depends_on: list[int] | None = None):
             job_id = submit_to_slurm(run_name, slurm_config, args.dry_run, depends_on=depends_on)
             if job_id is not None:
                 job_ids.append(job_id)
+                print(f"New job: {job_id:<10} {run_name}")
 
     return job_ids
 

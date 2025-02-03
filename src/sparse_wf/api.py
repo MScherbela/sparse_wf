@@ -598,6 +598,7 @@ class HFArgs(TypedDict):
     from_all_electron: bool  # This initializes the HF guess with one from an all-electron calculation.
     init_calc: "HFArgs | None"
     xc: str | None  # If specified run DFT with this XC functional instead of HF.
+    require_converged: bool
 
 
 class PretrainingArgs(TypedDict):

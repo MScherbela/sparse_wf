@@ -155,6 +155,8 @@ def run_hf(mol: pyscf.gto.Mole, args: HFArgs):
     hf.max_cycle = 100
     hf.kernel(dm0=dm0)
     logging.info(f"HF energy: {hf.e_tot}")
+    if not hf.converged and args["require_converged"]:
+        raise ValueError("HF did not converge. Aborting.")
     return hf
 
 
