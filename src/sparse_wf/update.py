@@ -34,6 +34,7 @@ from sparse_wf.jax_utils import (
     copy_from_main,
 )
 from sparse_wf.tree_utils import tree_dot
+import logging
 
 
 class ClipStatistic(Enum):
@@ -84,7 +85,8 @@ def make_trainer(
     spin_operator: SpinOperator[P, SS],
     energy_operator: Literal["sparse", "dense"],
     pseudopotentials: Sequence[str],
-    pp_grid_points: int,
+    pp_grid_points: dict[str, int],
+    cutoff_transition_steps: float,
 ):
     energy_fn = make_local_energy(wave_function, energy_operator, pseudopotentials, pp_grid_points)
     batched_energy_fn = vmap_reduction(
@@ -160,8 +162,13 @@ def make_trainer(
         E_std = pmean(((energy - E_mean) ** 2).mean()) ** 0.5
         aux_data = {"opt/E": E_mean, "opt/E_std": E_std}
 
-        # TODO: Spin operator might potentially also need separate statics
-        spin_op_value, spin_grad, spin_state = spin_operator(state.params, electrons, statics.mcmc, state.spin_state)
+        # TODO: Spin operator might potentially also need separate statics - jump should be nough?
+        spin_op_value, spin_grad, spin_state, spin_aux = spin_operator(
+            state.params,
+            electrons,
+            statics.mcmc_jump,  # type: ignore
+            state.spin_state,
+        )
         aux_data["opt/S"] = spin_op_value
 
         natgrad, precond_state, preconditioner_aux = preconditioner.precondition(
@@ -172,12 +179,24 @@ def make_trainer(
             spin_grad,
             state.opt_state.natgrad,
         )
+        aux_data.update(spin_aux)
         aux_data.update(preconditioner_aux)
         aux_data["opt/update_norm"] = tree_dot(natgrad, natgrad) ** 0.5
         aux_data["opt/elec_max_extend"] = jnp.abs(electrons).max()
 
         updates, opt = optimizer.update(natgrad, state.opt_state.opt, state.params)
         params = optax.apply_updates(state.params, updates)
+        try:
+            # Ensure that the cutoff_param grows by at least 1/cutoff_transition steps and is clipped at 10.0 for stability
+            new_cutoff_param = jnp.clip(
+                params.embedding.cutoff_param,
+                state.params.embedding.cutoff_param + 1 / cutoff_transition_steps,  # type: ignore
+                10.0,
+            )
+            params = params._replace(embedding=params.embedding._replace(cutoff_param=new_cutoff_param))
+            aux_data["cutoff"] = jax.nn.sigmoid(new_cutoff_param) * wave_function.embedding.cutoff  # type: ignore
+        except AttributeError:
+            logging.warning("No cutoff parameter found: params.embedding.cutoff_param")
 
         return (
             state.replace(

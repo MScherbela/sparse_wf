@@ -286,7 +286,7 @@ def make_mcmc(
             steps = proposal_args["steps"]
             mcmc_step = functools.partial(mcmc_steps_all_electron, logpsi_fn, get_static_fn, steps)
         case "single-electron":
-            steps = proposal_args["sweeps"] * n_el
+            steps = int(proposal_args["sweeps"] * n_el)
             mcmc_step = functools.partial(
                 mcmc_steps_low_rank, logpsi_fn, get_static_fn, proposal_single_electron, steps
             )

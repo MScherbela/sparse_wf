@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13" # < 3.13 required for tensorflow/numpy compatiblity for profiling
 name = "sparse_wf"
 version = "0.0.1"
 readme = "README.md"
@@ -17,7 +17,7 @@ dependencies = [
     "einops",
     "numpy",
     "matplotlib",
-    "folx",
+    "folx>=0.2.14",
     "pyscf",
     "seml[ssh_forward]",
     "tqdm",
@@ -25,6 +25,7 @@ dependencies = [
     "pytest",
     "wonderwords",
     "argcomplete",
+    "pyscf-dispersion>=1.2.0",
 ]
 
 [project.optional-dependencies]
@@ -33,7 +34,10 @@ bokeh = [
     "chromedriver-binary>=132.0.6821.0.0",
     "selenium>=4.26.1",
 ]
-profiling = ["tensorboard-plugin-profile>=2.17.0", "tensorflow>=2.18.0"]
+profiling = [
+    "tensorboard-plugin-profile>=2.17.0",
+    "tensorflow>=2.18.0"
+]
 
 [tool.ruff]
 line-length = 120
@@ -50,14 +54,17 @@ strict = false
 exclude = ['src/sparse_wf/preliminary_experiments', 'analysis']
 disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 
+[tool.pytest_env]
+JAX_PLATFORMS = "cpu"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["-n", "auto"]
 
 [tool.uv]
 constraint-dependencies = [
-    "scipy<=1.12.0", # required for jax==0.4.23
-    "numpy<2.0.0",   # required for jax==0.4.23
+    # "scipy<=1.12.0", # required for jax==0.4.23
+    # "numpy<2.0.0",   # required for jax==0.4.23
     # "nvidia_cudnn_cu12<9.0", # required for jax==0.4.23
 ]
 dev-dependencies = [
@@ -68,6 +75,8 @@ dev-dependencies = [
     "wandb-workspaces",
     "seaborn>=0.13.2",
     "pytest-xdist>=3.6.1",
+    "scienceplots>=2.1.1",
+    "pytest-env>=1.1.5",
 ]
 find-links = [
     "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html",
@@ -76,3 +85,4 @@ find-links = [
 [project.scripts]
 sparse-wf-run = "sparse_wf.train_with_config:train_with_config"
 sparse-wf-setup = "sparse_wf.setup_calculations:setup_calculations"
+sparse-wf-setup-cutoff-transfer = "sparse_wf.setup_cutoff_transfer:main"

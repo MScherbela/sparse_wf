@@ -42,7 +42,7 @@ rel_energies = {
 }
 
 ## SWANN
-reload_data = False
+reload_data = True
 if reload_data:
     name_template = f"3.0_({'|'.join(geom_names)})"
     all_runs = wandb.Api().runs("tum_daml_nicholas/ferrocene")

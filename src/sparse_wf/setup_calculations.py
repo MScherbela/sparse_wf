@@ -129,7 +129,7 @@ def get_slurm_template(cluster=None):
         return f.read()
 
 
-def submit_to_slurm(run_dir, slurm_config, dry_run=False):
+def submit_to_slurm(run_dir, slurm_config, dry_run=False, depends_on: list[int] | None = None):
     current_dir = os.getcwd()
     os.chdir(run_dir)
 
@@ -144,8 +144,18 @@ def submit_to_slurm(run_dir, slurm_config, dry_run=False):
         f.write(job_file)
 
     if not dry_run:
-        subprocess.run(["sbatch", "job.sh"])
+        cmd = ["sbatch"]
+        if depends_on:
+            dependency_list = ":".join(str(j) for j in depends_on)
+            cmd.extend(["-d", f"afterany:{dependency_list}"])
+        cmd.append("job.sh")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        job_id = int(result.stdout.strip().split()[-1])
+    else:
+        job_id = None
+
     os.chdir(current_dir)
+    return job_id
 
 
 def get_slurm_defaults(cluster, queue):
@@ -239,9 +249,10 @@ def is_code_committed():
     return not git_status.stdout
 
 
-def setup_calculations():
+def setup_calculations(args=None, depends_on: list[int] | None = None):
+    job_ids = []
     parser = get_argparser()
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     if (not args.no_commit_check) and (not is_code_committed()):
         print(
@@ -303,7 +314,12 @@ def setup_calculations():
         success = setup_run_dir(run_name, run_config, full_config, args.force)
         if success:
             slurm_config["job_name"] = run_name
-            submit_to_slurm(run_name, slurm_config, args.dry_run)
+            job_id = submit_to_slurm(run_name, slurm_config, args.dry_run, depends_on=depends_on)
+            if job_id is not None:
+                job_ids.append(job_id)
+                print(f"New job: {job_id:<10} {run_name}")
+
+    return job_ids
 
 
 if __name__ == "__main__":

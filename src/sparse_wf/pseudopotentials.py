@@ -1,12 +1,12 @@
 import functools
-from typing import Any, Callable, Sequence, TypeVar, cast
+from typing import Sequence, TypeVar, cast
 
 import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 import numpy as np
 import pyscf
 from jaxtyping import ArrayLike, Float, Array, Bool, Integer
+from folx import batched_vmap
 
 from sparse_wf.api import (
     ParameterizedWaveFunction,
@@ -15,8 +15,9 @@ from sparse_wf.api import (
     Charges,
     StaticInput,
 )
-from sparse_wf.tree_utils import tree_maximum
+from sparse_wf.tree_utils import tree_max
 from sparse_wf.jax_utils import vmap_reduction
+from sparse_wf.model.graph_utils import get_with_fill, NO_NEIGHBOUR
 
 P = TypeVar("P")
 MS = TypeVar("MS")
@@ -250,93 +251,87 @@ def eval_leg(x: Float[ArrayLike, "..."], angular: Integer[ArrayLike, ""]) -> Flo
     return jax.lax.switch(angular, [leg_l0, leg_l1, leg_l2, leg_l3], x)
 
 
-def project_legendre(
-    direction: Float[Array, "3"],
-    low_rank_f: Callable[
-        [Float[Array, "3"], Integer[Array, ""]],
-        tuple[Float[Array, ""], Float[Array, ""]],
-    ],
-    static_f: Callable[[Float[Array, "3"], Integer[Array, ""]], StaticInput],
-    denom_sign: Float[Array, ""],
-    denom_logpsi: Float[Array, ""],
-    electron_distance_i: Float[Array, ""],
-    electron_vector_i: Float[Array, "3"],
-    index: Integer[Array, ""],
-    atom_vector: Float[Array, "3"],
-    angular_momentum: Integer[Array, ""],
+def eval_leg0to3(x: Float[ArrayLike, "..."]) -> Float[Array, "..."]:
+    """
+    Evaluate the Legendre polynomial of degree `l` at point `x`.
+    """
+    return jnp.stack([leg_l0(x), leg_l1(x), leg_l2(x), leg_l3(x)], axis=-1)
+
+
+def get_integration_points(key: jax.random.PRNGKey, r: Float[Array, "3"], R: Float[Array, "3"], n_points: int):
+    """
+    Get integration points for the ECP evaluation.
+    """
+    dist = jnp.linalg.norm(r - R)
+    rot_mat = random_rot_mat(key)
+    points, weights = make_spherical_grid(n_points)
+    rotated_points = (points @ rot_mat.T) * dist + R
+    return rotated_points, weights, jnp.ones(n_points, int) * n_points
+
+
+def build_all_integration_points(
+    key: jax.random.PRNGKey,
+    electrons: Electrons,
+    R_ecp: Float[Array, "n_ecp_atoms 3"],
+    unique_n_quad_points: tuple[int],
+    n_quad_points: Integer[np.ndarray, " n_ecp_atoms"],
+    cutoffs: EcpCutoffs,
+    static_n_points: int,
 ):
-    """Projects the Legrende polynomials."""
-    cos = direction @ electron_vector_i / electron_distance_i
-    leg = eval_leg(cos, angular_momentum)
-    e_prime = electron_distance_i * direction
-    e = e_prime + atom_vector
+    """
+    Get a list of all electron coordinates r' at which the non-local potential needs to be evaluated
+    This requires up to n_el * max(n_quad_points) evaluations, but it can be less due to 2 factors:
+       1. Not all electrons are within the cutoff of the closest ECP atom
+       2. Not all ECP atoms have the same number of quadrature points
+    We first build a list of all r' n_el * sum(n_quad_points) and then filter to the active ones using a static arg
+    """
 
-    sign, logpsi = low_rank_f(e, index)
-    f_ratio = sign / denom_sign * jnp.exp(logpsi - denom_logpsi)
-    return jnp.squeeze(leg * f_ratio), static_f(e, index)
+    n_el = electrons.shape[0]
+    ae_ecp = electrons[:, None] - R_ecp
+    r_ae_ecp = jnp.linalg.norm(ae_ecp, axis=-1)
 
+    # drop all but closest ecp atom
+    idx_closest_atom = jnp.argmin(r_ae_ecp, axis=1)  # [n_el]
+    R_closest_atom = R_ecp[idx_closest_atom]  # [n_el, 3]
+    dr_closest_atom = electrons - R_closest_atom  # [n_el, 3]
+    dist_closest_atom = jnp.linalg.norm(dr_closest_atom, axis=-1)  # [n_el]
+    direction_closest_atom = dr_closest_atom / dist_closest_atom[:, None]  # [n_el, 3]
 
-def make_spherical_integral(n_quad_points: int):
-    """Creates callable for evaluating an integral over a spherical quadrature."""
+    keys = jax.random.split(key, n_el)
+    r_shift_list = []
+    weights_list = []
+    is_active_list = []
+    cos_theta_list = []
+    for n in unique_n_quad_points:
+        grid, w = make_spherical_grid(n)  # [n, 3]
+        rot_mat = jax.vmap(random_rot_mat)(keys)  # [el, 3, 3]
+        grid_rotated = jnp.einsum("ixy,gx->igy", rot_mat, grid)  # [n_el, n, 3]
+        r_int = R_closest_atom[:, None, :] + dist_closest_atom[:, None, None] * grid_rotated  # [n_el, n, 3]
+        cos = jnp.einsum("inx,ix->in", grid_rotated, direction_closest_atom)  # [n_el, n]
+        r_shift_list.append(r_int - electrons[:, None, :])  # [n_el, n, 3]
+        weights_list.append(jnp.tile(w[None, :], (n_el, 1)))  # [n_el, n]
+        cos_theta_list.append(cos)
 
-    points, weights = make_spherical_grid(n_quad_points)
+        is_in_range = dist_closest_atom < cutoffs[idx_closest_atom]  # [n_el]
+        is_correct_grid = n_quad_points[idx_closest_atom] == n  # [n_el]
+        is_active_list.append(jnp.tile((is_in_range & is_correct_grid)[:, None], (1, n)))
 
-    def spherical_integral(
-        key: Array,
-        logpsi_fn: ParameterizedWaveFunction[P, MS],
-        params: P,
-        electrons: Electrons,
-        static: StaticInput,
-        electron_atom_distance: Float[Array, ""],
-        electron_atom_vector: Float[Array, "3"],
-        electron_index: Integer[Array, ""],
-        atom_position: Float[Array, "3"],
-        angular_momentum: Integer[Array, ""],
-    ):
-        # randomly rotate the integration grid
-        rot_mat = random_rot_mat(key)
-        aligned_points = points @ rot_mat.T
-        (sign, logpsi), state = logpsi_fn.log_psi_with_state(params, electrons, static)
+    r_shift = jnp.concatenate(r_shift_list, axis=-2).reshape([-1, 3])  # [n_el, n_total, 3] => [n_el * n_total, 3]
+    weights = jnp.concatenate(weights_list, axis=-1).reshape([-1])  # [n_el, n_total] => [n_el * n_total]
+    is_active = jnp.concatenate(is_active_list, axis=-1).reshape([-1])  # [n_el, n_total] => [n_el * n_total]
+    idx_el = jnp.repeat(jnp.arange(n_el), sum(unique_n_quad_points))
+    cos_theta = jnp.concatenate(cos_theta_list, axis=-1).reshape([-1])
 
-        def low_rank_f(electron, i):
-            return logpsi_fn.log_psi_low_rank_update(
-                params,
-                electrons.at[i].set(electron),
-                jnp.array([i], dtype=jnp.int32),
-                static,
-                state,
-            )[0]
-
-        def static_f(electron, i):
-            return logpsi_fn.get_static_input(
-                electrons,
-                electrons.at[i].set(electron),
-                jnp.array([i], dtype=jnp.int32),
-            )
-
-        def _body_fun(i, vals: tuple[Array, StaticInput]):
-            val, static = vals
-            legendre_val, new_static = project_legendre(
-                aligned_points[i],
-                low_rank_f,
-                static_f,
-                sign,
-                logpsi,
-                electron_atom_distance,
-                electron_atom_vector,
-                electron_index,
-                atom_position,
-                angular_momentum,
-            )
-            return val + weights[i] * legendre_val, tree_maximum(static, new_static)
-
-        init_loop = jnp.zeros_like(logpsi)
-        # TODO: I guess we could use vmap_sum or vmap_sum + folx.batched_vmap here
-        new_static = jtu.tree_map(lambda x: jnp.zeros_like(jnp.asarray(x)), static)
-        legendre, new_static = jax.lax.fori_loop(0, n_quad_points, _body_fun, (init_loop, new_static))
-        return (2 * angular_momentum + 1) * legendre, new_static
-
-    return spherical_integral
+    actual_n_active = is_active.sum()
+    idx_active = jnp.where(is_active, size=static_n_points, fill_value=NO_NEIGHBOUR)[0]
+    idx_el = get_with_fill(idx_el, idx_active, 0)
+    idx_closest_atom = idx_closest_atom[idx_el]
+    r_shift = get_with_fill(r_shift, idx_active, 0.0)
+    r_integration = electrons[idx_el] + r_shift
+    dist_ae = jnp.linalg.norm(r_integration - R_closest_atom[idx_el], axis=-1)
+    weights = get_with_fill(weights, idx_active, 0.0)
+    cos_theta = get_with_fill(cos_theta, idx_active, 0.0)
+    return idx_el, idx_closest_atom, r_integration, dist_ae, weights, cos_theta, actual_n_active
 
 
 def make_nonlocal_pseudopotential(
@@ -344,9 +339,13 @@ def make_nonlocal_pseudopotential(
     v_grid_nonloc: EcpValues,
     ecp_mask: EcpMask,
     cutoffs: EcpCutoffs,
-    n_quad_points: int,
+    n_quad_points: Integer[np.ndarray, " n_ecp_atoms"],
 ):
-    """Creates callable for evaluating the non-local pseudopotential."""
+    unique_n_quad_points = np.unique(n_quad_points)
+    unique_n_quad_points = unique_n_quad_points[unique_n_quad_points > 0]
+    n_quad_points = jnp.array(n_quad_points, jnp.int32)  # type: ignore
+    n_l_values = v_grid_nonloc.shape[1]
+    assert n_l_values <= 4, "Non-local pp only supports angular momemtum up to l=3"
 
     def pp_nonloc(
         key: Array,
@@ -354,104 +353,46 @@ def make_nonlocal_pseudopotential(
         params: P,
         electrons: Electrons,
         static: StaticInput,
-        electron_atom_distance_i: Float[Array, ""],
-        electron_atom_vector_i: Float[Array, "3"],
-        electron_index: Integer[Array, ""],
-        atom_position: Float[Array, "3"],
-        angular_momentum: Integer[Array, ""],
-        v_grid: Float[Array, "nchan n_grid"],
     ):
-        integral, new_static = make_spherical_integral(n_quad_points)(
-            key,
-            logpsi_fn,
-            params,
-            electrons,
-            static,
-            electron_atom_distance_i,
-            electron_atom_vector_i,
-            electron_index,
-            atom_position,
-            angular_momentum,
+        R = jnp.array(logpsi_fn.R[ecp_mask], jnp.float32)
+        idx_el, idx_ecp_atom, r_integration, dist_ae, weights, cos_theta, actual_n_active = (
+            build_all_integration_points(
+                key,
+                electrons,
+                R,
+                unique_n_quad_points,
+                n_quad_points,
+                cutoffs,
+                static.n_pp_elecs,  # type: ignore
+            )
         )
+        (sign_denom, logpsi_denom), state = logpsi_fn.log_psi_with_state(params, electrons, static)
 
-        potential_radial_value = jnp.interp(electron_atom_distance_i, xp=r_grid, fp=v_grid)
-        return potential_radial_value * integral, new_static
+        def get_psi_ratio(r_int, idx_el):
+            electrons_new = electrons.at[idx_el].set(r_int)
+            idx_changed = idx_el[None]
+            (sign, logpsi), _ = logpsi_fn.log_psi_low_rank_update(params, electrons_new, idx_changed, static, state)
+            f_ratio = sign * sign_denom * jnp.exp(logpsi - logpsi_denom)
+            actual_static = logpsi_fn.get_static_input(electrons, electrons_new, idx_changed)
+            return f_ratio, actual_static
 
-    def electron_atom_nonlocal_pseudopotential(
-        key: Array,
-        logpsi_fn: ParameterizedWaveFunction,
-        params: P,
-        electrons: Electrons,
-        static: Any,
-    ) -> tuple[Float[Array, ""], StaticInput]:
-        """Evaluates electron-atom contribution to non-local pseudopotential."""
-        n_elec = electrons.shape[0]
-        n_nonloc = v_grid_nonloc.shape[1]
+        @jax.vmap  # vmap over integration points
+        def get_radial_potential(dist_ae, idx_ecp_atom):
+            # vmap over l-values
+            return jax.vmap(lambda v: jnp.interp(dist_ae, xp=r_grid, fp=v))(v_grid_nonloc[idx_ecp_atom])
 
-        atoms = jnp.asarray(logpsi_fn.R[ecp_mask])
-        ae_ecp = electrons[:, None] - atoms
-        r_ae_ecp = jnp.linalg.norm(ae_ecp, axis=-1)
+        psi_ratio, actual_static = batched_vmap(get_psi_ratio, max_batch_size=64)(
+            r_integration, idx_el
+        )  # [n_integrations]
+        V_nonloc = get_radial_potential(dist_ae, idx_ecp_atom)  # [n_integrations * n_l_values]
+        legendre_poly = eval_leg0to3(cos_theta)[:, :n_l_values]  # [n_integrations * n_l_values]
+        angular_l = np.arange(n_l_values)
+        V = jnp.einsum("kl,k,k,l,kl", V_nonloc, weights, psi_ratio, 2 * angular_l + 1, legendre_poly)
+        actual_static = tree_max(actual_static)
+        new_static = actual_static.replace(n_pp_elecs=actual_n_active)
+        return V, new_static
 
-        # drop all but closest ecp atom
-        closest_atom = jnp.argmin(r_ae_ecp, axis=1)
-        # Compute the number of electrons that are within the cutoff
-        closest_atom_dist = r_ae_ecp[jnp.arange(n_elec), closest_atom]
-        in_cutoff = closest_atom_dist < cutoffs[closest_atom]
-        num_in_cutoff = in_cutoff.sum()
-
-        # Select only the electrons that are within the cutoff
-        electron_idx = jnp.argsort(closest_atom_dist)[: static.n_pp_elecs]
-        # For all of them use:
-        # electron_idx = jnp.arange(n_elec)
-        closest_atom = closest_atom[electron_idx]
-        closest_atom_dist = closest_atom_dist[electron_idx]
-        r_ae_ecp_closest = r_ae_ecp[electron_idx, closest_atom]
-        ae_ecp_closest = ae_ecp[electron_idx, closest_atom, :]
-
-        atoms_ecp_closest = atoms[closest_atom]
-
-        v_grid_nonloc_closest = v_grid_nonloc[closest_atom]
-
-        keys = jax.random.split(key, static.n_pp_elecs).reshape(static.n_pp_elecs, *key.shape)
-
-        # These are the samples that are within the cutoff
-        mask = closest_atom_dist < cutoffs[closest_atom]
-
-        # vmap over electrons
-        vmap_pp_nonloc = vmap_reduction(
-            pp_nonloc,
-            # Only take the maximum for the statics among the electrons within the cutoff
-            (functools.partial(jnp.sum, axis=0), lambda x: jnp.max(x * mask)),
-            in_axes=(0, None, None, None, None, 0, 0, 0, 0, None, 0),
-        )
-
-        # vmap over angular momentum
-        # Note that at first glance this double/triple vmap (first over n_elec, then over angular momenta,
-        # and internally over the 12 integration points), appears to need n_el * n_angular_momenta * 12 low-rank evaluations.
-        # However the JAX compiler is smart enough to only evaluate the low-rank function once per electron,
-        # and then broadcast the result to all angular momenta / integration points.
-        vmap_pp_nonloc = vmap_reduction(
-            vmap_pp_nonloc,
-            (functools.partial(jnp.sum, axis=0), jnp.max),
-            in_axes=(None, None, None, None, None, None, None, None, None, 0, 1),
-        )
-
-        pp, new_static = vmap_pp_nonloc(
-            keys,
-            logpsi_fn,
-            params,
-            electrons,
-            static,
-            r_ae_ecp_closest,
-            ae_ecp_closest,
-            electron_idx,
-            atoms_ecp_closest,
-            jnp.arange(n_nonloc),
-            v_grid_nonloc_closest,
-        )
-        return pp, new_static.replace(n_pp_elecs=num_in_cutoff)
-
-    return electron_atom_nonlocal_pseudopotential
+    return pp_nonloc
 
 
 def mock_nl_pp(
@@ -467,7 +408,7 @@ def mock_nl_pp(
 def make_pseudopotential(
     charges: Charges,
     symbols: Sequence[str],
-    n_quad_points: int,
+    n_quad_points: dict[str, int],
     ecp: str = "ccecp",  # basis set
     cutoff_value: float = 1e-7,
 ):
@@ -492,8 +433,10 @@ def make_pseudopotential(
 
     n_grid = grid_radius.size  # number of radial grid points - 1D
     ecp_grid_values = jnp.zeros((n_ecp, max_channels, n_grid))  # ECP values on the radial grid
+    n_integration_points = np.zeros(n_ecp, int)
     for i, z in enumerate(charges[ecp_mask].tolist()):
         ecp_grid_values = ecp_grid_values.at[i].set(v_grid_dict[z])
+        n_integration_points[i] = n_quad_points.get(pyscf.lib.parameters.ELEMENTS[z], n_quad_points["default"])
 
     non_loc_grid_values, loc_grid_values = jnp.split(ecp_grid_values, (max_channels - 1,), axis=1)
     loc_grid_values = loc_grid_values.reshape(-1, n_grid)
@@ -504,5 +447,7 @@ def make_pseudopotential(
     cutoffs = grid_radius[cutoff_idx]
 
     pp_local = make_local_pseudopotential(grid_radius, loc_grid_values, ecp_mask)
-    pp_nonlocal = make_nonlocal_pseudopotential(grid_radius, non_loc_grid_values, ecp_mask, cutoffs, n_quad_points)
+    pp_nonlocal = make_nonlocal_pseudopotential(
+        grid_radius, non_loc_grid_values, ecp_mask, cutoffs, n_integration_points
+    )
     return effective_charges, pp_local, pp_nonlocal

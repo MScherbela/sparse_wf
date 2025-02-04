@@ -5,9 +5,9 @@ import optax
 from sparse_wf.api import Schedule, TransformationArgs
 
 
-def hyperbolic_schedule(init_value: float, delay: float, decay: float):
+def hyperbolic_schedule(init_value: float, delay: float, decay: float = 1.0, offset: float = 0.0):
     def schedule(step):
-        return init_value / (1 + step / delay) ** decay
+        return init_value / (1 + (step - offset) / delay) ** decay
 
     return schedule
 
@@ -26,10 +26,6 @@ def make_schedule(schedule: Schedule | str, kwargs: dict[str, dict[str, Any]]) -
         return hyperbolic_schedule(**kwargs["hyperbolic"])
     else:
         raise ValueError(f"Unknown schedule: {schedule}")
-
-
-def scale_by_hyperbolic_schedule(init_value: float, delay: float, decay: float):
-    return optax.scale_by_schedule(hyperbolic_schedule(init_value, delay, decay))
 
 
 def make_optimizer(

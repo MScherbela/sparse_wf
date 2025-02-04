@@ -83,6 +83,7 @@ def seml_main(
     logging_args: LoggingArgs,
     load_checkpoint: str,
     extract_checkpoint=False,
+    checkpoint_cutoff: float | None = None,
 ):
     mol = get_molecule(molecule_args)
     logging_args = update_logging_configuration(mol, db_collection, logging_args, locals())
@@ -98,5 +99,6 @@ def seml_main(
         seed=seed,
         logging_args=logging_args,
         load_checkpoint=load_checkpoint,
-        extract_checkpoint=False,
+        extract_checkpoint=extract_checkpoint,
+        checkpoint_cutoff=checkpoint_cutoff,
     )
