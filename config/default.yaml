@@ -190,7 +190,7 @@ batch_size: 4096
 
 mcmc_args:
   proposal: "single-electron"
-  acceptance_target: 0.25
+  acceptance_target: 0.5
   all_electron_args:
     steps: 20
     init_width: 0.1
