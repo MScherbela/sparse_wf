@@ -137,9 +137,10 @@ optimization:
     stat: median
   spin_operator_args:
     operator: none
-    grad_scale: 10
+    grad_scale: 2.0
     clip_threshold: 5.0
     mask_threshold: 10.0
+    max_grad_norm: 1.0
   cutoff_transition_steps: 2000
 
 pretraining:
