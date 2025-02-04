@@ -6,7 +6,7 @@ metadata:
 seed: 0
 
 molecule_args:
-  method: from_str
+  method: database
   database_args:
     hash: ""
     name: ""
@@ -18,8 +18,8 @@ molecule_args:
     element: "H"
     distance: 2.0
     n: 10
-  basis: sto-6g
-  pseudopotentials: [] # list of elements for which to use pseudopotentials
+  basis: ccecp-ccpvdz
+  pseudopotentials: ["B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br", "Kr"]
 
 model: moon
 
@@ -97,7 +97,7 @@ optimization:
     S: 6
     Cl: 6
     Ar: 6
-  steps: 100_000
+  steps: 50_000
   burn_in: 500
   max_batch_size: 16
   optimizer_args:
@@ -108,7 +108,7 @@ optimization:
       hyperbolic:
         init_value: 0.1
         decay: 1.0
-        delay: 1000
+        delay: 10000
         offset: 0
     transformations:
       - name: clip_by_global_norm
@@ -179,7 +179,7 @@ pretraining:
 load_checkpoint: ""
 extract_checkpoint: false
 checkpoint_cutoff:
-auto_requeue: 1
+auto_requeue: 3
 
 evaluation:
   steps: 0
@@ -189,13 +189,13 @@ evaluation:
 batch_size: 4096
 
 mcmc_args:
-  proposal: "cluster-update"
+  proposal: "single-electron"
   acceptance_target: 0.25
   all_electron_args:
     steps: 20
     init_width: 0.1
   single_electron_args:
-    sweeps: 1
+    sweeps: 2
     init_width: 0.5
   cluster_update_args:
     sweeps: 1.0
@@ -203,4 +203,4 @@ mcmc_args:
     init_width: 0.2
     max_cluster_radius: 2.0
     max_cluster_size: 5
-  jump_steps: 0
+  jump_steps: 20
