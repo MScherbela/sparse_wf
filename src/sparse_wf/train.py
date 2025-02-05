@@ -225,12 +225,15 @@ def main(
         log_data = to_log_data(mcmc_stats, statics, aux_data)
         loggers.log(log_data)
 
+    logging.info("Saving checkpoint after pretraining+burn-in")
+    n_steps_prev = int(state.step[0])
+    loggers.store_checkpoint(n_steps_prev, state, "opt", force=True)
+
     logging.info("Taking 1 step to get correct statics")
     _, _, _, mcmc_stats = trainer.step(state, statics)
     statics = static_schedulers(mcmc_stats.static_max, trainer.step._cache_size)
 
-    logging.info("Training")
-    n_steps_prev = int(state.step[0])
+    logging.info("Starting training loop")
     for opt_step in range(n_steps_prev, optimization["steps"] + 1):
         loggers.store_checkpoint(opt_step, state, "opt", force=(opt_step == optimization["steps"]))
         if should_abort():
