@@ -197,8 +197,8 @@ def make_dense_spring_preconditioner(
         local_T_inv = T_inv.reshape([n_dev, local_batch_size, N])[pidx()]
 
         # The remainder needs a centered jacobian - this can be done in float32
-        mean_grad_vec = pmean(jacT.mean(axis=1, keepdims=True))
-        jacT -= mean_grad_vec
+        mean_grad_vec = pmean(jacT.mean(axis=1))
+        jacT -= mean_grad_vec[:, None]
         unit_mean_grad_vec = mean_grad_vec / jnp.linalg.norm(mean_grad_vec)
 
         @jax.vmap
