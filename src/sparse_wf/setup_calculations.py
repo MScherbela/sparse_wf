@@ -190,14 +190,16 @@ def autodetect_cluster():
     hostname = os.uname()[1]
     if hostname == "gpu1-mat":
         return "hgx"
-    elif "vsc" in hostname:
-        return "vsc5"
-    elif "leonardo" in hostname:
+    for name_frament in ["vsc", "l51", "l52", "l53", "l54"]:
+        if name_frament in hostname:
+            return "vsc5"
+    if "leonardo" in hostname:
         return "leonardo"
-    elif "login-" in hostname:
+    if "login-" in hostname:
         return "lrz"
-    elif "gpu06" in hostname or "fs" == hostname:
+    if "gpu06" in hostname or "fs" == hostname:
         return "daml"
+    raise ValueError(f"Could not autodect cluster based on hostname: {hostname}")
 
 
 def build_grid(*param_groups):
