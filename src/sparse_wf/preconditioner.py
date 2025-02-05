@@ -217,7 +217,7 @@ def make_dense_spring_preconditioner(
         ((coeff_aux, coeff_last_grad), (aux_in_J, last_grad_in_J), (aux_not_J, last_grad_not_J)) = split_grad_by_J(
             jnp.stack([flat_aux_grad, decayed_last_grad], axis=0)
         )
-        cotangent += coeff_aux + coeff_last_grad * actual_damping
+        cotangent += coeff_aux
         local_precond_cotangents = local_T_inv @ cotangent  # T^(-1)@contangent for local samples
         local_precond_cotangents = local_precond_cotangents.astype(jnp.float32)
         local_natgrad = jacT @ local_precond_cotangents
