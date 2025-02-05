@@ -56,7 +56,7 @@ fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 for ref, (E_ref, color) in refs.items():
     ax.axhline(E_ref, color=color, linestyle="dashed")
     if ref == "Experiment":
-        ax.axhspan(E_ref - 0.6, E_ref + 0.6, color=color, alpha=0.2)
+        ax.axhspan(E_ref - 0.6, E_ref + 0.6, color=color, alpha=0.2, zorder=-1)
     ax.text(0.1, E_ref, ref, color=color, va="bottom", ha="left")
 
 for cutoff in cutoffs:
