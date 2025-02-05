@@ -1,4 +1,4 @@
-#%%
+# %%
 import wandb
 import pandas as pd
 import re
@@ -11,9 +11,11 @@ data = []
 for r in runs:
     print(r.name)
     dist = float(re.search(r"(\d+\.\d+)A", r.name).group(1))
-    metadata = dict(dist = dist,
-    cutoff=5.0 if "5.0" in r.name else 3.0,
-    run_name=r.name,)
+    metadata = dict(
+        dist=dist,
+        cutoff=5.0 if "5.0" in r.name else 3.0,
+        run_name=r.name,
+    )
 
     for h in r.scan_history(["opt/step", "opt/E"], page_size=10_000):
         data.append(h | metadata)
@@ -21,8 +23,9 @@ for r in runs:
 df_all = pd.DataFrame(data)
 df_all.to_csv("benzene_energies.csv", index=False)
 
-#%%
+# %%
 import matplotlib.pyplot as plt
+import numpy as np
 
 window_length = 1_000
 # cutoffs = [3.0, 5.0]
@@ -36,24 +39,38 @@ for cutoff in cutoffs:
     for dist in dists:
         smoothed = pivot[(cutoff, dist)].fillna(method="ffill", limit=10).rolling(window=window_length).mean()
         pivot.loc[:, (cutoff, f"E{dist}_smooth")] = smoothed
-    pivot.loc[:, (cutoff, "delta_smooth")] = (pivot[cutoff][f"E{dists[0]}_smooth"] - pivot[cutoff][f"E{dists[1]}_smooth"]) * 1000
+    # pivot.loc[:, (cutoff, "delta_smooth")] = (pivot[cutoff][f"E{dists[0]}_smooth"] - pivot[cutoff][f"E{dists[1]}_smooth"]) * 1000
+    pivot.loc[:, (cutoff, "delta")] = (pivot[(cutoff, dists[0])] - pivot[(cutoff, dists[1])]) * 1000
+    pivot.loc[:, (cutoff, "delta_smooth")] = pivot.loc[:, (cutoff, "delta")].rolling(window=window_length).mean()
+    pivot.loc[:, (cutoff, "delta_stderr")] = pivot.loc[:, (cutoff, "delta")].rolling(window=window_length).std() / np.sqrt(window_length)
+
 
 refs = {
-"Experiment": (-3.8, "k"),
-"PsiFormer": (5.0, "forestgreen"),
-"FermiNet VMC (Glehn et al)": (-4.6, "C0"),
-"FermiNet DMC (Ren et al)": (-9.2, "navy")
+    "Experiment": (-3.8, "k"),
+    "PsiFormer": (5.0, "forestgreen"),
+    "FermiNet VMC (Glehn et al)": (-4.6, "C0"),
+    "FermiNet DMC (Ren et al)": (-9.2, "navy"),
 }
 
 fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 for ref, (E_ref, color) in refs.items():
     ax.axhline(E_ref, color=color, linestyle="dashed")
-    ax.text(1, E_ref, ref, color=color, va="bottom", ha="left")
+    if ref == "Experiment":
+        ax.axhspan(E_ref - 0.6, E_ref + 0.6, color=color, alpha=0.2)
+    ax.text(0.1, E_ref, ref, color=color, va="bottom", ha="left")
 
 for cutoff in cutoffs:
     ax.plot(pivot.index / 1000, pivot[(cutoff, "delta_smooth")], label=f"SWANN cutoff={cutoff:.1f}", color="red")
+    ax.fill_between(
+        pivot.index / 1000,
+        pivot[(cutoff, "delta_smooth")] - 2 * pivot[(cutoff, "delta_stderr")],
+        pivot[(cutoff, "delta_smooth")] + 2 * pivot[(cutoff, "delta_stderr")],
+        color="red",
+        alpha=0.2,
+    )
 ax.legend(loc="upper right")
 ax.set_ylim([-10, 6])
+ax.set_xlim([0, None])
 ax.set_xlabel("Opt Step / k")
 ax.set_ylabel("E_4.95 - E_10.0 / mHa")
 ax.set_title("Benzene dimer binding energy")
@@ -80,8 +97,3 @@ fig.savefig("benzene_dimer.png")
 # bpl.show(p)
 
 # bokeh.io.export_png(p, filename="benzene_dimer.png")
-
-
-
-
-
