@@ -13,7 +13,7 @@ for r in runs:
     dist = float(re.search(r"(\d+\.\d+)A", r.name).group(1))
     metadata = dict(
         dist=dist,
-        cutoff=5.0 if "5.0" in r.name else 3.0,
+        cutoff=float(r.name.split("_")[1]),
         run_name=r.name,
     )
 
@@ -27,7 +27,7 @@ df_all.to_csv("benzene_energies.csv", index=False)
 import matplotlib.pyplot as plt
 import numpy as np
 
-window_length = 1_000
+window_length = 5_000
 # cutoffs = [3.0, 5.0]
 cutoffs = [3.0]
 dists = [4.95, 10.0]
@@ -41,6 +41,7 @@ for cutoff in cutoffs:
         pivot.loc[:, (cutoff, f"E{dist}_smooth")] = smoothed
     # pivot.loc[:, (cutoff, "delta_smooth")] = (pivot[cutoff][f"E{dists[0]}_smooth"] - pivot[cutoff][f"E{dists[1]}_smooth"]) * 1000
     pivot.loc[:, (cutoff, "delta")] = (pivot[(cutoff, dists[0])] - pivot[(cutoff, dists[1])]) * 1000
+    pivot = pivot.fillna(method="ffill", limit=10)
     pivot.loc[:, (cutoff, "delta_smooth")] = pivot.loc[:, (cutoff, "delta")].rolling(window=window_length).mean()
     pivot.loc[:, (cutoff, "delta_stderr")] = pivot.loc[:, (cutoff, "delta")].rolling(window=window_length).std() / np.sqrt(window_length)
 
@@ -59,13 +60,18 @@ for ref, (E_ref, color) in refs.items():
         ax.axhspan(E_ref - 0.6, E_ref + 0.6, color=color, alpha=0.2, zorder=-1)
     ax.text(0.1, E_ref, ref, color=color, va="bottom", ha="left")
 
-for cutoff in cutoffs:
-    ax.plot(pivot.index / 1000, pivot[(cutoff, "delta_smooth")], label=f"SWANN cutoff={cutoff:.1f}", color="red")
+colors = ["red", "orange"]
+for cutoff, color in zip(cutoffs, colors):
+    delta_E = pivot[(cutoff, "delta_smooth")]
+    delta_Estd = pivot[(cutoff, "delta_stderr")]
+    delta_E_final = delta_E[delta_E.notna()].iloc[-1]
+    ax.plot(pivot.index / 1000,  delta_E, label=f"SWANN cutoff={cutoff:.1f}", color=color)
+    ax.axhline(delta_E_final, color=color, zorder=0, ls="--")
     ax.fill_between(
         pivot.index / 1000,
-        pivot[(cutoff, "delta_smooth")] - 2 * pivot[(cutoff, "delta_stderr")],
-        pivot[(cutoff, "delta_smooth")] + 2 * pivot[(cutoff, "delta_stderr")],
-        color="red",
+        delta_E - 2 * delta_Estd,
+        delta_E + 2 * delta_Estd,
+        color=color,
         alpha=0.2,
     )
 ax.legend(loc="upper right")
