@@ -6,6 +6,7 @@ import re
 api = wandb.Api()
 all_runs = api.runs("tum_daml_nicholas/benzene")
 runs = [r for r in all_runs if re.match("HLR.*", r.name)]
+runs = [r for r in runs if "eval" not in r.name]
 
 data = []
 for r in runs:
@@ -30,9 +31,9 @@ df_all.to_csv("benzene_energies.csv", index=False)
 import matplotlib.pyplot as plt
 import numpy as np
 
-window_length = 2000
+window_length = 1000
 # cutoffs = [3.0, 5.0]
-cutoffs = ["3.0", "Transfer5.0"]
+cutoffs = ["3.0", "Transfer5.0" ,"Transfer7.0"]
 dists = [4.95, 10.0]
 
 df_all = pd.read_csv("benzene_energies.csv")
@@ -63,7 +64,7 @@ for ref, (E_ref, color) in refs.items():
         ax.axhspan(E_ref - 0.6, E_ref + 0.6, color=color, alpha=0.2, zorder=-1)
     ax.text(0.1, E_ref, ref, color=color, va="bottom", ha="left")
 
-colors = ["red", "orange"]
+colors = ["orange", "C1", "red"]
 for cutoff, color in zip(cutoffs, colors):
     delta_E = pivot[(cutoff, "delta_smooth")]
     delta_Estd = pivot[(cutoff, "delta_stderr")]

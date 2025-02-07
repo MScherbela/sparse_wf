@@ -219,6 +219,9 @@ def main(
 
     # Variational optimization
     logging.info("MCMC Burn-in")
+    logging.info("Taking 1 burn-in step to get correct statics")
+    mcmc_stats = trainer.sampling_step(state, statics, False, None)[-1]
+    statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
     for _ in range(optimization["burn_in"]):
         state, aux_data, mcmc_stats = trainer.sampling_step(state, statics, False, None)
         statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
@@ -261,11 +264,9 @@ def main(
     # Evaluation / Inference
     if evaluation["steps"]:
         logging.info("Evaluation")
-        overlap_fn = (
-            functools.partial(hf_wf.excited_signed_logpsi, jnp.array(evaluation["overlap_states"]))
-            if evaluation["overlap_states"]
-            else None
-        )
+        overlap_fn = None
+        if evaluation["overlap_states"]:
+            overlap_fn = functools.partial(hf_wf.excited_signed_logpsi, jnp.array(evaluation["overlap_states"]))
         logging.info("Taking 1 eval step to get correct statics")
         mcmc_stats = trainer.sampling_step(state, statics, evaluation["compute_energy"], overlap_fn)[-1]
         statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
