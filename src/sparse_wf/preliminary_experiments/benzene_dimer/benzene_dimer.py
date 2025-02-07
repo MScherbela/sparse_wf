@@ -5,15 +5,18 @@ import re
 
 api = wandb.Api()
 all_runs = api.runs("tum_daml_nicholas/benzene")
-runs = [r for r in all_runs if re.match("HLR_.*", r.name)]
+runs = [r for r in all_runs if re.match("HLR.*", r.name)]
 
 data = []
 for r in runs:
     print(r.name)
     dist = float(re.search(r"(\d+\.\d+)A", r.name).group(1))
+    cutoff = r.name.split("_")[1]
+    if r.name.startswith("HLRTransfer"):
+        cutoff = "Transfer" + cutoff
     metadata = dict(
         dist=dist,
-        cutoff=float(r.name.split("_")[1]),
+        cutoff=cutoff,
         run_name=r.name,
     )
 
@@ -27,21 +30,21 @@ df_all.to_csv("benzene_energies.csv", index=False)
 import matplotlib.pyplot as plt
 import numpy as np
 
-window_length = 5_000
+window_length = 2000
 # cutoffs = [3.0, 5.0]
-cutoffs = [3.0]
+cutoffs = ["3.0", "Transfer5.0"]
 dists = [4.95, 10.0]
 
 df_all = pd.read_csv("benzene_energies.csv")
 # molecules = sorted(df_all["molecule"].unique())
 pivot = df_all.pivot_table(index="opt/step", columns=["cutoff", "dist"], values="opt/E", aggfunc="mean")
+pivot = pivot.fillna(method="ffill", limit=10)
 for cutoff in cutoffs:
     for dist in dists:
         smoothed = pivot[(cutoff, dist)].fillna(method="ffill", limit=10).rolling(window=window_length).mean()
         pivot.loc[:, (cutoff, f"E{dist}_smooth")] = smoothed
     # pivot.loc[:, (cutoff, "delta_smooth")] = (pivot[cutoff][f"E{dists[0]}_smooth"] - pivot[cutoff][f"E{dists[1]}_smooth"]) * 1000
     pivot.loc[:, (cutoff, "delta")] = (pivot[(cutoff, dists[0])] - pivot[(cutoff, dists[1])]) * 1000
-    pivot = pivot.fillna(method="ffill", limit=10)
     pivot.loc[:, (cutoff, "delta_smooth")] = pivot.loc[:, (cutoff, "delta")].rolling(window=window_length).mean()
     pivot.loc[:, (cutoff, "delta_stderr")] = pivot.loc[:, (cutoff, "delta")].rolling(window=window_length).std() / np.sqrt(window_length)
 
@@ -65,7 +68,7 @@ for cutoff, color in zip(cutoffs, colors):
     delta_E = pivot[(cutoff, "delta_smooth")]
     delta_Estd = pivot[(cutoff, "delta_stderr")]
     delta_E_final = delta_E[delta_E.notna()].iloc[-1]
-    ax.plot(pivot.index / 1000,  delta_E, label=f"SWANN cutoff={cutoff:.1f}", color=color)
+    ax.plot(pivot.index / 1000,  delta_E, label=f"SWANN cutoff={cutoff}", color=color)
     ax.axhline(delta_E_final, color=color, zorder=0, ls="--")
     ax.fill_between(
         pivot.index / 1000,
@@ -74,6 +77,7 @@ for cutoff, color in zip(cutoffs, colors):
         color=color,
         alpha=0.2,
     )
+    print(f"{cutoff}: {delta_E_final:.1f} mHa")
 ax.legend(loc="upper right")
 ax.set_ylim([-10, 6])
 ax.set_xlim([0, None])
