@@ -14,7 +14,7 @@ from sparse_wf.api import (
 )
 from sparse_wf.static_args import round_with_padding
 from sparse_wf.model.utils import (
-    GatedLinearUnit,
+    MLP,
     get_diff_features,
     PairwiseFilter,
     DynamicFilterParams,
@@ -190,10 +190,9 @@ class ElecInit(nn.Module):
         n_out = self.n_updates * 4 + 1
         edge_feat = ElecNucEdge(self.cutoff, self.filter_dims, self.feature_dim, self.n_envelopes)
         Gamma, features = nn_vmap(edge_feat, in_axes=(None, 0, 0))(r, R_nb, dynamic_params)  # vmap over nuclei
-        h_init = jnp.einsum("...Jd,...Jd->...d", Gamma, features)
+        h_init = jnp.einsum("...Jd,...Jd->...d", Gamma, nn.silu(features))
         h_init = nn.LayerNorm()(h_init)
-        h_init = GatedLinearUnit(self.feature_dim)(h_init)
-        h_init = self.activation(nn.Dense(self.feature_dim)(h_init))
+        h_init = MLP([self.feature_dim] * 3, activate_final=True)(h_init)
         # let's parallize this will by having all operations in one go
         h_out = jnp.split(nn.Dense(self.feature_dim * n_out)(h_init), n_out, axis=-1)
         h_msg = [h_out[offset : offset + self.n_updates] for offset in range(1, n_out, self.n_updates)]
