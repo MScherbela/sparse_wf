@@ -172,3 +172,4 @@ log.txt
 src/sparse_wf/preliminary_experiments/sparse_mpnn/moon_scaling.png
 benchmark.csv
 .aider*
+src/sparse_wf/preliminary_experiments/cumulene_pp/cumulene_pp_energies.csv

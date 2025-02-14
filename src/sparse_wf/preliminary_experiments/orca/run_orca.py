@@ -74,7 +74,8 @@ def run_orca(g, directory, method, basis_set, frozen_core, n_proc, total_memory,
 def worker(args):
     ind_calc, geom_hash, g, method, basis_set, n_proc, total_memory, orca_path, frozen_core = args
     geom_comment = g.get("comment", "")
-    directory = f"{ind_calc:04d}_{geom_comment}_{method}_{basis_set}"
+    directory = f"{geom_comment}_{method}_{basis_set}"
+    directory.replace("/", "_")
     if os.path.isdir(directory):
         shutil.rmtree(directory)
     os.makedirs(directory)
@@ -94,6 +95,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-proc", type=int, default=16, required=False)
     parser.add_argument("--total-memory", type=int, default=200, required=False, help="Total memory in GB")
     parser.add_argument("--n-parallel", type=int, default=1, required=False, help="Number of parallel workers")
+
     parser.add_argument(
         "--orca-path",
         type=str,
@@ -134,7 +136,7 @@ if __name__ == "__main__":
     with open("energies.csv", "w", buffering=1) as energy_file:
         energy_file.write("ind_calc;geom_hash;comment;method;basis_set;E_hf;E_final;duration\n")
         with multiprocessing.Pool(processes=args.n_parallel) as pool:
-            results = pool.imap(worker, calc_args)
+            results = pool.imap_unordered(worker, calc_args)
             for ind_calc, geom_hash, geom_comment, method, basis_set, result, duration in results:
                 result_str = f"{ind_calc};{geom_hash};{geom_comment};{method};{basis_set};{result.get('E_hf', '')};{result.get('E_final', '')};{duration}"
                 energy_file.write(result_str + "\n")

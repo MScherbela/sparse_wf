@@ -31,7 +31,7 @@ df_all.to_csv("benzene_energies.csv", index=False)
 import matplotlib.pyplot as plt
 import numpy as np
 
-window_length = 1000
+window_length = 2000
 # cutoffs = [3.0, 5.0]
 cutoffs = ["3.0", "Transfer5.0" ,"Transfer7.0"]
 dists = [4.95, 10.0]

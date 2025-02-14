@@ -11,6 +11,16 @@ from sparse_wf.pseudopotentials import make_pseudopotential
 from sparse_wf.hamiltonian import potential_energy
 from sparse_wf.loggers import tree_to_log_data
 import argparse
+import pathlib
+import yaml
+from folx import batched_vmap
+
+DEFAULT_CONFIG_PATH = pathlib.Path(__file__).parent / "../../../../config/default.yaml"
+
+
+def load_yaml(path):
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def get_cumulene(n_carbon: int, use_ecp):
@@ -25,51 +35,22 @@ def get_cumulene(n_carbon: int, use_ecp):
     mol = from_str(atom=[(z, r) for z, r in zip(Z, R)])  # type: ignore
     if use_ecp:
         mol.ecp = {6: "ccecp"}
-    mol.basis = "sto-6g"
+    mol.basis = "ccecp-cc-pvdz"
     mol.build()
     return mol
 
 
 def get_model(mol, cutoff):
-    embedding_config = dict(
-        embedding="new_sparse",
-        new=dict(
-            cutoff=cutoff,
-            cutoff_1el=20.0,
-            feature_dim=256,
-            pair_mlp_widths=[16, 8],
-            pair_n_envelopes=32,
-            low_rank_buffer=2,
-            n_updates=1,
-        ),
-    )
-    jastrow_config = dict(
-        e_e_cusps="psiformer",
-        use_e_e_mlp=False,
-        use_mlp_jastrow=True,
-        use_log_jastrow=True,
-        mlp_width=256,
-        mlp_depth=2,
-        use_attention=True,
-        attention_heads=16,
-        attention_dim=16,
-    )
-    envelope_args = dict(envelope="isotropic", isotropic_args=dict(n_envelopes=8))
-
-    wf = MoonLikeWaveFunction.create(
-        mol,
-        embedding=embedding_config,
-        jastrow=jastrow_config,
-        envelopes=envelope_args,
-        n_determinants=4,
-        spin_restricted=False,
-    )
+    config = load_yaml(DEFAULT_CONFIG_PATH)
+    model_config = config["model_args"]
+    model_config["embedding"]["new"]["cutoff"] = cutoff
+    wf = MoonLikeWaveFunction.create(mol, **model_config)
     return wf
 
 
 def make_potential_energy(wf, use_ecp):
     pseudopotentials = ["C", "N", "O"] if use_ecp else []
-    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials, n_quad_points=4)
+    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials, n_quad_points=dict(default=4))
 
     def get_potential_energy(key: jax.Array, params, electrons, static):
         potential = potential_energy(electrons, wf.R, eff_charges)
@@ -85,10 +66,26 @@ def single_electron_move(rng, electrons, stepsize):
     batch_size, n_el, _ = electrons.shape
     rng = jax.random.split(rng, (batch_size, 2))
 
-    def update(r, k):
-        idx = jax.random.randint(k[0], [], 0, n_el)
-        dr = jax.random.normal(k[1], (3,)) * stepsize
+    def update(r, key):
+        idx = jax.random.randint(key[0], [], 0, n_el)
+        dr = jax.random.normal(key[1], (3,)) * stepsize
         return r.at[idx].add(dr), idx[None]
+
+    return jax.vmap(update)(electrons, rng)
+
+
+def electron_swap(rng, electrons):
+    batch_size, n_el, _ = electrons.shape
+    n_up = n_el // 2
+    rng = jax.random.split(rng, (batch_size, 2))
+
+    def update(r, key):
+        idx_up = jax.random.randint(key[0], [], 0, n_up)
+        idx_dn = jax.random.randint(key[1], [], n_up, n_el)
+        r_up = r[idx_up]
+        r = r.at[idx_up].set(r[idx_dn])
+        r = r.at[idx_dn].set(r_up)
+        return r, jnp.stack([idx_up, idx_dn])
 
     return jax.vmap(update)(electrons, rng)
 
@@ -143,87 +140,85 @@ if __name__ == "__main__":
     parser.add_argument("--cutoff", type=float, default=3.0)
     parser.add_argument("--system", type=str, default="cumulene")
     parser.add_argument("--move_stepsize", type=float, default=0.5)
-    parser.add_argument("--n_iterations", type=int, default=50)
+    parser.add_argument("--n_iterations", type=int, default=250)
     parser.add_argument("-o", "--output", type=str, default="timings.txt")
     parser.add_argument("--profile", action="store_true", default=False)
+    parser.add_argument("--dense-Ekin", action="store_true", default=False)
 
     args = parser.parse_args()
 
+    settings = {k: v for k, v in vars(args).items() if k not in ["output", "profile", "system_size"]}
     for system_size in args.system_sizes:
         mol = get_cumulene(system_size, args.use_ecp)
-        batch_size = args.batch_size
-        # if mol.nelectron >= 250:
-        #     batch_size /= 2
-        # if mol.nelectron >= 350:
-        #     batch_size /= 2
-
-        settings = dict(
-            batch_size=batch_size,
-            cutoff=args.cutoff,
-            system=args.system,
-            system_size=system_size,
-            move_stepsize=args.move_stepsize,
-            n_iterations=args.n_iterations,
-            use_ecp=args.use_ecp,
-        )
 
         print(f"system_size = {system_size}: Initializing model, electrons, params, and static input for ")
         rng = jax.random.PRNGKey(0)
-        rng_electrons, rng_move, rng_params, rng_pp = jax.random.split(rng, 4)
-        rng_pp = jax.random.split(rng_pp, batch_size)
+        rng_electrons, rng_move, rng_swap, rng_params, rng_pp = jax.random.split(rng, 5)
+        rng_pp = jax.random.split(rng_pp, args.batch_size)
 
-        wf = get_model(mol, 3.0)
-        electrons = init_electrons(rng_electrons, mol, batch_size)
-        electrons_new, idx_changed_el = single_electron_move(rng_move, electrons, args.move_stepsize)
-        params = wf.init(rng_params, electrons[0])
+        wf = get_model(mol, args.cutoff)
+        r = init_electrons(rng_electrons, mol, args.batch_size)
+        r_new_local, idx_changed_local = single_electron_move(rng_move, r, args.move_stepsize)
+        r_new_swap, idx_changed_swap = electron_swap(rng_move, r)
+        params = wf.init(rng_params, r[0])
 
         get_static = jit_and_await(jax.vmap(wf.get_static_input))
         get_logpsi_full = build_looped_logpsi_full(wf, args.n_iterations)
         get_logpsi_lowrank = build_looped_logpsi_lowrank(wf, args.n_iterations)
-        get_E_kin = jit_and_await(jax.vmap(wf.kinetic_energy, in_axes=(None, 0, None)), static_argnums=(2,))
+        if args.dense_Ekin:
+            get_E_kin = batched_vmap(wf.kinetic_energy_dense, max_batch_size=1, in_axes=(None, 0, None))
+        else:
+            get_E_kin = jax.vmap(wf.kinetic_energy, in_axes=(None, 0, None))
+        get_E_kin = jit_and_await(get_E_kin, static_argnums=(2,))
         get_E_pot = jit_and_await(
             jax.vmap(make_potential_energy(wf, args.use_ecp), in_axes=(0, None, 0, None)), static_argnums=(3,)
         )
 
-        static = get_static(electrons, electrons_new, idx_changed_el)
-        static = get_max_static(static, wf)
+        static_local = get_max_static(get_static(r, r_new_local, idx_changed_local), wf)
+        static_swap = get_max_static(get_static(r, r_new_swap, idx_changed_swap), wf)
 
         print("Running warmup/compilation", flush=True)
-        state = get_logpsi_full(params, electrons, static)[1]
-        get_logpsi_lowrank(params, electrons, static, state)
-        get_E_kin(params, electrons, static)
-        pp_static = get_E_pot(rng_pp, params, electrons, static)[1]
+        state = get_logpsi_full(params, r, static_local)[1]
+        get_logpsi_lowrank(params, r, static_local, state)
+        get_logpsi_lowrank(params, r, static_swap, state)
+        get_E_kin(params, r, static_local)
+        pp_static = get_E_pot(rng_pp, params, r, static_local)[1]
         pp_static = get_max_static(pp_static, wf)
-        get_E_pot(rng_pp, params, electrons, pp_static)
+        get_E_pot(rng_pp, params, r, pp_static)
 
         def get_timing(expression, n_reps=5):
             return timeit.timeit(expression, globals=globals(), number=n_reps) / n_reps
 
         print("Running for timings", flush=True)
-        t_wf_full = get_timing(lambda: get_logpsi_full(params, electrons, static)) / args.n_iterations
-        t_wf_lr = get_timing(lambda: get_logpsi_lowrank(params, electrons, static, state)) / args.n_iterations
-        t_E_kin = get_timing(lambda: get_E_kin(params, electrons, static))
-        t_E_pot = get_timing(lambda: get_E_pot(rng_pp, params, electrons, pp_static))
+        t_wf_full = get_timing(lambda: get_logpsi_full(params, r, static_local)) / args.n_iterations
+        t_wf_upd_local = get_timing(lambda: get_logpsi_lowrank(params, r, static_local, state)) / args.n_iterations
+        t_wf_upd_swap = get_timing(lambda: get_logpsi_lowrank(params, r, static_swap, state)) / args.n_iterations
+        t_E_kin = get_timing(lambda: get_E_kin(params, r, static_local))
+        t_E_pot = get_timing(lambda: get_E_pot(rng_pp, params, r, pp_static))
 
         if args.profile:
             print("Running once for profiling")
             with jax.profiler.trace("/tmp/tensorboard"):
-                get_logpsi_full(params, electrons, static)
-                get_logpsi_lowrank(params, electrons, static, state)
-                get_E_kin(params, electrons, static)
-                get_E_pot(rng_pp, params, electrons, pp_static)
+                get_logpsi_full(params, r, static_local)
+                get_logpsi_lowrank(params, r, static_local, state)
+                get_E_kin(params, r, static_local)
+                get_E_pot(rng_pp, params, r, pp_static)
 
         results = dict(
             **settings,
             n_el_core=sum([mol.atom_nelec_core(i) for i in range(mol.natm)]),
             n_el=mol.nelectron,
             t_wf_full=t_wf_full,
-            t_wf_lr=t_wf_lr,
+            t_wf_upd_local=t_wf_upd_local,
+            t_wf_upd_swap=t_wf_upd_swap,
             t_E_kin=t_E_kin,
             t_E_pot=t_E_pot,
-            **tree_to_log_data(static, "static/"),
+            **tree_to_log_data(static_local, "static_local/"),
+            **tree_to_log_data(static_swap, "static_swap/"),
             **tree_to_log_data(pp_static, "pp_static/"),
         )
+        if not args.dense_Ekin:
+            results["t_E_kin_sparse"] = results.pop("t_E_kin")
 
         with open(args.output, "a") as f:
             f.write(str(results) + "\n")

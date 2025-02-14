@@ -15,9 +15,19 @@ default_config = load_yaml(pathlib.Path(__file__).parent / "../../config/default
 config = load_yaml("config.yaml")
 config["molecule_args"] = default_config["molecule_args"] | config.get("molecule_args", {})
 config["hf"] = default_config["pretraining"]["hf"] | config.get("hf", {})
+
 if config["hf"]["cache_dir"] is None:
     print(f"Setting pyscf cache dir as: {DEFAULT_CACHE_DIR}")
     config["hf"]["cache_dir"] = DEFAULT_CACHE_DIR
 
-mol = get_molecule(config["molecule_args"])
-hf = run_hf(mol, config["hf"])
+
+for xc in [None, "PBE0"]:
+    for n in [2, 4, 6, 8, 12, 16, 20, 24]:
+        for geom in ["0deg_singlet", "90deg_triplet"]:
+            geom_str = f"cumulene_C{n}H4_{geom}"
+            print(geom_str)
+
+            config["molecule_args"]["database_args"]["comment"] = geom_str
+            config["hf"]["xc"] = xc
+            mol = get_molecule(config["molecule_args"])
+            hf = run_hf(mol, config["hf"])
