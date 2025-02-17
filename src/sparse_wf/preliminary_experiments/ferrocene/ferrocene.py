@@ -36,7 +36,7 @@ rel_energies = {
 }
 
 ## SWANN
-reload_data = True
+reload_data = False
 if reload_data:
     name_template = f"HLR.*"
     all_runs = wandb.Api().runs("tum_daml_nicholas/ferrocene")
@@ -55,7 +55,7 @@ if reload_data:
 else:
     df_swann = pd.read_csv("swann_ferrocene.csv")
 
-window = 2000
+window = 5000
 cutoffs = [3.0, 5.0]
 
 df = df_swann.pivot_table(index="opt/step", columns=["cutoff", "charge"], values="opt/E")

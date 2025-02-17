@@ -78,7 +78,7 @@ for _, r in df_swann.iterrows():
 
 import matplotlib.pyplot as plt
 
-colors = ["black"] + ["dimgray"] * 2 + ["navy"] * 3 + ["forestgreen"] + ["red"] * 3
+colors = ["black"] + ["dimgray"] * 2 + ["navy"] * 3 + ["forestgreen"] + ["red"] * 4
 
 fig, ax = plt.subplots(1, 1, figsize=(7, 5))
 for idx, color, (name, E) in zip(range(len(colors)), colors, rel_energies.items()):

@@ -45,7 +45,7 @@ for method, color in zip(pivot_ref["method"].unique(), ref_colors):
 
 ax.legend()
 ax.grid(alpha=0.5)
-ax.set_ylim([-50, 150])
+ax.set_ylim([-5, 50])
 # x_fit = np.linspace(2, 24, 100)
 # y_fit = 200/(x_fit-1)
 # ax.plot(x_fit, y_fit, label="1/n", color="black", linestyle="--")

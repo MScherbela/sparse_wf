@@ -9,7 +9,7 @@ import matplotlib.ticker as ticker
 N_SWEEPS = 1
 REFERENCE_BATCH_SIZE = 32
 N_EL_MIN_FOR_FIT = 100
-N_EL_FOR_BREAKDOWN = 260
+N_EL_FOR_BREAKDOWN = 132
 
 
 def fit_and_plot(ax, x, y, color, ls="-", n_fit_min=N_EL_MIN_FOR_FIT):
@@ -69,7 +69,8 @@ is_dense = pivot["model"] != "SWANN"
 pivot["t_E_pot"] = pivot.t_E_pot.where(~is_dense, pivot.t_wf_full * pivot.n_ECP_evals)
 pivot["t_Spin"] = pivot.t_wf_full.where(is_dense, pivot.t_wf_upd_swap) * pivot.n_el / 2
 pivot["t_E_kin_best"] = pivot.t_E_kin.where(is_dense, pivot.t_E_kin_sparse)
-pivot["t_sampling"] = pivot.t_wf_full.where(is_dense, pivot.t_wf_upd_local) * pivot.n_el * N_SWEEPS
+pivot["t_sampling"] = pivot.t_wf_full + (pivot.n_el * N_SWEEPS - 1) * pivot.t_wf_upd_local
+pivot["t_sampling"] = pivot.t_sampling.where(~is_dense, pivot.t_wf_full * pivot.n_el * N_SWEEPS)
 pivot["t_total"] = pivot.t_sampling + pivot.t_E_kin_best + pivot.t_E_pot + pivot.t_Spin
 
 
@@ -154,6 +155,7 @@ for i, model in enumerate(models):
 ax_speedup.set_ylabel("Total time relative to SWANN")
 ax_speedup.set_title(f"Runtime breakdown for {N_EL_FOR_BREAKDOWN} electrons")
 ax_speedup.set_ylim((0, df_speedup.sum(axis=1).max() * 1.1))
+print(df_speedup.sum(axis=1))
 ax_speedup.set_xlabel(None)
 ax_speedup.legend(frameon=False)
 fig.tight_layout()
