@@ -63,8 +63,21 @@ energies = {
     for k, v in energies.items()
 }
 
+# %%
+full_df = pd.concat([
+    d.rename(columns={'opt/E': (k, s)})[~d.index.duplicated(keep='first')]
+    for k, v in energies.items()
+    for s, d in v.items()
+], axis=1)
+tuples = full_df.transpose().index
+new_columns = pd.MultiIndex.from_tuples(tuples, names=['Molecule', 'State'])
+full_df.columns = new_columns
+full_df.to_csv('acene.csv')
+
+# %%
+full_df = pd.read_csv('acene.csv', header=[0, 1], index_col=0)
 #%%
-window = 2000
+window = 5000
 fig, axes = plt.subplots(1, len(energies_kcal_per_mol), figsize=(10, 3))
 axes = np.array([axes]).reshape(-1)
 colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
@@ -98,8 +111,84 @@ for ax, k in zip(axes, energies_kcal_per_mol.keys()):
     ax.set_ylim(ref_data[k].min() - 5, ref_data[k].max() + 5)
     handles, labels = ax.get_legend_handles_labels()
     legend_dict = dict(zip(labels, handles))
-axes[0].set_ylabel("Energy difference [mHa]")
+# axes[0].set_ylabel("Energy difference [mHa]")
+axes[0].set_ylabel(r"$E_\text{triplet} - E_\text{singlet}$ / mHa")
 fig.legend(legend_dict, loc="upper center", bbox_to_anchor=(0.5, 0), ncol=6)
-plt.savefig("acene.pdf", bbox_inches="tight")
+plt.savefig("acene_convergence.pdf", bbox_inches="tight")
+
+# %%
+final_energies = jax.tree.map(
+    lambda x: x.rolling(5000).mean().iloc[-1]['opt/E'],
+    energies,
+)
+final_deltas = {
+    k: (v['triplet'] - v['singlet']) * 1000
+    for k, v in final_energies.items()
+    if 'singlet' in v and 'triplet' in v
+}
+fig, axes = plt.subplots(1, len(energies_kcal_per_mol), figsize=(8, 3), sharey=True, sharex=True)
+w = .75
+n = 4
+colors = ['4e79a7', 'f28e2b', '59a14f', '9c755f', 'e15759', 'b07aa1', '76b7b2', 'ff9da7', 'edc948', 'bab0ac']
+colors = [f"#{c}" for c in colors]
+for (i, k), ax in zip(enumerate(energies_kcal_per_mol), axes):
+    c_iter = iter(colors)
+    pos = 0 - (n-1)/2 * w
+    # ax.bar(i-2*w, reference[k]["ZPE-corr'd exp"], width=w, color=next(c_iter))
+    ax.bar(0, final_deltas[k] - reference[k]["ZPE-corr'd exp"], width=w, color=next(c_iter), label='SWANN')
+    ax.bar(1, reference[k]["CCSD(T)/FPA"] - reference[k]["ZPE-corr'd exp"], width=w, color=next(c_iter), label='CCSD(T)/FPA')
+    ax.bar(2, reference[k]["ACI-DSRG-MRPT2"] - reference[k]["ZPE-corr'd exp"], width=w, color=next(c_iter), label='ACI-DSRG-MRPT2')
+    ax.bar(3, reference[k]["AFQMC"] - reference[k]["ZPE-corr'd exp"], width=w, color=next(c_iter), label='AFQMC')
+    ax.axhspan(-1.6, 1.6, color='black', alpha=0.1, zorder=-10, label='exp$\pm$ chem. acc')
+    for container in ax.containers:
+        ax.bar_label(container, fmt='%.1f', padding=3)
+    if i == 0:
+        handles, labels = ax.get_legend_handles_labels()
+        legend_dict = dict(zip(labels, handles))
+    ax.set_xticks(np.arange(4), [])
+    ax.set_title(k)
+# ax.set_xticks(range(len(energies_kcal_per_mol)), energies_kcal_per_mol.keys());
+fig.legend(legend_dict, loc="upper center", bbox_to_anchor=(0.5, 0.1), ncol=6)
+axes[0].set_ylim(-8, 8)
+axes[0].set_ylabel(r"$(E_\text{triplet} - E_\text{singlet}) - \Delta_\text{exp}$ / mHa")
+plt.savefig("acene_relative.pdf", bbox_inches="tight")
+# plt.xlabel("Molecule")
+# %%
+print('our MAE:', np.mean(np.abs([final_deltas[k]- reference[k]["ZPE-corr'd exp"] for k in energies_kcal_per_mol])))
+print('CCSD(T)/FPA MAE:', np.mean(np.abs([reference[k]["CCSD(T)/FPA"] - reference[k]["ZPE-corr'd exp"] for k in energies_kcal_per_mol])))
+print('ACI-DSRG-MRPT2 MAE:', np.mean(np.abs([reference[k]["ACI-DSRG-MRPT2"] - reference[k]["ZPE-corr'd exp"] for k in energies_kcal_per_mol])))
+print('AFQMC MAE:', np.nanmean(np.abs([reference[k]["AFQMC"] - reference[k]["ZPE-corr'd exp"] for k in energies_kcal_per_mol])))
+
+
+# %%
+final_energies = jax.tree.map(
+    lambda x: x.rolling(5000).mean().iloc[-1]['opt/E'],
+    energies,
+)
+final_deltas = {
+    k: (v['triplet'] - v['singlet']) * 1000
+    for k, v in final_energies.items()
+    if 'singlet' in v and 'triplet' in v
+}
+fig, ax = plt.subplots(figsize=(8, 3))
+w = 0.1
+n = 4
+colors = ['4e79a7', 'f28e2b', '59a14f', '9c755f', 'e15759', 'b07aa1', '76b7b2', 'ff9da7', 'edc948', 'bab0ac']
+colors = [f"#{c}" for c in colors]
+for i, k in enumerate(energies_kcal_per_mol):
+    c_iter = iter(colors)
+    pos = i - (n)/2 * w
+    ax.bar(pos, reference[k]["ZPE-corr'd exp"], width=w, color=next(c_iter))
+    ax.bar(pos := pos + w, final_deltas[k], width=w, color=next(c_iter), label='SWANN')
+    ax.bar(pos := pos + w, reference[k]["CCSD(T)/FPA"], width=w, color=next(c_iter), label='CCSD(T)/FPA')
+    ax.bar(pos := pos + w, reference[k]["ACI-DSRG-MRPT2"], width=w, color=next(c_iter), label='ACI-DSRG-MRPT2')
+    ax.bar(pos := pos + w, reference[k]["AFQMC"], width=w, color=next(c_iter), label='AFQMC')
+    if i == 0:
+        handles, labels = ax.get_legend_handles_labels()
+        legend_dict = dict(zip(labels, handles))
+ax.set_xticks(range(len(energies_kcal_per_mol)), energies_kcal_per_mol.keys());
+fig.legend(legend_dict, loc="upper center", bbox_to_anchor=(0.5, 0.05), ncol=6)
+plt.ylabel(r"$E_\text{triplet} - E_\text{singlet}$ / mHa")
+plt.savefig("acene_gap.pdf", bbox_inches="tight")
 
 # %%
