@@ -4,8 +4,17 @@ import pandas as pd
 import itertools
 import numpy as np
 
+def get_outlier_mask(x):
+    qlow = x.quantile(0.01)
+    qhigh = x.quantile(0.99)
+    med = x.median()
+    included_range = 5 * (qhigh - qlow)
+    is_outlier = (x < med - included_range) | (x > med + included_range)
+    return is_outlier
+
 api = wandb.Api()
-runs = [r for r in api.runs("tum_daml_nicholas/cumulene_pp") if r.name.startswith("HLR")]
+runs = [r for r in api.runs("tum_daml_nicholas/cumulene_pp") if r.name.startswith("HLRSp")]
+run = [r for r in runs if "PBE0" not in r.name]
 
 all_data = []
 for r in runs:
@@ -36,7 +45,7 @@ df.to_csv("cumulene_pp_energies.csv", index=False)
 df = pd.read_csv("cumulene_pp_energies.csv")
 final_data = []
 
-n_eval_steps = 2000
+n_eval_steps = 4000
 for cutoff, n_carbon in itertools.product(df["cutoff"].unique(), df["n_carbon"].unique()):
     pivot = df[(df["cutoff"] == cutoff) & (df["n_carbon"] == n_carbon)]
     pivot = pivot.pivot_table(index="opt/step", columns="angle", values="opt/E", aggfunc="mean")
@@ -45,12 +54,9 @@ for cutoff, n_carbon in itertools.product(df["cutoff"].unique(), df["n_carbon"].
         continue
     pivot["deltaE"] = pivot[90] - pivot[0]
     pivot = pivot[pivot.deltaE.notna()]
-    spread = pivot["deltaE"].quantile(0.9) - pivot["deltaE"].quantile(0.1)
-    mask_min = pivot["deltaE"].median() - 3 * spread
-    mask_max = pivot["deltaE"].median() + 3 * spread
-    outlier_mask = pivot["deltaE"].between(mask_min, mask_max)
-    print(f"c={cutoff}, n={n_carbon}, Outliers removed:", np.sum(~outlier_mask))
-    pivot = pivot[outlier_mask]
+    is_outlier = get_outlier_mask(pivot["deltaE"])
+    print(f"c={cutoff}, n={n_carbon}, Outliers removed:", np.sum(is_outlier))
+    pivot = pivot[~is_outlier]
     pivot = pivot.iloc[-n_eval_steps:]
     E_mean = pivot.mean()
     E_err = pivot.std() / np.sqrt(len(pivot))

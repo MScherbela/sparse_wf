@@ -32,11 +32,11 @@ geom_names = ["FerroceneCl_red_geom", "FerroceneCl_red_geom_charged"]
 rel_energies = {
     "Experiment": 258,
     "B3LYP (Toma et al)": 238,
-    "HF (cc-pVTZ)": 194,
+    # "HF (cc-pVTZ)": 194,
 }
 
 ## SWANN
-reload_data = False
+reload_data = True
 if reload_data:
     name_template = f"HLR.*"
     all_runs = wandb.Api().runs("tum_daml_nicholas/ferrocene")
@@ -56,7 +56,7 @@ else:
     df_swann = pd.read_csv("swann_ferrocene.csv")
 
 window = 5000
-cutoffs = [3.0, 5.0]
+cutoffs = [3.0]
 
 df = df_swann.pivot_table(index="opt/step", columns=["cutoff", "charge"], values="opt/E")
 df = df.ffill(limit=10)
@@ -68,7 +68,7 @@ for cutoff in cutoffs:
     df.loc[:, (cutoff, "deltaE_rolling")] = df[(cutoff, "deltaE")].rolling(window).mean()
 
 plt.close("all")
-fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+fig, ax = plt.subplots(1, 1, figsize=(5, 6))
 ref_colors = ["black", "C0", "C2"]
 for color, (ref, energy) in zip(ref_colors, rel_energies.items()):
     ax.axhline(energy, label=ref, color=color, linestyle="--")
@@ -90,7 +90,7 @@ ax.set_title("Chloro-ferrocene ionization potential")
 ax.yaxis.set_minor_locator(plt.MultipleLocator(5))
 ax.grid(True, "major", ls="-", alpha=0.5)
 ax.grid(True, "minor", ls=":", alpha=0.5)
-ax.set_ylim([190, 265])
+ax.set_ylim([230, 265])
 ax.legend()
 fig.tight_layout()
 fig.savefig("ferrocene.png")

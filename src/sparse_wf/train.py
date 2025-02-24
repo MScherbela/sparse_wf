@@ -218,10 +218,11 @@ def main(
         assert_identical_copies(state.params)
 
     # Variational optimization
-    logging.info("MCMC Burn-in")
-    logging.info("Taking 1 burn-in step to get correct statics")
-    mcmc_stats = trainer.sampling_step(state, statics, False, None)[-1]
-    statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
+    if optimization["burn_in"]:
+        logging.info("MCMC Burn-in")
+        logging.info("Taking 1 burn-in step to get correct statics")
+        mcmc_stats = trainer.sampling_step(state, statics, False, None)[-1]
+        statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
     for _ in range(optimization["burn_in"]):
         state, aux_data, mcmc_stats = trainer.sampling_step(state, statics, False, None)
         statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
@@ -232,7 +233,7 @@ def main(
     n_steps_prev = int(state.step[0])
     loggers.store_checkpoint(n_steps_prev, state, "opt", force=True)
 
-    if optimization["steps"] < n_steps_prev:
+    if optimization["steps"] >= n_steps_prev:
         logging.info("Taking 1 opt step to get correct statics")
         mcmc_stats = trainer.step(state, statics)[-1]
         statics = static_schedulers(mcmc_stats.static_max, trainer.step._cache_size)

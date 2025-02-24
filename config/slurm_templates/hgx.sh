@@ -3,12 +3,12 @@
 #SBATCH -N 1
 #SBATCH --gpus-per-task={n_gpus}
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task 16
+#SBATCH --cpus-per-task 8
 #SBATCH --partition hgx
 #SBATCH --qos={qos}
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
-#SBATCH --mem={n_gpus*100_000}
+#SBATCH --mem={n_gpus*50_000}
 #SBATCH --signal=B:USR1@300
 #SBATCH --export=NONE
 SLURM_EXPORT_ENV=ALL

@@ -12,9 +12,24 @@ ANGSTROM_IN_BOHR = 1.8897259886
 PERIODIC_TABLE = "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr".split()
 
 
-def write_orca_input(R, Z, charge, spin, fname, method, basis_set, frozen_core, n_proc, memory_per_core):
+def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_core, n_proc, memory_per_core):
+    multiplicity = int(2*spin+1)
+    scf_method = method.split("+")[0]
+    command = f"!{scf_method}"
+    if no_frozen_core:
+        command += " NoFrozenCore"
+    command += f" {basis_set}"
+
+    if ("DLPNO" in method) or ("RI-MP2" in method):
+        command += f" {basis_set}/C" # auxiliary basis
+    if ("CCSD" in method) and spin:
+        command += " UNO"
     with open(fname, "w") as f:
-        f.write(f"!{method} {'FrozenCore' if frozen_core else 'NoFrozenCore'} {basis_set}\n")
+        f.write(f"{command}\n")
+        # fname = os.path.abspath(fname)
+        # mo_fname = fname.replace("orca.inp", "orca.mp2nat").replace("CASSCF_from_MP2", "MP2").replace("CASSCF", "RI-MP2")
+        # f.write("!moread\n")
+        # f.write(f'%moinp "{mo_fname}"\n')
         f.write("%SCF\n")
         f.write("  Convergence tight\n")
         f.write("  maxiter 300\n")
@@ -22,14 +37,30 @@ def write_orca_input(R, Z, charge, spin, fname, method, basis_set, frozen_core, 
         f.write("END\n")
         if "CCSD" in method:
             f.write("%MDCI\n")
-            f.write("  maxiter 300\n")
+            if "DLPNO" in method:
+                f.write("  UseFullLMP2Guess false\n") # better comparison between open shell/closed shell calcs
+            f.write("  maxiter 150\n")
             f.write("  MaxDIIS 25\n")
+            f.write("  UseQROs true\n")
+            f.write("END\n")
+        if ("CASSCF" in method) or ("CASPT2" in method) or ("NEVPT2" in method):
+            # %casscf nel  4  # number of active space electrons
+            f.write("%CASSCF\n")
+            f.write("  nel 8\n")
+            f.write("  norb 8\n")
+            f.write(f"  mult {multiplicity}\n")
+            f.write("  maxiter 300\n")
+            f.write("  maxrot 0.05\n")
+            f.write("END\n")
+        if "MP2" in method:
+            f.write("%MP2\n")
+            f.write("  NatOrbs true\n")
             f.write("END\n")
         f.write(f"%MAXCORE {memory_per_core}\n")
         f.write("%PAL\n")
         f.write(f"  nprocs {n_proc}\n")
         f.write("END\n")
-        f.write(f"* xyz {charge} {int(2*spin+1)}\n")
+        f.write(f"* xyz {charge} {multiplicity}\n")
         for r, z in zip(R, Z):
             f.write(
                 f" {PERIODIC_TABLE[z-1]} {r[0] / ANGSTROM_IN_BOHR} {r[1] / ANGSTROM_IN_BOHR} {r[2] / ANGSTROM_IN_BOHR}\n"
@@ -48,7 +79,7 @@ def get_orca_results(output_fname):
     return results
 
 
-def run_orca(g, directory, method, basis_set, frozen_core, n_proc, total_memory, orca_path="orca", clean_calc_dir=True):
+def write_input_files(g, directory, method, basis_set, no_frozen_core, n_proc, total_memory):
     write_orca_input(
         g["R"],
         g["Z"],
@@ -57,10 +88,25 @@ def run_orca(g, directory, method, basis_set, frozen_core, n_proc, total_memory,
         os.path.join(directory, "orca.inp"),
         method,
         basis_set,
-        frozen_core,
+        no_frozen_core,
         n_proc,
         int(total_memory * 1000 / n_proc),
     )
+    with open(os.path.join(directory, "metadata.json"), "w") as f:
+        json.dump(dict(
+            method=method,
+            basis_set=basis_set,
+            frozen_core=not no_frozen_core,
+            n_proc=n_proc,
+            total_memory=total_memory,
+            geom_name=g.get("comment", ""),
+            geom_hash=g.get("hash", ""),
+            geom_R=g.get("R", []),
+            geom_Z=g.get("Z", []),
+        ), f, indent=4)
+
+def run_orca(g, directory, method, basis_set, no_frozen_core, n_proc, total_memory, orca_path="orca", clean_calc_dir=True):
+    write_input_files(g, directory, method, basis_set, no_frozen_core, n_proc, total_memory)
     with open(os.path.join(directory, "orca.out"), "w") as f:
         subprocess.call([orca_path, "orca.inp"], cwd=directory, stdout=f, stderr=f)
     results = get_orca_results(os.path.join(directory, "orca.out"))
@@ -72,7 +118,8 @@ def run_orca(g, directory, method, basis_set, frozen_core, n_proc, total_memory,
 
 
 def worker(args):
-    ind_calc, geom_hash, g, method, basis_set, n_proc, total_memory, orca_path, frozen_core = args
+    ind_calc, geom_hash, g, method, basis_set, n_proc, total_memory, orca_path, no_frozen_core = args
+    g["hash"] = geom_hash
     geom_comment = g.get("comment", "")
     directory = f"{geom_comment}_{method}_{basis_set}"
     directory.replace("/", "_")
@@ -80,9 +127,35 @@ def worker(args):
         shutil.rmtree(directory)
     os.makedirs(directory)
     t0 = time.time()
-    results = run_orca(g, directory, method, basis_set, frozen_core, n_proc, total_memory, orca_path)
+    results = run_orca(g, directory, method, basis_set, no_frozen_core, n_proc, total_memory, orca_path)
     t1 = time.time()
     return (ind_calc, geom_hash, geom_comment, method, basis_set, results, t1 - t0)
+
+def submit_to_slurm(args):
+    ind_calc, geom_hash, g, method, basis_set, n_proc, total_memory, orca_path, no_frozen_core = args
+    g["hash"] = geom_hash
+    geom_comment = g.get("comment", "")
+    directory = f"{geom_comment}_{method}_{basis_set}"
+    directory.replace("/", "_")
+    if os.path.isdir(directory):
+        print("Skipping existing directory", directory)
+        return
+    os.makedirs(directory)
+    write_input_files(g, directory, method, basis_set, no_frozen_core, n_proc, total_memory)
+    job_name = f"orca_{geom_comment}_{method}_{basis_set}".replace(" ", "_")
+    with open(f"{directory}/job.sh", "w") as f:
+        f.write("#!/bin/bash\n")
+        f.write(f"#SBATCH --job-name={job_name}\n")
+        f.write(f"#SBATCH --output=orca.out\n")
+        f.write(f"#SBATCH --time=24:00:00\n")
+        f.write(f"#SBATCH --ntasks={n_proc}\n")
+        f.write(f"#SBATCH --mem={total_memory}G\n")
+        f.write(f"#SBATCH --partition=hgx\n")
+        f.write(f"#SBATCH --qos=cpusonly\n")
+        f.write(f"#SBATCH --cpus-per-task=1\n")
+        f.write(f"{orca_path} orca.inp\n")
+    subprocess.call(["sbatch", "job.sh"], cwd=directory)
+
 
 
 if __name__ == "__main__":
@@ -95,6 +168,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-proc", type=int, default=16, required=False)
     parser.add_argument("--total-memory", type=int, default=200, required=False, help="Total memory in GB")
     parser.add_argument("--n-parallel", type=int, default=1, required=False, help="Number of parallel workers")
+    parser.add_argument("--slurm", action="store_true", required=False, help="Submit to SLURM")
 
     parser.add_argument(
         "--orca-path",
@@ -103,7 +177,7 @@ if __name__ == "__main__":
         required=False,
         help="Full path to ORCA executable",
     )
-    parser.add_argument("--frozen-core", action="store_true", required=False, help="Use frozen core approximation")
+    parser.add_argument("--no-frozen-core", action="store_true", required=False, help="Do not use frozen core approximation")
     args = parser.parse_args()
 
     db_fname = pathlib.Path(__file__).parent / "../../../../data/geometries.json"
@@ -121,7 +195,7 @@ if __name__ == "__main__":
         args.n_proc,
         args.total_memory,
         args.orca_path,
-        args.frozen_core,
+        args.no_frozen_core,
     )
     calc_args = []
     for ind_calc, (method, basis_set, geom_hash) in enumerate(
@@ -132,12 +206,15 @@ if __name__ == "__main__":
         )
     ):
         calc_args.append((ind_calc, geom_hash, all_geometries[geom_hash], method, basis_set, *constant_args))
-
-    with open("energies.csv", "w", buffering=1) as energy_file:
-        energy_file.write("ind_calc;geom_hash;comment;method;basis_set;E_hf;E_final;duration\n")
-        with multiprocessing.Pool(processes=args.n_parallel) as pool:
-            results = pool.imap_unordered(worker, calc_args)
-            for ind_calc, geom_hash, geom_comment, method, basis_set, result, duration in results:
-                result_str = f"{ind_calc};{geom_hash};{geom_comment};{method};{basis_set};{result.get('E_hf', '')};{result.get('E_final', '')};{duration}"
-                energy_file.write(result_str + "\n")
-                print(result_str)
+    if args.slurm:
+        for arg in calc_args:
+            submit_to_slurm(arg)
+    else:
+        with open("energies.csv", "w", buffering=1) as energy_file:
+            energy_file.write("ind_calc;geom_hash;comment;method;basis_set;E_hf;E_final;duration\n")
+            with multiprocessing.Pool(processes=args.n_parallel) as pool:
+                results = pool.imap_unordered(worker, calc_args)
+                for ind_calc, geom_hash, geom_comment, method, basis_set, result, duration in results:
+                    result_str = f"{ind_calc};{geom_hash};{geom_comment};{method};{basis_set};{result.get('E_hf', '')};{result.get('E_final', '')};{duration}"
+                    energy_file.write(result_str + "\n")
+                    print(result_str)

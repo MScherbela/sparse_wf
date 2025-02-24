@@ -18,6 +18,12 @@ from folx import batched_vmap
 DEFAULT_CONFIG_PATH = pathlib.Path(__file__).parent / "../../../../config/default.yaml"
 
 
+def get_timing(expression, n_repeat=10):
+    timer = timeit.Timer(expression, globals=globals())
+    n_timeit_reps = timer.autorange()[0]
+    timings = timer.repeat(repeat=n_repeat, number=n_timeit_reps)
+    return min(timings) / n_timeit_reps
+
 def load_yaml(path):
     with open(path, "r") as f:
         return yaml.safe_load(f)
@@ -147,7 +153,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    settings = {k: v for k, v in vars(args).items() if k not in ["output", "profile", "system_size"]}
+    settings = {k: v for k, v in vars(args).items() if k not in ["output", "profile", "system_sizes"]}
     for system_size in args.system_sizes:
         mol = get_cumulene(system_size, args.use_ecp)
 
@@ -186,8 +192,6 @@ if __name__ == "__main__":
         pp_static = get_max_static(pp_static, wf)
         get_E_pot(rng_pp, params, r, pp_static)
 
-        def get_timing(expression, n_reps=5):
-            return timeit.timeit(expression, globals=globals(), number=n_reps) / n_reps
 
         print("Running for timings", flush=True)
         t_wf_full = get_timing(lambda: get_logpsi_full(params, r, static_local)) / args.n_iterations
