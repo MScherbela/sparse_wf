@@ -45,7 +45,7 @@ df.to_csv("cumulene_pp_energies.csv", index=False)
 df = pd.read_csv("cumulene_pp_energies.csv")
 final_data = []
 
-n_eval_steps = 4000
+n_eval_steps = 5000
 for cutoff, n_carbon in itertools.product(df["cutoff"].unique(), df["n_carbon"].unique()):
     pivot = df[(df["cutoff"] == cutoff) & (df["n_carbon"] == n_carbon)]
     pivot = pivot.pivot_table(index="opt/step", columns="angle", values="opt/E", aggfunc="mean")
@@ -61,9 +61,6 @@ for cutoff, n_carbon in itertools.product(df["cutoff"].unique(), df["n_carbon"].
     E_mean = pivot.mean()
     E_err = pivot.std() / np.sqrt(len(pivot))
 
-    delta_E = pivot[90] - pivot[0]
-    delta_E = delta_E.dropna()
-    delta_E = delta_E.iloc[-n_eval_steps:]
     final_data.append(
         dict(
             cutoff=cutoff,

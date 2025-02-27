@@ -1,3 +1,4 @@
+# %%
 from sparse_wf.scf import run_hf
 from sparse_wf.system import get_molecule
 import pathlib
@@ -21,8 +22,8 @@ if config["hf"]["cache_dir"] is None:
     config["hf"]["cache_dir"] = DEFAULT_CACHE_DIR
 
 
-for xc in [None, "PBE0"]:
-    for n in [2, 4, 6, 8, 12, 16, 20, 24]:
+for xc in [None]:
+    for n in [36, 30]:
         for geom in ["0deg_singlet", "90deg_triplet"]:
             geom_str = f"cumulene_C{n}H4_{geom}"
             print(geom_str)

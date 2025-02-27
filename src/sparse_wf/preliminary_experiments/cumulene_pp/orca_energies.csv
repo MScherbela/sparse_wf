@@ -1,65 +1,238 @@
 comment,method,basis_set,E_final
+cumulene_C20H4_90deg_triplet,DLPNO-CCSD(T),cc-pVTZ,-762.369884696113
 cumulene_C20H4_90deg_triplet,DLPNO-CCSD(T),cc-pVDZ,-761.712358164383
 cumulene_C12H4_0deg_singlet,DLPNO-CCSD(T),cc-pVTZ,-458.392169348001
 cumulene_C8H4_90deg_triplet,DLPNO-CCSD(T),cc-pVTZ,-306.377745279766
+cumulene_C6H4_0deg_singlet,DLPNO-CCSD(T)-F12,cc-pVDZ,-230.459935593634
 cumulene_C4H4_90deg_triplet,DLPNO-CCSD(T),cc-pVTZ,-154.361186545239
 cumulene_C8H4_0deg_singlet,DLPNO-CCSD(T),cc-pVDZ,-306.132148281747
 cumulene_C4H4_90deg_triplet,DLPNO-CCSD(T),cc-pVDZ,-154.213141610473
+cumulene_C12H4_90deg_triplet,DLPNO-CCSD(T),cc-pVTZ,-458.377905927451
 cumulene_C16H4_90deg_triplet,DLPNO-CCSD(T),cc-pVDZ,-609.845323081397
 cumulene_C2H4_90deg_triplet,DLPNO-CCSD(T),cc-pVDZ,-78.234917735013
+cumulene_C4H4_90deg_triplet,DLPNO-CCSD(T)-F12,cc-pVDZ,-154.39476672739
+cumulene_C36H4_0deg_singlet,DLPNO-CCSD(T),cc-pVDZ,-1369.148727169085
 cumulene_C16H4_0deg_singlet,DLPNO-CCSD(T),cc-pVDZ,-609.85093883898
 cumulene_C16H4_0deg_singlet,DLPNO-CCSD(T),cc-pVTZ,-610.378520359552
+cumulene_C4H4_0deg_singlet,DLPNO-CCSD(T)-F12,cc-pVDZ,-154.453178759333
+cumulene_C36H4_0deg_singlet,DLPNO-CCSD(T),cc-pVTZ,-1370.309914213652
+cumulene_C6H4_90deg_triplet,DLPNO-CCSD(T)-F12,cc-pVDZ,-230.422298160888
 cumulene_C2H4_90deg_triplet,DLPNO-CCSD(T),cc-pVTZ,-78.319084406974
 cumulene_C12H4_0deg_singlet,DLPNO-CCSD(T),cc-pVDZ,-457.9912978909
 cumulene_C8H4_90deg_triplet,DLPNO-CCSD(T),cc-pVDZ,-306.102319603233
 cumulene_C4H4_0deg_singlet,DLPNO-CCSD(T),cc-pVDZ,-154.275725750829
+cumulene_C30H4_90deg_triplet,DLPNO-CCSD(T),cc-pVTZ,-1142.35264489341
 cumulene_C6H4_0deg_singlet,DLPNO-CCSD(T),cc-pVTZ,-230.413817144448
 cumulene_C20H4_0deg_singlet,DLPNO-CCSD(T),cc-pVDZ,-761.710612989021
 cumulene_C2H4_0deg_singlet,DLPNO-CCSD(T),cc-pVDZ,-78.354176362231
+cumulene_C30H4_0deg_singlet,DLPNO-CCSD(T),cc-pVTZ,-1142.33058163344
 cumulene_C24H4_0deg_singlet,DLPNO-CCSD(T),cc-pVDZ,-913.570179709929
 cumulene_C2H4_0deg_singlet,DLPNO-CCSD(T),cc-pVTZ,-78.437791586573
 cumulene_C12H4_90deg_triplet,DLPNO-CCSD(T),cc-pVDZ,-457.975767328796
+cumulene_C30H4_90deg_triplet,DLPNO-CCSD(T),cc-pVDZ,-1141.376054340747
 cumulene_C4H4_0deg_singlet,DLPNO-CCSD(T),cc-pVTZ,-154.42288642574
+cumulene_C8H4_90deg_triplet,DLPNO-CCSD(T)-F12,cc-pVDZ,-306.443051745779
+cumulene_C8H4_0deg_singlet,DLPNO-CCSD(T)-F12,cc-pVDZ,-306.469317723529
+cumulene_C2H4_90deg_triplet,DLPNO-CCSD(T)-F12,cc-pVDZ,-78.336369011042
+cumulene_C24H4_90deg_triplet,DLPNO-CCSD(T),cc-pVTZ,-914.362669120103
+cumulene_C20H4_0deg_singlet,DLPNO-CCSD(T),cc-pVTZ,-762.364804788646
+cumulene_C36H4_90deg_triplet,DLPNO-CCSD(T),cc-pVDZ,-1369.173043990466
+cumulene_C36H4_90deg_triplet,DLPNO-CCSD(T),cc-pVTZ,-1370.339620418372
+cumulene_C2H4_0deg_singlet,DLPNO-CCSD(T)-F12,cc-pVDZ,-78.452804360571
+cumulene_C16H4_90deg_triplet,DLPNO-CCSD(T),cc-pVTZ,-610.375838841532
 cumulene_C6H4_0deg_singlet,DLPNO-CCSD(T),cc-pVDZ,-230.202979438102
 cumulene_C6H4_90deg_triplet,DLPNO-CCSD(T),cc-pVTZ,-230.372193024348
 cumulene_C8H4_0deg_singlet,DLPNO-CCSD(T),cc-pVTZ,-306.406299512405
+cumulene_C30H4_0deg_singlet,DLPNO-CCSD(T),cc-pVDZ,-1141.359477488868
+cumulene_C24H4_90deg_triplet,DLPNO-CCSD(T),cc-pVDZ,-913.579353650662
 cumulene_C6H4_90deg_triplet,DLPNO-CCSD(T),cc-pVDZ,-230.160170821578
-cumulene_C6H4_90deg_triplet,PBE0,cc-pVTZ,-230.615934739057
-cumulene_C24H4_0deg_singlet,PBE0,cc-pVDZ,-915.140776093504
-cumulene_C2H4_90deg_triplet,PBE0,cc-pVTZ,-78.403903345846
-cumulene_C12H4_0deg_singlet,PBE0,cc-pVTZ,-458.873471577906
-cumulene_C20H4_0deg_singlet,PBE0,cc-pVTZ,-763.18046408232
-cumulene_C20H4_90deg_triplet,PBE0,cc-pVTZ,-763.178517288326
-cumulene_C24H4_90deg_triplet,PBE0,cc-pVTZ,-915.335422361574
-cumulene_C4H4_0deg_singlet,PBE0,cc-pVTZ,-154.575553231557
-cumulene_C20H4_0deg_singlet,PBE0,cc-pVDZ,-763.017176971052
-cumulene_C8H4_0deg_singlet,PBE0,cc-pVTZ,-306.721686215816
-cumulene_C16H4_0deg_singlet,PBE0,cc-pVDZ,-610.893846150163
-cumulene_C8H4_90deg_triplet,PBE0,cc-pVDZ,-306.62776992723
-cumulene_C2H4_0deg_singlet,PBE0,cc-pVDZ,-78.485075204688
-cumulene_C12H4_90deg_triplet,PBE0,cc-pVTZ,-458.862232145584
-cumulene_C6H4_0deg_singlet,PBE0,cc-pVTZ,-230.647237542054
-cumulene_C16H4_0deg_singlet,PBE0,cc-pVTZ,-611.026690214944
-cumulene_C12H4_0deg_singlet,PBE0,cc-pVDZ,-458.771079992646
-cumulene_C24H4_0deg_singlet,PBE0,cc-pVTZ,-915.334503712267
-cumulene_C12H4_90deg_triplet,PBE0,cc-pVDZ,-458.759317333103
-cumulene_C4H4_90deg_triplet,PBE0,cc-pVTZ,-154.525036515725
-cumulene_C6H4_0deg_singlet,PBE0,cc-pVDZ,-230.59060421914
-cumulene_C8H4_90deg_triplet,PBE0,cc-pVTZ,-306.700204868685
-cumulene_C20H4_90deg_triplet,PBE0,cc-pVDZ,-763.014609022394
-cumulene_C6H4_90deg_triplet,PBE0,cc-pVDZ,-230.558738182288
-cumulene_C8H4_0deg_singlet,PBE0,cc-pVDZ,-306.649776577113
-cumulene_C2H4_0deg_singlet,PBE0,cc-pVTZ,-78.510646998299
-cumulene_C4H4_90deg_triplet,PBE0,cc-pVDZ,-154.4831057432
-cumulene_C2H4_90deg_triplet,PBE0,cc-pVDZ,-78.377236761153
-cumulene_C24H4_90deg_triplet,PBE0,cc-pVDZ,-915.140996718229
-cumulene_C16H4_90deg_triplet,PBE0,cc-pVTZ,-611.021009851696
-cumulene_C16H4_90deg_triplet,PBE0,cc-pVDZ,-610.887604921515
-cumulene_C4H4_0deg_singlet,PBE0,cc-pVDZ,-154.534286001658
-cumulene_C8H4_90deg_triplet,CASSCF,cc-pVDZ,-305.071566846749
-cumulene_C6H4_0deg_singlet,CASSCF,cc-pVDZ,-229.457788041239
-cumulene_C6H4_90deg_triplet,CASSCF,cc-pVDZ,-229.413438266239
-cumulene_C4H4_90deg_triplet,CASSCF,cc-pVDZ,-153.757875925702
-cumulene_C12H4_90deg_triplet,CASSCF,cc-pVDZ,-456.37400943341
-cumulene_C16H4_90deg_triplet,CASSCF,cc-pVDZ,-607.688846894196
-cumulene_C8H4_0deg_singlet,CASSCF,cc-pVDZ,-305.113798428831
+cumulene_C24H4_0deg_singlet,DLPNO-CCSD(T),cc-pVTZ,-914.351181537072
+cumulene_C2H4_0deg_singlet,UHF,cc-pVDZ,-78.039184366316
+cumulene_C24H4_0deg_singlet,UHF,cc-pVTZ,-910.465570286867
+cumulene_C8H4_90deg_triplet,RHF,cc-pVTZ,-305.10363219821
+cumulene_C30H4_90deg_triplet,UHF,cc-pVQZ,-1137.7641129704
+cumulene_C4H4_90deg_triplet,RHF,cc-pVDZ,-153.671367974613
+cumulene_C16H4_90deg_triplet,RHF,cc-pVDZ,-607.733764991621
+cumulene_C16H4_90deg_quintuplet,RHF,cc-pVDZ,-607.722324502248
+cumulene_C6H4_90deg_quintuplet,RHF,cc-pVTZ,-229.2729036527
+cumulene_C8H4_90deg_triplet,UHF,cc-pVTZ,-305.10363219821
+cumulene_C12H4_90deg_triplet,RHF,cc-pVTZ,-456.486149852639
+cumulene_C8H4_90deg_quintuplet,RHF,cc-pVDZ,-304.92649148304
+cumulene_C12H4_0deg_singlet,RHF,cc-pVDZ,-456.324277726817
+cumulene_C20H4_0deg_singlet,RHF,cc-pVTZ,-759.118955120242
+cumulene_C4H4_90deg_quintuplet,RHF,cc-pVDZ,-153.417399417347
+cumulene_C8H4_90deg_triplet,UHF,cc-pVDZ,-305.032475174609
+cumulene_C20H4_90deg_quintuplet,RHF,cc-pVDZ,-759.11492602777
+cumulene_C8H4_90deg_triplet,UHF,cc-pVQZ,-305.12119880092
+cumulene_C20H4_90deg_triplet,UHF,cc-pVDZ,-759.083628779916
+cumulene_C8H4_0deg_singlet,RHF,cc-pVDZ,-305.008220173244
+cumulene_C4H4_90deg_quintuplet,RHF,cc-pVTZ,-153.460940555548
+cumulene_C6H4_90deg_quintuplet,UHF,cc-pVDZ,-229.216252773733
+cumulene_C6H4_90deg_triplet,UHF,cc-pVQZ,-229.423885134245
+cumulene_C20H4_90deg_quintuplet,UHF,cc-pVTZ,-759.278413348144
+cumulene_C6H4_90deg_triplet,UHF,cc-pVDZ,-229.354848296639
+cumulene_C20H4_0deg_singlet,UHF,cc-pVDZ,-758.956378091298
+cumulene_C12H4_0deg_singlet,UHF,cc-pVQZ,-456.451023246895
+cumulene_C30H4_0deg_singlet,UHF,cc-pVQZ,-1137.547291982153
+cumulene_C24H4_90deg_triplet,RHF,cc-pVTZ,-910.629943944692
+cumulene_C4H4_90deg_triplet,UHF,cc-pVDZ,-153.671367974613
+cumulene_C6H4_0deg_singlet,RHF,cc-pVDZ,-229.350550526343
+cumulene_C2H4_90deg_quintuplet,RHF,cc-pVDZ,-77.499347994296
+cumulene_C6H4_90deg_triplet,RHF,cc-pVDZ,-229.354848296639
+cumulene_C24H4_0deg_singlet,UHF,cc-pVQZ,-910.51537529865
+cumulene_C12H4_90deg_triplet,UHF,cc-pVDZ,-456.383676435463
+cumulene_C16H4_0deg_singlet,UHF,cc-pVTZ,-607.772247059104
+cumulene_C12H4_90deg_triplet,UHF,cc-pVTZ,-456.486149852639
+cumulene_C4H4_0deg_singlet,RHF,cc-pVTZ,-153.733473534036
+cumulene_C2H4_90deg_quintuplet,UHF,cc-pVDZ,-77.499347994296
+cumulene_C8H4_90deg_triplet,RHF,cc-pVDZ,-305.032475174609
+cumulene_C16H4_90deg_triplet,RHF,cc-pVTZ,-607.867588846433
+cumulene_C6H4_0deg_singlet,UHF,cc-pVTZ,-229.40554181763
+cumulene_C8H4_90deg_quintuplet,UHF,cc-pVTZ,-304.998215203674
+cumulene_C16H4_0deg_singlet,RHF,cc-pVTZ,-607.772247053594
+cumulene_C4H4_90deg_quintuplet,UHF,cc-pVTZ,-153.460940555548
+cumulene_C6H4_90deg_triplet,UHF,cc-pVTZ,-229.410396901291
+cumulene_C30H4_0deg_singlet,UHF,cc-pVTZ,-1137.485382191219
+cumulene_C8H4_90deg_quintuplet,UHF,cc-pVDZ,-304.92649148304
+cumulene_C24H4_90deg_quintuplet,UHF,cc-pVDZ,-910.507443376743
+cumulene_C4H4_90deg_quintuplet,UHF,cc-pVDZ,-153.417399417347
+cumulene_C20H4_90deg_triplet,RHF,cc-pVDZ,-759.083628779916
+cumulene_C24H4_90deg_triplet,UHF,cc-pVQZ,-910.680207760966
+cumulene_C16H4_0deg_singlet,UHF,cc-pVQZ,-607.805913762479
+cumulene_C30H4_90deg_triplet,UHF,cc-pVDZ,-1137.458011738583
+cumulene_C6H4_0deg_singlet,RHF,cc-pVTZ,-229.405541818685
+cumulene_C20H4_90deg_quintuplet,UHF,cc-pVDZ,-759.114926027772
+cumulene_C8H4_90deg_quintuplet,RHF,cc-pVTZ,-304.998215203674
+cumulene_C6H4_0deg_singlet,UHF,cc-pVDZ,-229.350550526101
+cumulene_C12H4_90deg_quintuplet,UHF,cc-pVDZ,-456.328533785524
+cumulene_C2H4_0deg_singlet,RHF,cc-pVDZ,-78.039184367012
+cumulene_C16H4_90deg_triplet,UHF,cc-pVQZ,-607.901495644834
+cumulene_C2H4_90deg_triplet,UHF,cc-pVDZ,-77.95712089141
+cumulene_C4H4_90deg_triplet,UHF,cc-pVQZ,-153.720767736565
+cumulene_C2H4_0deg_singlet,RHF,cc-pVTZ,-78.062704271401
+cumulene_C36H4_90deg_triplet,UHF,cc-pVTZ,-1364.773182568355
+cumulene_C6H4_90deg_quintuplet,RHF,cc-pVDZ,-229.216252773733
+cumulene_C24H4_0deg_singlet,RHF,cc-pVTZ,-910.465570272119
+cumulene_C16H4_90deg_quintuplet,UHF,cc-pVTZ,-607.855274874201
+cumulene_C36H4_0deg_singlet,UHF,cc-pVQZ,-1364.579132113005
+cumulene_C6H4_0deg_singlet,UHF,cc-pVQZ,-229.419031357057
+cumulene_C12H4_90deg_triplet,RHF,cc-pVDZ,-456.383676435463
+cumulene_C30H4_90deg_triplet,UHF,cc-pVTZ,-1137.701581022065
+cumulene_C8H4_0deg_singlet,UHF,cc-pVDZ,-305.008220175804
+cumulene_C12H4_90deg_quintuplet,UHF,cc-pVTZ,-456.42901648949
+cumulene_C16H4_90deg_triplet,UHF,cc-pVDZ,-607.733764991621
+cumulene_C20H4_0deg_singlet,UHF,cc-pVTZ,-759.118955130904
+cumulene_C16H4_90deg_triplet,UHF,cc-pVTZ,-607.867588846433
+cumulene_C20H4_90deg_quintuplet,RHF,cc-pVTZ,-759.278413348145
+cumulene_C2H4_90deg_quintuplet,RHF,cc-pVTZ,-77.549039613347
+cumulene_C24H4_90deg_quintuplet,UHF,cc-pVTZ,-910.701469520986
+cumulene_C2H4_90deg_triplet,UHF,cc-pVQZ,-77.986677504366
+cumulene_C4H4_90deg_triplet,RHF,cc-pVTZ,-153.711315837474
+cumulene_C2H4_90deg_triplet,UHF,cc-pVTZ,-77.981366509425
+cumulene_C20H4_90deg_triplet,UHF,cc-pVQZ,-759.29089252944
+cumulene_C12H4_0deg_singlet,UHF,cc-pVDZ,-456.324277728246
+cumulene_C12H4_90deg_quintuplet,RHF,cc-pVTZ,-456.429016489491
+cumulene_C16H4_0deg_singlet,RHF,cc-pVDZ,-607.640381882397
+cumulene_C4H4_90deg_triplet,UHF,cc-pVTZ,-153.711315837474
+cumulene_C4H4_0deg_singlet,UHF,cc-pVTZ,-153.733473534157
+cumulene_C4H4_0deg_singlet,UHF,cc-pVQZ,-153.742939877969
+cumulene_C4H4_0deg_singlet,RHF,cc-pVDZ,-153.694008278321
+cumulene_C2H4_0deg_singlet,UHF,cc-pVQZ,-78.067977366083
+cumulene_C24H4_90deg_quintuplet,RHF,cc-pVTZ,-910.701469520983
+cumulene_C20H4_0deg_singlet,UHF,cc-pVQZ,-759.160690663485
+cumulene_C6H4_90deg_quintuplet,UHF,cc-pVTZ,-229.272903652701
+cumulene_C2H4_90deg_triplet,RHF,cc-pVTZ,-77.981366509425
+cumulene_C6H4_90deg_triplet,RHF,cc-pVTZ,-229.410396901291
+cumulene_C24H4_0deg_singlet,RHF,cc-pVDZ,-910.272282253137
+cumulene_C20H4_90deg_triplet,UHF,cc-pVTZ,-759.2488076649
+cumulene_C2H4_90deg_triplet,RHF,cc-pVDZ,-77.95712089141
+cumulene_C2H4_90deg_quintuplet,UHF,cc-pVTZ,-77.549039613347
+cumulene_C36H4_0deg_singlet,UHF,cc-pVTZ,-1364.505117142483
+cumulene_C24H4_90deg_triplet,RHF,cc-pVDZ,-910.433409244612
+cumulene_C24H4_90deg_triplet,UHF,cc-pVTZ,-910.629943944692
+cumulene_C20H4_0deg_singlet,RHF,cc-pVDZ,-758.956378088242
+cumulene_C8H4_0deg_singlet,UHF,cc-pVTZ,-305.078618868857
+cumulene_C24H4_90deg_quintuplet,RHF,cc-pVDZ,-910.507443376743
+cumulene_C36H4_90deg_triplet,UHF,cc-pVQZ,-1364.847981413564
+cumulene_C12H4_90deg_triplet,UHF,cc-pVQZ,-456.51188134281
+cumulene_C24H4_0deg_singlet,UHF,cc-pVDZ,-910.272282289198
+cumulene_C36H4_90deg_triplet,UHF,cc-pVDZ,-1364.482578020444
+cumulene_C16H4_0deg_singlet,UHF,cc-pVDZ,-607.640381882111
+cumulene_C2H4_0deg_singlet,UHF,cc-pVTZ,-78.062704270845
+cumulene_C36H4_0deg_singlet,UHF,cc-pVDZ,-1364.219690539089
+cumulene_C16H4_90deg_quintuplet,RHF,cc-pVTZ,-607.855274874201
+cumulene_C12H4_90deg_quintuplet,RHF,cc-pVDZ,-456.328533785524
+cumulene_C8H4_0deg_singlet,RHF,cc-pVTZ,-305.078618870881
+cumulene_C30H4_0deg_singlet,UHF,cc-pVDZ,-1137.246026159806
+cumulene_C20H4_90deg_triplet,RHF,cc-pVTZ,-759.2488076649
+cumulene_C16H4_90deg_quintuplet,UHF,cc-pVDZ,-607.722324502248
+cumulene_C4H4_0deg_singlet,UHF,cc-pVDZ,-153.694008276578
+cumulene_C12H4_0deg_singlet,RHF,cc-pVTZ,-456.425424171712
+cumulene_C24H4_90deg_triplet,UHF,cc-pVDZ,-910.433409244612
+cumulene_C8H4_0deg_singlet,UHF,cc-pVQZ,-305.096149970615
+cumulene_C12H4_0deg_singlet,UHF,cc-pVTZ,-456.425424171896
+cumulene_C24H4_90deg_triplet,PBE0 D3BJ,def2-TZVP,-915.383820643831
+cumulene_C12H4_90deg_triplet,PBE0 D3BJ,def2-TZVP,-458.885832504476
+cumulene_C16H4_0deg_singlet,PBE0 D3BJ,def2-TZVP,-611.058538758646
+cumulene_C8H4_90deg_triplet,PBE0 D3BJ,cc-pVDZ,-306.635370947767
+cumulene_C36H4_90deg_triplet,PBE0 D3BJ,cc-pVDZ,-1371.552867167725
+cumulene_C4H4_90deg_triplet,PBE0 D3BJ,def2-TZVP,-154.532166913521
+cumulene_C20H4_0deg_singlet,PBE0 D3BJ,cc-pVDZ,-763.036164630363
+cumulene_C2H4_0deg_singlet,PBE0 D3BJ,def2-TZVP,-78.513470004354
+cumulene_C2H4_90deg_triplet,PBE0 D3BJ,cc-pVDZ,-78.379144176321
+cumulene_C36H4_0deg_singlet,PBE0 D3BJ,cc-pVDZ,-1371.546397108071
+cumulene_C12H4_0deg_singlet,PBE0 D3BJ,def2-TZVP,-458.897057731196
+cumulene_C6H4_0deg_singlet,PBE0 D3BJ,cc-pVDZ,-230.596308450619
+cumulene_C2H4_0deg_singlet,PBE0 D3BJ,cc-pVDZ,-78.486979385568
+cumulene_C24H4_90deg_triplet,PBE0 D3BJ,cc-pVDZ,-915.163780138211
+cumulene_C16H4_90deg_triplet,PBE0 D3BJ,cc-pVDZ,-610.902796839506
+cumulene_C36H4_0deg_singlet,PBE0 D3BJ,def2-TZVP,-1371.870460948621
+cumulene_C8H4_0deg_singlet,PBE0 D3BJ,cc-pVDZ,-306.657377597966
+cumulene_C6H4_90deg_triplet,PBE0 D3BJ,cc-pVDZ,-230.564442407876
+cumulene_C12H4_0deg_singlet,PBE0 D3BJ,cc-pVDZ,-458.782476248384
+cumulene_C4H4_0deg_singlet,PBE0 D3BJ,def2-TZVP,-154.582643289256
+cumulene_C8H4_0deg_singlet,PBE0 D3BJ,def2-TZVP,-306.737012855941
+cumulene_C16H4_0deg_singlet,PBE0 D3BJ,cc-pVDZ,-610.909038068154
+cumulene_C4H4_90deg_triplet,PBE0 D3BJ,cc-pVDZ,-154.486916153969
+cumulene_C8H4_90deg_triplet,PBE0 D3BJ,def2-TZVP,-306.715548396988
+cumulene_C30H4_90deg_triplet,PBE0 D3BJ,cc-pVDZ,-1143.358488091663
+cumulene_C24H4_0deg_singlet,PBE0 D3BJ,cc-pVDZ,-915.163559513486
+cumulene_C16H4_90deg_triplet,PBE0 D3BJ,def2-TZVP,-611.05287326447
+cumulene_C30H4_0deg_singlet,PBE0 D3BJ,def2-TZVP,-1143.626593498102
+cumulene_C30H4_0deg_singlet,PBE0 D3BJ,cc-pVDZ,-1143.354902477096
+cumulene_C4H4_0deg_singlet,PBE0 D3BJ,cc-pVDZ,-154.538096728983
+cumulene_C20H4_90deg_triplet,PBE0 D3BJ,def2-TZVP,-763.218647227735
+cumulene_C36H4_90deg_triplet,PBE0 D3BJ,def2-TZVP,-1371.877955966948
+cumulene_C2H4_90deg_triplet,PBE0 D3BJ,def2-TZVP,-78.407013369106
+cumulene_C20H4_90deg_triplet,PBE0 D3BJ,cc-pVDZ,-763.033596681706
+cumulene_C24H4_0deg_singlet,PBE0 D3BJ,def2-TZVP,-915.382882556028
+cumulene_C6H4_90deg_triplet,PBE0 D3BJ,def2-TZVP,-230.627154819092
+cumulene_C12H4_90deg_triplet,PBE0 D3BJ,cc-pVDZ,-458.770713588835
+cumulene_C6H4_0deg_singlet,PBE0 D3BJ,def2-TZVP,-230.658434151904
+cumulene_C20H4_0deg_singlet,PBE0 D3BJ,def2-TZVP,-763.220577194455
+cumulene_C30H4_90deg_triplet,PBE0 D3BJ,def2-TZVP,-1143.631040091014
+cumulene_C2H4_90deg_triplet,F12/RI-CCSD(T),cc-pVDZ,-78.336981760998
+cumulene_C2H4_0deg_singlet,F12/RI-CCSD(T),cc-pVDZ,-78.456101086715
+cumulene_C6H4_90deg_triplet,CCSD(T),cc-pVDZ,-230.163686950702
+cumulene_C6H4_0deg_singlet,CCSD(T),cc-pVTZ,-230.419688854958
+cumulene_C12H4_0deg_singlet,CCSD(T),cc-pVDZ,-457.904085804824
+cumulene_C6H4_90deg_triplet,F12/RI-CCSD(T),cc-pVDZ,-230.426225221928
+cumulene_C4H4_0deg_singlet,CCSD(T),cc-pVDZ,-154.277839175472
+cumulene_C8H4_0deg_singlet,CCSD(T),cc-pVTZ,-306.416102725848
+cumulene_C2H4_0deg_singlet,CCSD(T),cc-pVTZ,-78.438349560106
+cumulene_C2H4_90deg_triplet,CCSD(T),cc-pVTZ,-78.319227513939
+cumulene_C8H4_90deg_triplet,CCSD(T),cc-pVTZ,-306.383215224853
+cumulene_C4H4_90deg_triplet,CCSD(T),cc-pVDZ,-154.213986525296
+cumulene_C6H4_90deg_triplet,CCSD(T),cc-pVTZ,-230.376225938276
+cumulene_C2H4_0deg_singlet,CCSD(T),cc-pVDZ,-78.354647048038
+cumulene_C16H4_90deg_triplet,CCSD(T),cc-pVDZ,-609.863447456412
+cumulene_C4H4_0deg_singlet,CCSD(T),cc-pVTZ,-154.425484608644
+cumulene_C6H4_0deg_singlet,F12/RI-CCSD(T),cc-pVDZ,-230.468787598402
+cumulene_C8H4_90deg_triplet,CCSD(T),cc-pVDZ,-306.106867368809
+cumulene_C4H4_90deg_triplet,F12/RI-CCSD(T),cc-pVDZ,-154.396656782908
+cumulene_C8H4_0deg_singlet,CCSD(T),cc-pVDZ,-306.140550170755
+cumulene_C4H4_0deg_singlet,F12/RI-CCSD(T),cc-pVDZ,-154.459347926904
+cumulene_C2H4_90deg_triplet,CCSD(T),cc-pVDZ,-78.234956440778
+cumulene_C6H4_0deg_singlet,CCSD(T),cc-pVDZ,-230.207881137594
+cumulene_C4H4_90deg_triplet,CCSD(T),cc-pVTZ,-154.362347285248
+cumulene_C12H4_90deg_triplet,CCSD(T),cc-pVDZ,-457.877986880318

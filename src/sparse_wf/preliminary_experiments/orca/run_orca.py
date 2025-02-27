@@ -15,19 +15,26 @@ PERIODIC_TABLE = "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr 
 def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_core, n_proc, memory_per_core):
     multiplicity = int(2*spin+1)
     scf_method = method.split("+")[0]
+    if scf_method == "CASCI":
+        scf_method = ""
     command = f"!{scf_method}"
     if no_frozen_core:
         command += " NoFrozenCore"
     command += f" {basis_set}"
 
-    if ("DLPNO" in method) or ("RI-MP2" in method):
+    if (("DLPNO" in method) or ("RI-MP2" in method)) and not ("F12" in method):
         command += f" {basis_set}/C" # auxiliary basis
+    if "F12" in method:
+        assert basis_set in ["cc-pVDZ", "cc-pVTZ", "cc-pVQZ", "cc-pV5Z"]
+        # Switch to F12 basis and add full cabs basis set
+        command += f"-F12 aug-{basis_set}/C {basis_set}-F12-CABS"
     if ("CCSD" in method) and spin:
         command += " UNO"
     with open(fname, "w") as f:
         f.write(f"{command}\n")
         # fname = os.path.abspath(fname)
-        # mo_fname = fname.replace("orca.inp", "orca.mp2nat").replace("CASSCF_from_MP2", "MP2").replace("CASSCF", "RI-MP2")
+        # # mo_fname = fname.replace("orca.inp", "orca.mdci.nat").replace("CASSCF_from_DLPNO", "DLPNO_NatOrb").replace("CASSCF", "DLPNO-CCSD(T)")
+        # mo_fname = fname.replace("orca.inp", "orca.mdci.nat").replace("CASSCF_6_6", "DLPNO_NatOrb").replace("CASSCF", "DLPNO-CCSD(T)")
         # f.write("!moread\n")
         # f.write(f'%moinp "{mo_fname}"\n')
         f.write("%SCF\n")
@@ -39,18 +46,29 @@ def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_cor
             f.write("%MDCI\n")
             if "DLPNO" in method:
                 f.write("  UseFullLMP2Guess false\n") # better comparison between open shell/closed shell calcs
+            f.write("  NatOrbs true\n")
             f.write("  maxiter 150\n")
             f.write("  MaxDIIS 25\n")
             f.write("  UseQROs true\n")
             f.write("END\n")
-        if ("CASSCF" in method) or ("CASPT2" in method) or ("NEVPT2" in method):
+        if ("CAS" in method) or ("NEVPT2" in method):
             # %casscf nel  4  # number of active space electrons
             f.write("%CASSCF\n")
-            f.write("  nel 8\n")
-            f.write("  norb 8\n")
+            f.write("  nel 6\n")
+            f.write("  norb 6\n")
             f.write(f"  mult {multiplicity}\n")
-            f.write("  maxiter 300\n")
-            f.write("  maxrot 0.05\n")
+            if method == "CASCI":
+                f.write("  maxiter 1\n")
+            else:
+                f.write("  maxiter 200\n")
+            f.write("  orbstep SUPERCI\n")
+            f.write("  switchstep DIIS\n")
+            f.write("  MaxDIIS 20\n")
+            f.write("  DIISThresh 1e-7\n")
+            f.write("  ShiftUp 2.0\n")
+            f.write("  ShiftDn 2.0\n")
+            f.write("  MinShift 0.6\n")
+            f.write("  maxrot 0.15\n")
             f.write("END\n")
         if "MP2" in method:
             f.write("%MP2\n")
@@ -122,7 +140,7 @@ def worker(args):
     g["hash"] = geom_hash
     geom_comment = g.get("comment", "")
     directory = f"{geom_comment}_{method}_{basis_set}"
-    directory.replace("/", "_")
+    directory = directory.replace("/", "_")
     if os.path.isdir(directory):
         shutil.rmtree(directory)
     os.makedirs(directory)
@@ -136,7 +154,7 @@ def submit_to_slurm(args):
     g["hash"] = geom_hash
     geom_comment = g.get("comment", "")
     directory = f"{geom_comment}_{method}_{basis_set}"
-    directory.replace("/", "_")
+    directory = directory.replace("/", "_")
     if os.path.isdir(directory):
         print("Skipping existing directory", directory)
         return
