@@ -71,22 +71,16 @@ class GlobalAttentionJastrow(nn.Module):
     out_dims: Sequence[int]
 
     def setup(self):
-        self.register_keys = self.param(
-            "register_keys",
-            nn.initializers.normal(1, jnp.float32),
-            (self.n_register, self.register_dim),
-        )
-        self.Q_W = Linear(self.n_register * self.register_dim)
+        self.A_W = Linear(self.n_register)
         self.V_W = Linear(self.n_register * self.register_dim)
         self.out = MLP([*self.out_dims, 2])
         self.scale = self.param("scale", nn.initializers.zeros, (2,), jnp.float32)
         self.bias = self.param("bias", nn.initializers.ones, (1,), jnp.float32)
 
     def attention_and_values(self, h: Float[Array, "... feature_dim"]):
-        queries = self.Q_W(h).reshape(*h.shape[:-1], self.n_register, self.register_dim)
+        attention = self.A_W(h).reshape(*h.shape[:-1], self.n_register)
         values = self.V_W(h).reshape(*h.shape[:-1], self.n_register, self.register_dim)
 
-        attention = (queries * self.register_keys).sum(-1)
         attention = ElementWise(lambda x: jnp.exp(-x / jnp.sqrt(self.register_dim)))(attention)
         return attention, attention[..., None] * values  # attention is ... x reg, values is ... x reg x dim
 
