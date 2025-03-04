@@ -8,8 +8,8 @@ name = "sparse_wf"
 version = "0.0.1"
 readme = "README.md"
 dependencies = [
-    # "jax[cuda12_pip]==0.4.29", # latest jax with monolitic cuda12
-    "jax[cuda12]>=0.4.35",
+    "jax[cuda12_pip]==0.4.29", # latest jax with monolitic cuda12
+    # "jax[cuda12]>=0.4.35",
     "flax",
     "optax",
     "chex",
@@ -17,8 +17,8 @@ dependencies = [
     "einops",
     "numpy",
     "matplotlib",
-    # "folx",
-    "folx>=0.2.14", # requires jax>=0.4.35
+    "folx",
+    # "folx>=0.2.14", # requires jax>=0.4.35
     "pyscf",
     "seml[ssh_forward]",
     "tqdm",
