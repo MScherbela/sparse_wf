@@ -120,9 +120,18 @@ def run_hf(mol: pyscf.gto.Mole, args: HFArgs):
         hf = hf.x2c()
 
     # Load from checkpoint if available
+    chkfile = None
     if args["cache_dir"]:
-        hf.chkfile = mean_field_chkfile(mol, args)
-        logging.info(f"Using chkfile: {hf.chkfile}")
+        chkfile = mean_field_chkfile(mol, args)
+        if chkfile.exists():
+            logging.info(f"Loading checkfile {chkfile}")
+            converged = pyscf.scf.chkfile.load(chkfile, "converged")
+            if converged and not args["restart"]:
+                hf_data = pyscf.scf.chkfile.load(chkfile, "scf")
+                hf.__dict__.update(hf_data)
+                logging.info("Loaded checkfile already converged. Returning.")
+                return hf
+        hf.chkfile = chkfile
         if not args["restart"]:
             hf.init_guess = "chk"
 
@@ -157,6 +166,9 @@ def run_hf(mol: pyscf.gto.Mole, args: HFArgs):
     logging.info(f"HF energy: {hf.e_tot}")
     if not hf.converged and args["require_converged"]:
         raise ValueError("HF did not converge. Aborting.")
+    if chkfile:
+        # Store whether the calculation is conerged, so it can be reloaded without any scf iteration
+        pyscf.scf.chkfile.dump(chkfile, "converged", hf.converged)
     return hf
 
 

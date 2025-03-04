@@ -218,19 +218,27 @@ def main(
         assert_identical_copies(state.params)
 
     # Variational optimization
-    logging.info("MCMC Burn-in")
+    if optimization["burn_in"]:
+        logging.info("MCMC Burn-in")
+        logging.info("Taking 1 burn-in step to get correct statics")
+        mcmc_stats = trainer.sampling_step(state, statics, False, None)[-1]
+        statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
     for _ in range(optimization["burn_in"]):
         state, aux_data, mcmc_stats = trainer.sampling_step(state, statics, False, None)
         statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
         log_data = to_log_data(mcmc_stats, statics, aux_data)
         loggers.log(log_data)
 
-    logging.info("Taking 1 step to get correct statics")
-    _, _, _, mcmc_stats = trainer.step(state, statics)
-    statics = static_schedulers(mcmc_stats.static_max, trainer.step._cache_size)
-
-    logging.info("Training")
+    logging.info("Saving checkpoint after pretraining+burn-in")
     n_steps_prev = int(state.step[0])
+    loggers.store_checkpoint(n_steps_prev, state, "opt", force=True)
+
+    if optimization["steps"] >= n_steps_prev:
+        logging.info("Taking 1 opt step to get correct statics")
+        mcmc_stats = trainer.step(state, statics)[-1]
+        statics = static_schedulers(mcmc_stats.static_max, trainer.step._cache_size)
+
+    logging.info("Starting training loop")
     for opt_step in range(n_steps_prev, optimization["steps"] + 1):
         loggers.store_checkpoint(opt_step, state, "opt", force=(opt_step == optimization["steps"]))
         if should_abort():
@@ -255,12 +263,15 @@ def main(
     loggers.store_blob(state.serialize(), "chkpt_final.msgpk")
 
     # Evaluation / Inference
-    logging.info("Evaluation")
-    overlap_fn = (
-        functools.partial(hf_wf.excited_signed_logpsi, jnp.array(evaluation["overlap_states"]))
-        if evaluation["overlap_states"]
-        else None
-    )
+    if evaluation["steps"]:
+        logging.info("Evaluation")
+        overlap_fn = None
+        if evaluation["overlap_states"]:
+            overlap_fn = functools.partial(hf_wf.excited_signed_logpsi, jnp.array(evaluation["overlap_states"]))
+        logging.info("Taking 1 eval step to get correct statics")
+        mcmc_stats = trainer.sampling_step(state, statics, evaluation["compute_energy"], overlap_fn)[-1]
+        statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
+
     for eval_step in range(evaluation["steps"]):
         t0 = time.perf_counter()
         state, aux_data, mcmc_stats = trainer.sampling_step(state, statics, evaluation["compute_energy"], overlap_fn)

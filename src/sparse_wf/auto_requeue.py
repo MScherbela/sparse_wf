@@ -27,6 +27,7 @@ def requeue_job(opt_step, chkpt_fname):
         full_config["load_checkpoint"] = str(chkpt_fname.resolve())
         full_config["pretraining"]["steps"] = 0
         full_config["optimization"]["burn_in"] = 50  # hack to avoid storing mcmc_stepsize and statics
+        full_config["checkpoint_cutoff"] = None  # do not adjust cutoff after reloading
         full_config["auto_requeue"] = max(0, full_config["auto_requeue"] - 1)
         with open(new_run_dir / "full_config.yaml", "w") as f:
             yaml.safe_dump(full_config, f)

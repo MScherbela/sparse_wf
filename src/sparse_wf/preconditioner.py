@@ -1,6 +1,6 @@
 import functools
 from typing import NamedTuple, Optional, TypeVar
-
+import logging
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -18,6 +18,7 @@ from sparse_wf.api import (
 )
 from sparse_wf.jax_utils import pall_to_all, pgather, pidx, pmean, psum, vector_to_tree_like
 from sparse_wf.tree_utils import tree_add, tree_mul, tree_sub, ravel_with_padding
+
 
 P, MS = TypeVar("P"), TypeVar("MS")
 
@@ -199,16 +200,24 @@ def make_dense_spring_preconditioner(
         # The remainder needs a centered jacobian - this can be done in float32
         mean_grad_vec = pmean(jacT.mean(axis=1))
         jacT -= mean_grad_vec[:, None]
-        # unit_mean_grad_vec = mean_grad_vec / jnp.linalg.norm(mean_grad_vec)
 
         @jax.vmap
         def split_grad_by_J(grad):
-            # grad -= grad @ unit_mean_grad_vec * unit_mean_grad_vec
             coeffs = psum((grad @ jacT) @ local_T_inv)
             grad_in_J = psum(jacT @ coeffs.reshape(n_dev, local_batch_size)[pidx()])
             return coeffs, grad_in_J, grad - grad_in_J
 
         last_grad = natgrad_state.last_grad
+
+        # these shapes will always match, except when loading a checkpoint which has had different padding
+        # (e.g. from a different number of devices)
+        if len(last_grad) < len(flat_params):
+            last_grad = jnp.pad(last_grad, (0, len(flat_params) - len(last_grad)))
+            logging.warning("Preconditioner: Padding last_grad to match flat_params")
+        elif len(last_grad) > len(flat_params):
+            last_grad = last_grad[: len(flat_params)]  # type: ignore
+            logging.warning("Preconditioner: Truncating last_grad to match flat_params")
+
         decayed_last_grad = decay_factor * last_grad
         flat_aux_grad = ravel_params(aux_grad)[0]
         cotangent = dE_dlogpsi.reshape(-1) * normalization
