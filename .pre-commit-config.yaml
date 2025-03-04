@@ -11,6 +11,7 @@ repos:
           (?x)^(
               data/geometries.json
           )$
+        args: ["--maxkb=32000"] # 32 MB
       - id: trailing-whitespace
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
