@@ -2,15 +2,7 @@
 import wandb
 import pandas as pd
 import numpy as np
-
-
-def get_outlier_mask(x):
-    qlow = x.quantile(0.01)
-    qhigh = x.quantile(0.99)
-    med = x.median()
-    included_range = 5 * (qhigh - qlow)
-    is_outlier = (x < med - included_range) | (x > med + included_range)
-    return is_outlier
+from sparse_wf.plot_utils import get_outlier_mask
 
 
 api = wandb.Api()

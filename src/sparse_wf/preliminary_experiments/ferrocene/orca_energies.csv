@@ -1,0 +1,17 @@
+comment,method,basis_set,E_final
+FerroceneCl_red_geom,DLPNO-CCSD(T),def2-SVP,-2107.177215035591
+FerroceneCl_red_geom_charged,DLPNO-CCSD(T),def2-SVP,-2106.938091185194
+FerroceneCl_red_geom,UHF,cc-pVTZ,-2105.854885324274
+FerroceneCl_red_geom_charged,UHF,cc-pVTZ,-2105.660843461716
+FerroceneCl_red_geom_charged,UHF,cc-pVQZ,-2105.689508876663
+FerroceneCl_red_geom_charged,UHF,cc-pVDZ,-2105.549473354233
+FerroceneCl_red_geom,UHF,cc-pVDZ,-2105.743746707625
+FerroceneCl_red_geom,UHF,cc-pVQZ,-2105.883794447182
+FerroceneCl_red_geom,PBE0 D3BJ,def2-SVP,-2109.030129796025
+FerroceneCl_red_geom,PBE0 D3BJ,def2-QZVP,-2109.828819528815
+FerroceneCl_red_geom,PBE0 D3BJ,def2-TZVP,-2109.763136949113
+FerroceneCl_red_geom_charged,PBE0 D3BJ,def2-QZVP,-2109.585755391865
+FerroceneCl_red_geom_charged,PBE0 D3BJ,def2-TZVP,-2109.520543071035
+FerroceneCl_red_geom_charged,PBE0 D3BJ,def2-SVP,-2108.78665915629
+FerroceneCl_red_geom,CCSD(T),cc-pVDZ,-2108.003014002804
+FerroceneCl_red_geom_charged,CCSD(T),cc-pVDZ,-2107.757763711017

@@ -10,6 +10,7 @@ cutoffs = ["3.0", "Transfer5.0" ,"Transfer7.0"]
 dists = [4.95, 10.0]
 
 df_agg = pd.read_csv("benzene_aggregated.csv")
+df_agg = df_agg[df_agg["cutoff"].isin(cutoffs)]
 df_agg["method"] = "FiRE $r_c=$" + df_agg.cutoff.str.replace("Transfer", "")
 df_agg["ref_type"] = "FiRE"
 
@@ -22,12 +23,13 @@ df_agg["method"] = df_agg["method"].str.replace(" / ", "\n")
 
 
 plt.close("all")
-fig, ax = plt.subplots(1,1, figsize=(7, 6))
+fig, ax = plt.subplots(1,1, figsize=(4.5, 5))
 
 colors = {"Experiment": "k",
-"Conventional method": "dimgray",
-"Neural network WF": COLOR_PALETTE[0],
+"Conventional method": COLOR_PALETTE[0],
+"Neural network WF": COLOR_PALETTE[1],
 "FiRE": COLOR_FIRE}
+exp_uncertainty = 0.8 # mHa; original value is 2 - 2.8 kcal/mol
 
 delta_E_exp = df_agg[df_agg["ref_type"] == "Experiment"]["deltaE_mean"].iloc[0]
 
@@ -50,20 +52,22 @@ ax.legend()
 
 for y in [2.5, 6.5]:
     ax.axhline(y, color="k", ls="--", alpha=0.5, zorder=0, lw=0.5)
+ax.axvspan(delta_E_exp * 1000 - exp_uncertainty, delta_E_exp * 1000 + exp_uncertainty, color="k", alpha=0.1, zorder=0)
 ax.set_xlabel("binding energy / mHa")
 savefig(fig, "benzene_dimer_barchart")
 
 
 
 #%%
-
-window_kwargs = dict(window=5000, min_periods=100)
+smoothing_window = 5000
+smoothing_min_periods = 200
+window_kwargs = dict(window=smoothing_window, min_periods=smoothing_min_periods)
 
 df_all = pd.read_csv("benzene_energies.csv")
 # molecules = sorted(df_all["molecule"].unique())
 pivot = df_all.pivot_table(index="opt/step", columns=["cutoff", "dist"], values="opt/E", aggfunc="mean")
 pivot = pivot.ffill(limit=10)
-cutoffs = ["3.0", "Transfer5.0", "Transfer7.0"]
+cutoffs = ["3.0", "Transfer5.0", "Transfer7.0", "7.0"]
 for cutoff in cutoffs:
     pivot.loc[:, (cutoff, "delta")] = (pivot[(cutoff, dists[0])] - pivot[(cutoff, dists[1])]) * 1000
     is_outlier = get_outlier_mask(pivot[(cutoff, "delta")])
@@ -71,7 +75,7 @@ for cutoff in cutoffs:
         pivot.loc[is_outlier, (cutoff, col)] = np.nan
         pivot.loc[:, (cutoff, col)] = pivot.loc[:, (cutoff, col)].ffill(limit=10)
         pivot.loc[:, (cutoff, f"{col}_smooth")] = pivot.loc[:, (cutoff, col)].rolling(**window_kwargs).mean()
-        pivot.loc[:, (cutoff, f"{col}_stderr")] = pivot.loc[:, (cutoff, col)].rolling(**window_kwargs).std() / np.sqrt(window_kwargs["window"])
+        pivot.loc[:, (cutoff, f"{col}_stderr")] = pivot.loc[:, (cutoff, col)].rolling(**window_kwargs).std() / np.sqrt(smoothing_window)
 
 refs = {
     "Experiment": (-3.8, "k"),
@@ -87,11 +91,12 @@ for ref, (E_ref, color) in refs.items():
     ax_rel.text(0.1, E_ref, ref, color=color, va="bottom", ha="left")
 
 cmap = plt.get_cmap("YlOrRd")
-colors = get_colors_from_cmap("YlOrRd",  np.linspace(0.4, 1.0, len(cutoffs)))
-steps_max = [25, 50, 75]
+colors = get_colors_from_cmap("YlOrRd",  np.linspace(0.4, 1.0, len(cutoffs))) + ["purple"]
+steps_max = [25, 50, 75, 75]
 for cutoff, max_opt_step, color in zip(cutoffs, steps_max, colors):
     df_cutoff = pivot[cutoff]
-    df_cutoff = df_cutoff[df_cutoff.index < max_opt_step * 1000]
+    max_step = min(max_opt_step * 1000, df_cutoff["delta"].last_valid_index())
+    df_cutoff = df_cutoff[df_cutoff.index < max_step]
     # Subsample to reduce pdf plot file size
     df_cutoff = df_cutoff.iloc[::10]
     delta_E = df_cutoff["delta_smooth"]
@@ -116,10 +121,10 @@ ax_rel.set_xlim([0, None])
 ax_rel.set_xlabel("Opt Step / k")
 ax_rel.set_ylabel("$E_{4.95A} - E_{10.0A}$ / mHa")
 
-ax_abs.set_title("Absolute energy")
+ax_abs.set_title("absolute energy")
 ax_abs.set_ylim([-75.37, -75.30])
 ax_abs.set_ylabel("energy / Ha")
-ax_rel.set_title("Relative energy")
+ax_rel.set_title("relative energy")
 
 for ax in axes:
     ax.set_xlabel("optimization step / k")

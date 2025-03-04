@@ -8,7 +8,7 @@
 #SBATCH --qos={qos}
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
-#SBATCH --mem={n_gpus*20_000}
+#SBATCH --mem={n_gpus*40}G
 #SBATCH --signal=B:USR1@300
 #SBATCH --export=NONE
 SLURM_EXPORT_ENV=ALL

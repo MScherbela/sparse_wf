@@ -3,13 +3,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from ast import literal_eval
-from scipy.optimize import curve_fit
 import matplotlib.ticker as ticker
+from sparse_wf.plot_utils import COLOR_PALETTE, COLOR_FIRE, savefig
+import scienceplots
+plt.style.use(["science", "grid"])
 
 N_SWEEPS = 1
 REFERENCE_BATCH_SIZE = 32
 N_EL_MIN_FOR_FIT = 120
-N_EL_FOR_BREAKDOWN = 292
+N_EL_FOR_BREAKDOWN = 148
 
 
 def fit_and_plot(ax, x, y, color, ls="-", n_fit_min=N_EL_MIN_FOR_FIT):
@@ -84,7 +86,7 @@ fig, axes = plt.subplots(2, 2, figsize=(10, 7))
 ax_upd, ax_Ekin, ax_tot, ax_speedup = axes.flatten()
 
 models = ["Lapnet", "Psiformer", "Ferminet", "FiRE (dense)", "FiRE"]
-model_colors = ["C0", "C1", "C2", "C3", "red"]
+model_colors = [COLOR_PALETTE[i] for i in [0, 2, 3, 1]] + [COLOR_FIRE]
 markers = ["o", "s", "d", "^", "v"]
 for model, color, marker in zip(models, model_colors, markers):
     kwargs_filled = dict(marker=marker, ls="none", color=color)
@@ -97,33 +99,33 @@ for model, color, marker in zip(models, model_colors, markers):
     label = f"{model}: {format_exponent(exponent)}"
     ax_upd.plot(df_model[full_batch].n_el, df_model[full_batch].t_update, label=label, **kwargs_filled)
     ax_upd.plot(df_model[~full_batch].n_el, df_model[~full_batch].t_update, **kwargs_empty)
-    ax_upd.set_title("Wavefunction update")
+    ax_upd.set_title("wavefunction update")
 
     # Plot kinetic energy times
     exponent = fit_and_plot(ax_Ekin, df_model.n_el, df_model.t_E_kin, color)
     label = f"{model}: {format_exponent(exponent)}"
     ax_Ekin.plot(df_model[full_batch].n_el, df_model[full_batch].t_E_kin, label=label, **kwargs_filled)
     ax_Ekin.plot(df_model[~full_batch].n_el, df_model[~full_batch].t_E_kin, **kwargs_empty)
-    ax_Ekin.set_title("Kinetic energy")
+    ax_Ekin.set_title("kinetic energy")
 
     # Plot total time
     exponent = fit_and_plot(ax_tot, df_model.n_el, df_model.t_total, color)
     label = f"{model}: {format_exponent(exponent)}"
     ax_tot.plot(df_model[full_batch].n_el, df_model[full_batch].t_total, label=label, **kwargs_filled)
     ax_tot.plot(df_model[~full_batch].n_el, df_model[~full_batch].t_total, **kwargs_empty)
-    ax_tot.set_title("Total optimization step")
+    ax_tot.set_title("total optimization step")
 
 for ax in [ax_upd, ax_Ekin, ax_tot]:
     ax.set_yscale("log")
     ax.set_xscale("log")
-    ax.set_xlabel("Number of valence electrons")
-    ax.set_ylabel("Time / s")
-    ax.legend(loc="upper left", labelspacing=0.2, frameon=False)
+    ax.set_xlabel("number of valence electrons")
+    ax.set_ylabel("runtime / s")
+    ax.legend(loc="upper left")
     ax.set_xticks([70, 100, 140, 200, 300, 500])
     ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
     ax.xaxis.minorticks_off()
-    ax.axvline(N_EL_FOR_BREAKDOWN, color="dimgray", ls="-", zorder=-1)
-    ax.grid(alpha=0.5)
+    # ax.axvline(N_EL_FOR_BREAKDOWN, color="dimgray", ls="-", zorder=-1)
+    # ax.grid(alpha=0.5)
 ax_Ekin.set_ylim([None, 3e2])
 
 for ax, label in zip(axes.flatten(), "abcd"):
@@ -141,7 +143,7 @@ columns = {
 }
 df_speedup = df_speedup[columns.keys()]
 df_speedup = df_speedup.rename(columns=columns)
-df_speedup.plot(kind="bar", stacked=True, ax=ax_speedup, rot=0)
+df_speedup.plot(kind="bar", stacked=True, ax=ax_speedup, rot=0, color=COLOR_PALETTE)
 for i, model in enumerate(models):
     ax_speedup.text(i, df_speedup.loc[model].sum(), f"{df_speedup.loc[model].sum():.1f}x", ha="center", va="bottom")
 ax_speedup.set_ylabel("Total time relative to FiRE")
@@ -149,7 +151,7 @@ ax_speedup.set_title(f"Runtime breakdown for {N_EL_FOR_BREAKDOWN} electrons")
 ax_speedup.set_ylim((0, df_speedup.sum(axis=1).max() * 1.1))
 print(df_speedup.sum(axis=1))
 ax_speedup.set_xlabel(None)
-ax_speedup.legend(frameon=False, loc="upper right", labelspacing=0.2)
+ax_speedup.legend(loc="upper right", labelspacing=0.2)
+ax_speedup.grid(False)
 fig.tight_layout()
-fig.savefig("scaling.pdf", bbox_inches="tight")
-fig.savefig("scaling.png", bbox_inches="tight", dpi=200)
+savefig(fig, "scaling")

@@ -14,13 +14,17 @@ PERIODIC_TABLE = "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr 
 
 def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_core, n_proc, memory_per_core):
     multiplicity = int(2*spin+1)
-    scf_method = method.split("+")[0]
-    if scf_method == "CASCI":
-        scf_method = ""
-    command = f"!{scf_method}"
+    if "+" in method:
+        scf_method, method = method.split("+")
+    else:
+        scf_method = None
+    command = f"!{method}"
     if no_frozen_core:
         command += " NoFrozenCore"
+    else:
+        command += " FrozenCore"
     command += f" {basis_set}"
+    command += " SlowConv"
 
     if (("DLPNO" in method) or ("RI-MP2" in method)) and not ("F12" in method):
         command += f" {basis_set}/C" # auxiliary basis
@@ -32,24 +36,30 @@ def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_cor
         command += " UNO"
     with open(fname, "w") as f:
         f.write(f"{command}\n")
-        # fname = os.path.abspath(fname)
-        # # mo_fname = fname.replace("orca.inp", "orca.mdci.nat").replace("CASSCF_from_DLPNO", "DLPNO_NatOrb").replace("CASSCF", "DLPNO-CCSD(T)")
-        # mo_fname = fname.replace("orca.inp", "orca.mdci.nat").replace("CASSCF_6_6", "DLPNO_NatOrb").replace("CASSCF", "DLPNO-CCSD(T)")
-        # f.write("!moread\n")
-        # f.write(f'%moinp "{mo_fname}"\n')
-        f.write("%SCF\n")
-        f.write("  Convergence tight\n")
-        f.write("  maxiter 300\n")
-        f.write("  ConvForced 1\n")
-        f.write("END\n")
+        fname = os.path.abspath(fname)
+        if scf_method:
+            mo_fname = fname.replace("orca.inp", "orca.gbw").replace(f"{scf_method}+{method}", scf_method)
+            f.write("!moread\n")
+            f.write(f'%moinp "{mo_fname}"\n')
+            f.write("!NoIter\n")
+        else:
+            f.write("%SCF\n")
+            f.write("  Convergence VeryTight\n")
+            f.write("  maxiter 300\n")
+            f.write("  ConvForced 1\n")
+            f.write("END\n")
         if "CCSD" in method:
             f.write("%MDCI\n")
+            f.write("  CIType CCSD\n")
             if "DLPNO" in method:
                 f.write("  UseFullLMP2Guess false\n") # better comparison between open shell/closed shell calcs
             f.write("  NatOrbs true\n")
-            f.write("  maxiter 150\n")
+            f.write("  maxiter 50\n")
+            f.write("  DIISStartIter 0")
             f.write("  MaxDIIS 25\n")
+            f.write("  LShift 0.5\n")
             f.write("  UseQROs true\n")
+            # f.write("  PrintLevel 4\n")
             f.write("END\n")
         if ("CAS" in method) or ("NEVPT2" in method):
             # %casscf nel  4  # number of active space electrons
@@ -57,7 +67,7 @@ def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_cor
             f.write("  nel 6\n")
             f.write("  norb 6\n")
             f.write(f"  mult {multiplicity}\n")
-            if method == "CASCI":
+            if "CASCI" in method:
                 f.write("  maxiter 1\n")
             else:
                 f.write("  maxiter 200\n")
@@ -150,10 +160,12 @@ def worker(args):
     return (ind_calc, geom_hash, geom_comment, method, basis_set, results, t1 - t0)
 
 def submit_to_slurm(args):
-    ind_calc, geom_hash, g, method, basis_set, n_proc, total_memory, orca_path, no_frozen_core = args
+    ind_calc, geom_hash, g, method, basis_set, comment, n_proc, total_memory, orca_path, no_frozen_core = args
     g["hash"] = geom_hash
     geom_comment = g.get("comment", "")
     directory = f"{geom_comment}_{method}_{basis_set}"
+    if comment:
+        directory += f"_{comment}"
     directory = directory.replace("/", "_")
     if os.path.isdir(directory):
         print("Skipping existing directory", directory)
@@ -187,6 +199,7 @@ if __name__ == "__main__":
     parser.add_argument("--total-memory", type=int, default=200, required=False, help="Total memory in GB")
     parser.add_argument("--n-parallel", type=int, default=1, required=False, help="Number of parallel workers")
     parser.add_argument("--slurm", action="store_true", required=False, help="Submit to SLURM")
+    parser.add_argument("--comment", type=str, nargs="+", default=[""], required=False, help="Comment for the calculation")
 
     parser.add_argument(
         "--orca-path",
@@ -216,14 +229,15 @@ if __name__ == "__main__":
         args.no_frozen_core,
     )
     calc_args = []
-    for ind_calc, (method, basis_set, geom_hash) in enumerate(
+    for ind_calc, (method, basis_set, geom_hash, comment) in enumerate(
         itertools.product(
             args.method,
             args.basis_set,
             geometry_hashes,
+            args.comment
         )
     ):
-        calc_args.append((ind_calc, geom_hash, all_geometries[geom_hash], method, basis_set, *constant_args))
+        calc_args.append((ind_calc, geom_hash, all_geometries[geom_hash], method, basis_set, comment, *constant_args))
     if args.slurm:
         for arg in calc_args:
             submit_to_slurm(arg)

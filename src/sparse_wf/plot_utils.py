@@ -52,13 +52,13 @@ def savefig(fig, name, pdf=True, png=True):
         fig.savefig(name + ".pdf", bbox_inches="tight")
 
 
-COLOR_FIRE = "red"
+COLOR_FIRE = "#e15759"
 COLOR_PALETTE = [
     "#4e79a7",
     "#f28e2b",
     "#59a14f",
     "#9c755f",
-    "#e15759",
+    # "#e15759", # used for FiRE
     "#b07aa1",
     "#76b7b2",
     "#ff9da7",
