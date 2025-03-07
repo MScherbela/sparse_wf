@@ -3,15 +3,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sparse_wf.plot_utils import get_outlier_mask, COLOR_PALETTE, COLOR_FIRE, savefig, get_colors_from_cmap
+from PIL import Image
 import scienceplots
 plt.style.use(["science", "grid"])
 
-cutoffs = ["3.0", "Transfer5.0" ,"Transfer7.0"]
+# cutoffs = ["3.0", "Transfer5.0" ,"Transfer7.0"]
+cutoffs = ["3.0", "7.0"]
 dists = [4.95, 10.0]
 
 df_agg = pd.read_csv("benzene_aggregated.csv")
 df_agg = df_agg[df_agg["cutoff"].isin(cutoffs)]
-df_agg["method"] = "FiRE $r_c=$" + df_agg.cutoff.str.replace("Transfer", "")
+df_agg["method"] = "FiRE $c=" + df_agg.cutoff.str.replace("Transfer", "") + "$"
 df_agg["ref_type"] = "FiRE"
 
 df_ref = pd.read_csv("benzene_references.csv")
@@ -54,6 +56,13 @@ for y in [2.5, 6.5]:
     ax.axhline(y, color="k", ls="--", alpha=0.5, zorder=0, lw=0.5)
 ax.axvspan(delta_E_exp * 1000 - exp_uncertainty, delta_E_exp * 1000 + exp_uncertainty, color="k", alpha=0.1, zorder=0)
 ax.set_xlabel("binding energy / mHa")
+
+# Insert a picture in the lower left corner
+img = Image.open("benzene_dimer_T_4.png")
+img = img.crop(img.getbbox())
+image_ax = fig.add_axes((0.2, 0.1, 0.2, 0.5))
+image_ax.imshow(img)
+image_ax.axis("off")
 savefig(fig, "benzene_dimer_barchart")
 
 
@@ -64,6 +73,7 @@ smoothing_min_periods = 200
 window_kwargs = dict(window=smoothing_window, min_periods=smoothing_min_periods)
 
 df_all = pd.read_csv("benzene_energies.csv")
+df_all["cutoff"] = df_all["cutoff"].astype(str)
 # molecules = sorted(df_all["molecule"].unique())
 pivot = df_all.pivot_table(index="opt/step", columns=["cutoff", "dist"], values="opt/E", aggfunc="mean")
 pivot = pivot.ffill(limit=10)
@@ -101,7 +111,7 @@ for cutoff, max_opt_step, color in zip(cutoffs, steps_max, colors):
     df_cutoff = df_cutoff.iloc[::10]
     delta_E = df_cutoff["delta_smooth"]
     delta_Estd = df_cutoff["delta_stderr"]
-    label = f"FiRE $r_c={cutoff.replace('Transfer', '')}$"
+    label = f"FiRE $c={cutoff.replace('Transfer', '')}$"
     delta_E_final = delta_E[delta_E.notna()].iloc[-1]
     ax_rel.plot(df_cutoff.index / 1000,  delta_E, label=label, color=color)
     # ax.axhline(delta_E_final, color=color, zorder=0, ls="--")

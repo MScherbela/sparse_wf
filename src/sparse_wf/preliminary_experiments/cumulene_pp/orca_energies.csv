@@ -221,6 +221,7 @@ cumulene_C6H4_0deg_singlet,CCSD(T),cc-pVTZ,-230.419688854958
 cumulene_C6H4_90deg_triplet,F12/RI-CCSD(T),cc-pVDZ,-230.426225221928
 cumulene_C12H4_0deg_singlet,PBE0,cc-pVTZ,-458.873471388775
 cumulene_C2H4_90deg_triplet,PBE0+CCSD(T),cc-pVDZ,-78.234091183583
+cumulene_C12H4_0deg_singlet,PBE0+CCSD(T),cc-pVTZ,-458.408736609514
 cumulene_C20H4_0deg_singlet,PBE0,cc-pVTZ,-763.1804641038
 cumulene_C20H4_90deg_triplet,PBE0,cc-pVTZ,-763.178517282281
 cumulene_C4H4_0deg_singlet,CCSD(T),cc-pVDZ,-154.277839175472
@@ -238,8 +239,10 @@ cumulene_C2H4_90deg_triplet,CCSD(T),cc-pVTZ,-78.319227513939
 cumulene_C8H4_90deg_triplet,CCSD(T),cc-pVTZ,-306.383215224853
 cumulene_C12H4_90deg_triplet,PBE0,cc-pVTZ,-458.862231854836
 cumulene_C2H4_0deg_singlet,PBE0+CCSD(T),cc-pVTZ,-78.437199456826
+cumulene_C12H4_90deg_triplet,PBE0+CCSD(T),cc-pVTZ,-458.384830209046
 cumulene_C4H4_90deg_triplet,CCSD(T),cc-pVDZ,-154.213986525296
 cumulene_C6H4_90deg_triplet,CCSD(T),cc-pVTZ,-230.376225938276
+cumulene_C16H4_0deg_singlet,PBE0+CCSD(T),cc-pVDZ,-609.87603068416
 cumulene_C6H4_0deg_singlet,PBE0,cc-pVTZ,-230.647237548817
 cumulene_C2H4_0deg_singlet,CCSD(T),cc-pVDZ,-78.354647048038
 cumulene_C16H4_0deg_singlet,PBE0,cc-pVTZ,-611.026690279826
@@ -248,11 +251,13 @@ cumulene_C4H4_0deg_singlet,CCSD(T),cc-pVTZ,-154.425484608644
 cumulene_C6H4_0deg_singlet,F12/RI-CCSD(T),cc-pVDZ,-230.468787598402
 cumulene_C12H4_90deg_triplet,PBE0,cc-pVDZ,-458.759317340268
 cumulene_C4H4_90deg_triplet,PBE0,cc-pVTZ,-154.525036509918
+cumulene_C16H4_90deg_triplet,PBE0+CCSD(T),cc-pVDZ,-609.856619253395
 cumulene_C8H4_90deg_triplet,CCSD(T),cc-pVDZ,-306.106867368809
 cumulene_C4H4_0deg_singlet,PBE0+CCSD(T),cc-pVDZ,-154.276255124765
 cumulene_C6H4_0deg_singlet,PBE0,cc-pVDZ,-230.590604199963
 cumulene_C4H4_90deg_triplet,PBE0+CCSD(T),cc-pVTZ,-154.360246070757
 cumulene_C8H4_90deg_triplet,PBE0,cc-pVTZ,-306.700203922445
+cumulene_C16H4_0deg_singlet,PBE0+CCSD(T),cc-pVTZ,-610.405564082377
 cumulene_C4H4_90deg_triplet,PBE0+CCSD(T),cc-pVDZ,-154.212307479437
 cumulene_C8H4_90deg_triplet,PBE0+CCSD(T),cc-pVDZ,-306.103712474567
 cumulene_C20H4_90deg_triplet,PBE0,cc-pVDZ,-763.014609309952
@@ -278,5 +283,3 @@ cumulene_C16H4_90deg_triplet,PBE0,cc-pVTZ,-611.021009838545
 cumulene_C16H4_90deg_triplet,PBE0,cc-pVDZ,-610.887605011814
 cumulene_C4H4_0deg_singlet,PBE0,cc-pVDZ,-154.534286002697
 cumulene_C12H4_90deg_triplet,PBE0+CCSD(T),cc-pVDZ,-457.981974439784
-cumulene_C16H4_0deg_singlet,PBE0+CCSD(T),cc-pVDZ,-609.712328698533
-cumulene_C16H4_90deg_triplet,PBE0+CCSD(T),cc-pVDZ,-609.695668298488

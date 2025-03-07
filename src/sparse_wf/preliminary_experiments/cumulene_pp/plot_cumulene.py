@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sparse_wf.plot_utils import get_outlier_mask, COLOR_FIRE, COLOR_PALETTE, cbs_extrapolate, get_colors_from_cmap, abbreviate_basis_set, savefig
+from PIL import Image
 import scienceplots
 plt.style.use(['science', 'grid'])
 CUTOFF = 3.0
@@ -83,6 +84,17 @@ ax_deviation.set_ylim([-5, 3])
 plt.figlegend(ncol=3, loc="upper center")
 fig.tight_layout()
 fig.subplots_adjust(top=0.87)
+
+for fname, bbox in [
+    # ("cumulene_C4H4_0deg_singlet.png", [0.15, 0.1, 0.25, 0.2]),
+    ("cumulene_C4H4_90deg_triplet.png", [0.15, 0.15, 0.3, 0.2]),
+    ]:
+    img = Image.open(fname)
+    img = img.crop(img.getbbox())
+    image_ax = fig.add_axes(bbox)
+    image_ax.imshow(img)
+    image_ax.axis("off")
+
 savefig(fig, "cumulene_energy")
 
 #%%

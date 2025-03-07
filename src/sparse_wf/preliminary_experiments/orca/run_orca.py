@@ -177,7 +177,7 @@ def submit_to_slurm(args):
         f.write("#!/bin/bash\n")
         f.write(f"#SBATCH --job-name={job_name}\n")
         f.write(f"#SBATCH --output=orca.out\n")
-        f.write(f"#SBATCH --time=24:00:00\n")
+        f.write(f"#SBATCH --time=3-00:00:00\n")
         f.write(f"#SBATCH --ntasks={n_proc}\n")
         f.write(f"#SBATCH --mem={total_memory}G\n")
         f.write(f"#SBATCH --partition=hgx\n")

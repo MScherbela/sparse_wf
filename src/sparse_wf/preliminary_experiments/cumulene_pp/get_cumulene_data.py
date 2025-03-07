@@ -20,6 +20,7 @@ for r in runs:
         n_carbon=n_carbon,
         angle=angle,
         cutoff=r.config["model_args"]["embedding"]["new"]["cutoff"],
+        # spin_operator=r.config["optimization"]["spin_operator_args"]["operator"]
     )
     full_history = [
         h for h in r.scan_history(keys=["opt/step", "opt/E", "opt/E_std"], page_size=10_000)

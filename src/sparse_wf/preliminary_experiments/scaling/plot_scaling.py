@@ -8,10 +8,11 @@ from sparse_wf.plot_utils import COLOR_PALETTE, COLOR_FIRE, savefig
 import scienceplots
 plt.style.use(["science", "grid"])
 
-N_SWEEPS = 1
+N_SWEEPS = 2
 REFERENCE_BATCH_SIZE = 32
 N_EL_MIN_FOR_FIT = 120
-N_EL_FOR_BREAKDOWN = 148
+# N_EL_FOR_BREAKDOWN = 148
+N_EL_FOR_BREAKDOWN = 412
 
 
 def fit_and_plot(ax, x, y, color, ls="-", n_fit_min=N_EL_MIN_FOR_FIT):

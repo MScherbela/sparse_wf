@@ -68,6 +68,7 @@ COLOR_PALETTE = [
 
 
 def _extrapolate_basis_set(En, Em, n, exponential):
+    assert n in [2, 3]
     m = n + 1
     if exponential:
         alpha = 4.42 if n == 2 else 5.46
@@ -79,14 +80,14 @@ def _extrapolate_basis_set(En, Em, n, exponential):
     return E_cbs
 
 
-def cbs_extrapolate(df, HF_method="UHF"):
+def cbs_extrapolate(df, HF_method="UHF", extrapolate=(2, 3)):
     df = df.copy()
     basis_set_sizes = {
         "cc-pVDZ": 2,
         "cc-pVTZ": 3,
         "cc-pVQZ": 4,
         "cc-pV5Z": 5,
-        "def2-DZVP": 2,
+        "def2-SVP": 2,
         "def2-TZVP": 3,
         "def2-QZVP": 4,
     }
@@ -101,9 +102,14 @@ def cbs_extrapolate(df, HF_method="UHF"):
     pivot_rest = pivot[pivot["method"] != HF_method]
 
     E_hf_cbs = _extrapolate_basis_set(pivot_hf["E_final"][3], pivot_hf["E_final"][4], 3, True)
-    E_corr = _extrapolate_basis_set(
-        pivot_rest["E_final"][2] - pivot_rest["E_hf"][2], pivot_rest["E_final"][3] - pivot_rest["E_hf"][3], 2, False
-    )
+    if isinstance(extrapolate, tuple):
+        assert len(extrapolate) == 2 and (extrapolate[0] + 1 == extrapolate[1])
+        E1 = pivot_rest["E_final"][extrapolate[0]] - pivot_rest["E_hf"][extrapolate[0]]
+        E2 = pivot_rest["E_final"][extrapolate[1]] - pivot_rest["E_hf"][extrapolate[1]]
+        E_corr = _extrapolate_basis_set(E1, E2, extrapolate[0], False)
+    elif isinstance(extrapolate, int):
+        E_corr = pivot_rest["E_final"][extrapolate] - pivot_rest["E_hf"][extrapolate]
+
     df_hf_cbs = pd.DataFrame(
         {"E_final": E_hf_cbs, "method": HF_method, "basis_set": "CBS", "comment": pivot_hf.comment}
     )
