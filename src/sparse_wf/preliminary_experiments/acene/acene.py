@@ -109,10 +109,10 @@ line_styles = [
     (0, (3, 5, 1, 5, 1, 5))
 ]
 
-fig, ax = plt.subplots(1, 1, figsize=(5, 4))
+fig, (ax, ax2) = plt.subplots(1, 2, figsize=(10, 3))
 ax.plot(pd.Series(final_deltas)[order], 's', color=colors[0], label='FiRE', zorder=5, linestyle=line_styles[0])
 ax.plot(reference.loc['ZPE-corr\'d exp'][order], '*', color='black', label='exp', zorder=-1, linestyle=line_styles[1])
-ax.fill_between(range(len(order)), reference.loc['ZPE-corr\'d exp'][order] - 1.6, reference.loc['ZPE-corr\'d exp'][order] + 1.6, color='black', alpha=0.1, zorder=-10, label='exp$\pm$ chem. acc')
+ax.fill_between(range(len(order)), reference.loc['ZPE-corr\'d exp'][order] - 1.6, reference.loc['ZPE-corr\'d exp'][order] + 1.6, color='black', alpha=0.1, zorder=-10, label='exp $\pm$ chem. acc')
 ax.plot(reference.loc['CCSD(T)/FPA'][order], '^', color=colors[1], label='CCSD(T)/FPA', zorder=3, linestyle=line_styles[2])
 ax.plot(reference.loc['ACI-DSRG-MRPT2'][order], 'v', color=colors[2], label='ACI-DSRG-MRPT2', zorder=4, linestyle=line_styles[3])
 ax.plot(reference.loc['AFQMC'][order], 'o', color=colors[3], label='AFQMC', zorder=2, linestyle=line_styles[4])
@@ -120,9 +120,12 @@ ax.plot(reference.loc['AFQMC'][order], 'o', color=colors[3], label='AFQMC', zord
 # ax.set_xlabel('$n$-acene')
 ax.set_ylabel(r"$E_\text{triplet} - E_\text{singlet}$ [mHa]")
 ax.tick_params(axis='x', which='minor', bottom=False, top=False)
-leg = ax.legend(loc='lower left')
+handles, labels = ax.get_legend_handles_labels()
+legend_dict = dict(zip(labels, handles))
+legend_dict['exp $\pm$ chem. acc'] = (legend_dict.pop('exp'), legend_dict['exp $\pm$ chem. acc'])
+leg = ax.legend(legend_dict.values(), legend_dict.keys(), loc='upper right')
 
-ax2 = ax.inset_axes([0.5, 0.5, 0.5, 0.5])
+# ax2 = ax.inset_axes([0.45, 0.5, 0.55, 0.5])
 x = np.arange(len(order))
 w = 0.175
 n = 4
@@ -131,15 +134,20 @@ ax2.bar(pos := pos + w, pd.Series(final_deltas)[order] -reference.loc['ZPE-corr\
 ax2.bar(pos := pos + w, reference.loc['CCSD(T)/FPA'][order] - reference.loc['ZPE-corr\'d exp'][order], width=w, color=colors[1], label='CCSD(T)/FPA', zorder=5, linestyle=line_styles[2])
 ax2.bar(pos := pos + w, reference.loc['ACI-DSRG-MRPT2'][order] - reference.loc['ZPE-corr\'d exp'][order], width=w, color=colors[2], label='ACI-DSRG-MRPT2', zorder=6, linestyle=line_styles[3])
 ax2.bar(pos := pos + w, reference.loc['AFQMC'][order] - reference.loc['ZPE-corr\'d exp'][order], width=w, color=colors[3], label='AFQMC', zorder=4, linestyle=line_styles[4])
+for container in ax2.containers:
+    pad = 16 if container.get_label() == 'AFQMC' else 3
+    ax2.bar_label(container, fmt='%.1f', padding=pad, zorder=11, rotation=90)
 ax2.errorbar(pos, reference.loc['AFQMC'][order] - reference.loc['ZPE-corr\'d exp'][order], afqmc_error, color=scale_lightness(colors[3], 0.7), capsize=2, label='AFQMC', linestyle='', zorder=5)
-ax2.axhline(0, color='black', zorder=-1, linestyle=line_styles[2])
+ax2.axhline(0, color='black', zorder=100, linestyle=line_styles[1])
 ax2.axhspan(-1.6, 1.6, color='black', alpha=0.1, zorder=-10, label='exp$\pm$ chem. acc')
-ax2.set_xticks(x)
-ax2.set_xticklabels([])
+ax2.set_xticks(x, reference.columns)
+# ax2.set_xticklabels([])
+ax2.set_ylim(-10, 10)
 ax2.tick_params(axis='x', which='minor', bottom=False, top=False)
-ax2.set_ylabel(r"$\Delta_\text{method} - \Delta_\text{exp}$ [mHa]", labelpad=-2)
-ax2.set_xlabel('$n$-acene')
+ax2.set_ylabel(r"$\Delta - \Delta_\text{exp}$ [mHa]", labelpad=-2)
+# ax2.set_xlabel('$n$-acene')
 
+fig.subplots_adjust(wspace=0.2)
 plt.savefig("acene_final.pdf", bbox_inches="tight")
 #%%
 #%%
