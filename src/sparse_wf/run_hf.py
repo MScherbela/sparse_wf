@@ -21,14 +21,34 @@ if config["hf"]["cache_dir"] is None:
     print(f"Setting pyscf cache dir as: {DEFAULT_CACHE_DIR}")
     config["hf"]["cache_dir"] = DEFAULT_CACHE_DIR
 
+geom_names = [
+    "01_Water_dimer",
+    "01_Water_dimer_Dissociated",
+    "02_Formic_acid_dimer",
+    "02_Formic_acid_dimer_Dissociated",
+    "03_Formamide_dimer",
+    "03_Formamide_dimer_Dissociated",
+    "04_Uracil_dimer_h-bonded",
+    "04_Uracil_dimer_h-bonded_Dissociated",
+    "05_Methane_dimer",
+    "05_Methane_dimer_Dissociated",
+    "06_Ethene_dimer",
+    "06_Ethene_dimer_Dissociated",
+    "07_Uracil_dimer_stack",
+    "07_Uracil_dimer_stack_Dissociated",
+    "08_Ethene-ethyne_complex",
+    "08_Ethene-ethyne_complex_Dissociated",
+    "09_Benzene-water_complex",
+    "09_Benzene-water_complex_Dissociated",
+    "11_Phenol_dimer",
+    "11_Phenol_dimer_Dissociated",
+]
 
-for xc in [None]:
-    for n in [36, 30]:
-        for geom in ["0deg_singlet", "90deg_triplet"]:
-            geom_str = f"cumulene_C{n}H4_{geom}"
-            print(geom_str)
-
-            config["molecule_args"]["database_args"]["comment"] = geom_str
-            config["hf"]["xc"] = xc
-            mol = get_molecule(config["molecule_args"])
-            hf = run_hf(mol, config["hf"])
+for geom_str in geom_names:
+    print(geom_str)
+    config["molecule_args"]["database_args"]["comment"] = geom_str
+    mol = get_molecule(config["molecule_args"])
+    hf = run_hf(mol, config["hf"])
+    s2, mult = hf.spin_square()
+    with open("energies.csv", "a") as f:
+        f.write(f"{geom_str},{hf.e_tot},{s2},{mult}\n")
