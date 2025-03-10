@@ -2,18 +2,17 @@
 import numpy as np
 from sparse_wf.system import from_str
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
-from sparse_wf.api import NewEmbeddingArgs, JastrowArgs
 from sparse_wf.mcmc import init_electrons
 import jax
 import jax.numpy as jnp
 import timeit
 from sparse_wf.pseudopotentials import make_pseudopotential
 from sparse_wf.hamiltonian import potential_energy
-from sparse_wf.loggers import tree_to_log_data
 import argparse
 import pathlib
 import yaml
-from folx import batched_vmap
+import jax.tree_util as jtu
+import jaxlib.xla_extension
 
 DEFAULT_CONFIG_PATH = pathlib.Path(__file__).parent / "../../../../config/default.yaml"
 
@@ -23,6 +22,7 @@ def get_timing(expression, n_repeat=10):
     n_timeit_reps = timer.autorange()[0]
     timings = timer.repeat(repeat=n_repeat, number=n_timeit_reps)
     return min(timings) / n_timeit_reps
+
 
 def load_yaml(path):
     with open(path, "r") as f:
@@ -54,18 +54,18 @@ def get_model(mol, cutoff):
     return wf
 
 
-def make_potential_energy(wf, use_ecp):
-    pseudopotentials = ["C", "N", "O"] if use_ecp else []
-    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials, n_quad_points=dict(default=4))
+# def make_potential_energy(wf, use_ecp):
+#     pseudopotentials = ["C", "N", "O"] if use_ecp else []
+#     eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials, n_quad_points=dict(default=4))
 
-    def get_potential_energy(key: jax.Array, params, electrons, static):
-        potential = potential_energy(electrons, wf.R, eff_charges)
-        potential += pp_local(electrons, wf.R)
-        nl_pp, new_static = pp_nonlocal(key, wf, params, electrons, static)
-        potential += nl_pp
-        return potential, new_static
+#     def get_potential_energy(key: jax.Array, params, electrons, static):
+#         potential = potential_energy(electrons, wf.R, eff_charges)
+#         potential += pp_local(electrons, wf.R)
+#         nl_pp, new_static = pp_nonlocal(key, wf, params, electrons, static)
+#         potential += nl_pp
+#         return potential, new_static
 
-    return get_potential_energy
+#     return get_potential_energy
 
 
 def single_electron_move(rng, electrons, stepsize):
@@ -80,29 +80,30 @@ def single_electron_move(rng, electrons, stepsize):
     return jax.vmap(update)(electrons, rng)
 
 
-def electron_swap(rng, electrons):
-    batch_size, n_el, _ = electrons.shape
-    n_up = n_el // 2
-    rng = jax.random.split(rng, (batch_size, 2))
+# def electron_swap(rng, electrons):
+#     batch_size, n_el, _ = electrons.shape
+#     n_up = n_el // 2
+#     rng = jax.random.split(rng, (batch_size, 2))
 
-    def update(r, key):
-        idx_up = jax.random.randint(key[0], [], 0, n_up)
-        idx_dn = jax.random.randint(key[1], [], n_up, n_el)
-        r_up = r[idx_up]
-        r = r.at[idx_up].set(r[idx_dn])
-        r = r.at[idx_dn].set(r_up)
-        return r, jnp.stack([idx_up, idx_dn])
+#     def update(r, key):
+#         idx_up = jax.random.randint(key[0], [], 0, n_up)
+#         idx_dn = jax.random.randint(key[1], [], n_up, n_el)
+#         r_up = r[idx_up]
+#         r = r.at[idx_up].set(r[idx_dn])
+#         r = r.at[idx_dn].set(r_up)
+#         return r, jnp.stack([idx_up, idx_dn])
 
-    return jax.vmap(update)(electrons, rng)
+#     return jax.vmap(update)(electrons, rng)
 
 
 def jit_and_await(f, static_argnums=None):
     f = jax.jit(f, static_argnums=static_argnums)
-    return lambda *args, **kwargs: jax.tree_map(lambda x: x.block_until_ready(), f(*args, **kwargs))
+    return lambda *args, **kwargs: jtu.tree_map(lambda x: x.block_until_ready(), f(*args, **kwargs))
 
 
-def get_max_static(static, wf):
-    static = jax.tree_map(lambda x: int(jnp.max(x)), static)
+def get_max_static(wf, r, r_new, idx_changed):
+    static = jax.vmap(wf.get_static_input)(r, r_new, idx_changed)
+    static = jtu.tree_map(lambda x: int(jnp.max(x)), static)
     return static.round_with_padding(1.0, wf.n_electrons, wf.n_up, wf.n_nuclei)
 
 
@@ -136,94 +137,98 @@ def build_looped_logpsi_lowrank(wf, n_iterations):
     return jit_and_await(looped_logpsi, static_argnums=(2,))
 
 
+def benchmark_runtime(operation, system_size, batch_size, use_ecp, move_stepsize, n_iterations):
+    mol = get_cumulene(system_size, use_ecp)
+    rng = jax.random.PRNGKey(0)
+    rng_electrons, rng_move, rng_params = jax.random.split(rng, 3)
+
+    # Initialize electrons and get statics
+    print("Initializing electrons", flush=True)
+    wf = get_model(mol, args.cutoff)
+
+    r = init_electrons(rng_electrons, mol, batch_size)
+    r_new_local, idx_changed_local = single_electron_move(rng_move, r, move_stepsize)
+    static_local = get_max_static(wf, r, r_new_local, idx_changed_local)
+
+    print("Initializing parameters", flush=True)
+    params = wf.init(rng_params, r[0])
+
+    # Build operations
+    if operation in "wf_full":
+        n_iterations = args.n_iterations
+        get_logpsi_full = build_looped_logpsi_full(wf, n_iterations)
+
+        def test_func():
+            get_logpsi_full(params, r, static_local)
+    elif operation == "wf_lowrank":
+        n_iterations = args.n_iterations
+        get_logpsi_lowrank = build_looped_logpsi_lowrank(wf, n_iterations)
+        # Calculate state from a single sample and copy it, to avoid oom from full wf
+        _, state = wf.log_psi_with_state(params, r[0], static_local)
+        state = jtu.tree_map(lambda x: jnp.tile(x, [batch_size] + [1] * x.ndim), state)
+
+        def test_func():
+            get_logpsi_lowrank(params, r, static_local, state)
+    elif operation in ["E_kin", "E_kin_dense"]:
+        n_iterations = 1
+        get_E_kin = wf.kinetic_energy_dense if operation == "E_kin_dense" else wf.kinetic_energy
+        get_E_kin = jax.vmap(get_E_kin, in_axes=(None, 0, None))
+        get_E_kin = jit_and_await(get_E_kin, static_argnums=(2,))
+
+        def test_func():
+            get_E_kin(params, r, static_local)
+
+    print("Running warmup/compilation", flush=True)
+    test_func()
+
+    print("Running for timings", flush=True)
+    t = get_timing(test_func) / n_iterations
+    return t
+
+
 if __name__ == "__main__":
-    default_system_sizes = np.unique(np.round(np.geomspace(16, 256, 25)).astype(int))
+    default_system_sizes = np.round(np.geomspace(16, 124, 25)).astype(int)
+    default_system_sizes = np.concatenate([default_system_sizes, np.arange(24, 125, 25)])
+    default_system_sizes = np.unique(default_system_sizes)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=1024)
     parser.add_argument("--use_ecp", action="store_true", default=False)
     parser.add_argument("--system_sizes", nargs="+", type=int, default=default_system_sizes)
     parser.add_argument("--cutoff", type=float, default=3.0)
     parser.add_argument("--system", type=str, default="cumulene")
     parser.add_argument("--move_stepsize", type=float, default=0.5)
-    parser.add_argument("--n_iterations", type=int, default=250)
+    parser.add_argument("--n_iterations", type=int, default=20)
     parser.add_argument("-o", "--output", type=str, default="timings.txt")
     parser.add_argument("--profile", action="store_true", default=False)
-    parser.add_argument("--dense-Ekin", action="store_true", default=False)
-
+    parser.add_argument("--operations", nargs="+", default=["wf_full", "wf_lowrank", "E_kin", "E_kin_dense"])
     args = parser.parse_args()
 
     settings = {k: v for k, v in vars(args).items() if k not in ["output", "profile", "system_sizes"]}
-    for system_size in args.system_sizes:
-        mol = get_cumulene(system_size, args.use_ecp)
-
-        print(f"system_size = {system_size}: Initializing model, electrons, params, and static input for ")
-        rng = jax.random.PRNGKey(0)
-        rng_electrons, rng_move, rng_swap, rng_params, rng_pp = jax.random.split(rng, 5)
-        rng_pp = jax.random.split(rng_pp, args.batch_size)
-
-        wf = get_model(mol, args.cutoff)
-        r = init_electrons(rng_electrons, mol, args.batch_size)
-        r_new_local, idx_changed_local = single_electron_move(rng_move, r, args.move_stepsize)
-        r_new_swap, idx_changed_swap = electron_swap(rng_move, r)
-        params = wf.init(rng_params, r[0])
-
-        get_static = jit_and_await(jax.vmap(wf.get_static_input))
-        get_logpsi_full = build_looped_logpsi_full(wf, args.n_iterations)
-        get_logpsi_lowrank = build_looped_logpsi_lowrank(wf, args.n_iterations)
-        if args.dense_Ekin:
-            get_E_kin = batched_vmap(wf.kinetic_energy_dense, max_batch_size=1, in_axes=(None, 0, None))
-        else:
-            get_E_kin = jax.vmap(wf.kinetic_energy, in_axes=(None, 0, None))
-        get_E_kin = jit_and_await(get_E_kin, static_argnums=(2,))
-        get_E_pot = jit_and_await(
-            jax.vmap(make_potential_energy(wf, args.use_ecp), in_axes=(0, None, 0, None)), static_argnums=(3,)
-        )
-
-        static_local = get_max_static(get_static(r, r_new_local, idx_changed_local), wf)
-        static_swap = get_max_static(get_static(r, r_new_swap, idx_changed_swap), wf)
-
-        print("Running warmup/compilation", flush=True)
-        state = get_logpsi_full(params, r, static_local)[1]
-        get_logpsi_lowrank(params, r, static_local, state)
-        get_logpsi_lowrank(params, r, static_swap, state)
-        get_E_kin(params, r, static_local)
-        pp_static = get_E_pot(rng_pp, params, r, static_local)[1]
-        pp_static = get_max_static(pp_static, wf)
-        get_E_pot(rng_pp, params, r, pp_static)
-
-
-        print("Running for timings", flush=True)
-        t_wf_full = get_timing(lambda: get_logpsi_full(params, r, static_local)) / args.n_iterations
-        t_wf_upd_local = get_timing(lambda: get_logpsi_lowrank(params, r, static_local, state)) / args.n_iterations
-        t_wf_upd_swap = get_timing(lambda: get_logpsi_lowrank(params, r, static_swap, state)) / args.n_iterations
-        t_E_kin = get_timing(lambda: get_E_kin(params, r, static_local))
-        t_E_pot = get_timing(lambda: get_E_pot(rng_pp, params, r, pp_static))
-
-        if args.profile:
-            print("Running once for profiling")
-            with jax.profiler.trace("/tmp/tensorboard"):
-                get_logpsi_full(params, r, static_local)
-                get_logpsi_lowrank(params, r, static_local, state)
-                get_E_kin(params, r, static_local)
-                get_E_pot(rng_pp, params, r, pp_static)
-
-        results = dict(
-            **settings,
-            n_el_core=sum([mol.atom_nelec_core(i) for i in range(mol.natm)]),
-            n_el=mol.nelectron,
-            t_wf_full=t_wf_full,
-            t_wf_upd_local=t_wf_upd_local,
-            t_wf_upd_swap=t_wf_upd_swap,
-            t_E_kin=t_E_kin,
-            t_E_pot=t_E_pot,
-            **tree_to_log_data(static_local, "static_local/"),
-            **tree_to_log_data(static_swap, "static_swap/"),
-            **tree_to_log_data(pp_static, "pp_static/"),
-        )
-        if not args.dense_Ekin:
-            results["t_E_kin_sparse"] = results.pop("t_E_kin")
-
-        with open(args.output, "a") as f:
-            f.write(str(results) + "\n")
-        print(str(results))
+    for operation in args.operations:
+        batch_size = args.batch_size
+        for idx_system_size, system_size in enumerate(sorted(args.system_sizes)):
+            while batch_size > 0:
+                print(
+                    f"op={operation}, system_size={system_size} ({idx_system_size + 1}/{len(args.system_sizes)}), batch_size={batch_size}",
+                    flush=True,
+                )
+                try:
+                    t = benchmark_runtime(
+                        operation, system_size, batch_size, args.use_ecp, args.move_stepsize, args.n_iterations
+                    )
+                except jaxlib.xla_extension.XlaRuntimeError as e:
+                    # out of memory
+                    print(f"Out of memory with batch-size {batch_size}", flush=True)
+                    batch_size = batch_size // 2
+                    continue
+                with open(args.output, "a") as f:
+                    f.write(f"FiRE,{operation},{system_size},{batch_size},{t}\n")
+                break
+            else:
+                # we land here if the loop completes without breaking
+                print(
+                    f"Could not complete {operation} for system_size={system_size}. Skipping larger system sizes.",
+                    flush=True,
+                )
+                break

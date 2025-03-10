@@ -32,8 +32,8 @@ def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_cor
         assert basis_set in ["cc-pVDZ", "cc-pVTZ", "cc-pVQZ", "cc-pV5Z"]
         # Switch to F12 basis and add full cabs basis set
         command += f"-F12 aug-{basis_set}/C {basis_set}-F12-CABS"
-    if ("CCSD" in method) and spin:
-        command += " UNO"
+    # if ("CCSD" in method) and spin:
+    #     command += " UNO"
     with open(fname, "w") as f:
         f.write(f"{command}\n")
         fname = os.path.abspath(fname)
@@ -58,7 +58,7 @@ def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_cor
             f.write("  DIISStartIter 0")
             f.write("  MaxDIIS 25\n")
             f.write("  LShift 0.5\n")
-            f.write("  UseQROs true\n")
+            # f.write("  UseQROs true\n")
             # f.write("  PrintLevel 4\n")
             f.write("END\n")
         if ("CAS" in method) or ("NEVPT2" in method):

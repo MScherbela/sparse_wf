@@ -13,6 +13,7 @@ df_agg = df_agg[(df_agg["n_carbon"] <= 36) & (df_agg["cutoff"] == CUTOFF)]
 df_ref = pd.read_csv("orca_energies.csv", sep=",")
 include = ~df_ref.method.isin(["CASSCF", "CASCI", "RHF"])
 include &= ~df_ref.comment.str.contains("quintuplet")
+df_ref["method"] = df_ref["method"].str.replace("PBE0 CCSD(T)", "PBE0+CCSD(T)")
 df_ref = df_ref[include]
 df_ref_cbs = cbs_extrapolate(df_ref)
 df_ref = pd.concat([df_ref, df_ref_cbs], axis=0, ignore_index=True)
@@ -50,6 +51,7 @@ methods = [
     # ("DLPNO-CCSD(T) / cc-pVDZ", colors_dlpno[0]),
     # ("DLPNO-CCSD(T) / cc-pVTZ", colors_dlpno[1]),
     ("DLPNO-CCSD(T) / CBS", COLOR_PALETTE[0]),
+    ("PBE0 DLPNO-CCSD(T) / cc-pVDZ", "navy"),
     # ("F12/RI-CCSD(T) / cc-pVDZ", "steelblue"),
     # ("PBE0 D3BJ / def2-DZVP", "lightblue"),
     ("PBE0 D3BJ / def2-TZVP", COLOR_PALETTE[2]),

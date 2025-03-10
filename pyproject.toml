@@ -19,7 +19,7 @@ dependencies = [
     "matplotlib",
     "folx",
     # "folx>=0.2.14", # requires jax>=0.4.35
-    "pyscf",
+    "pyscf>=2.8",
     "seml[ssh_forward]",
     "tqdm",
     "wandb",

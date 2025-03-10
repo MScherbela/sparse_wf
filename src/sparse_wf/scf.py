@@ -20,7 +20,8 @@ def hash_mol(mol: pyscf.gto.Mole):
     # Returns a unique hash for each pyscf molecule.
     # This is not robust to permutations of the atoms.
     mol_vars = copy(vars(mol))
-    del mol_vars["stdout"]
+    if "stdout" in mol_vars:
+        del mol_vars["stdout"]
     for k in list(mol_vars.keys()):
         if k.startswith("_"):
             del mol_vars[k]
