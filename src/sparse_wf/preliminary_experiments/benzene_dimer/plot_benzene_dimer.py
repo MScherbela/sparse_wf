@@ -52,7 +52,7 @@ ax.axvline(delta_E_exp * 1000, color="k", linestyle="--", zorder=0)
 ax.axvline(0, color="k", linestyle="-", zorder=0)
 ax.legend()
 
-for y in [2.5, 6.5]:
+for y in [2.5, 7.5]:
     ax.axhline(y, color="k", ls="--", alpha=0.5, zorder=0, lw=0.5)
 ax.axvspan(delta_E_exp * 1000 - exp_uncertainty, delta_E_exp * 1000 + exp_uncertainty, color="k", alpha=0.1, zorder=0)
 ax.set_xlabel("binding energy / mHa")
