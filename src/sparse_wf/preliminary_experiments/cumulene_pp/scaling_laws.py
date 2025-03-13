@@ -105,9 +105,11 @@ df_smoothed.append(preprocess_data(df_all))
 
 #%%
 
-fig, axes = plt.subplots(1, 2, figsize=(9, 3.5), sharex=True, sharey=True)
+fig, axes = plt.subplots(1, 2, figsize=(6, 3.5))
 
-sm = plt.cm.ScalarMappable(cmap=plt.get_cmap("viridis"), norm=plt.Normalize(0, 160, clip=True))
+ls_singlet, ls_triplet, ls_fit = ":", "--", "-"
+
+sm = plt.cm.ScalarMappable(cmap=plt.get_cmap("viridis"), norm=plt.Normalize(0, 130, clip=True))
 for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "acenes"], "ab", axes):
     fit_pivot, fit_params, loss_values = fit_powerlaw(df_smooth, opt_steps=1_000)
     alpha, beta, const = fit_params
@@ -120,11 +122,12 @@ for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "a
     for _, r in fit_pivot.iterrows():
         color = sm.cmap(sm.norm(r.n_el))
         df = df_smooth[df_smooth.molecule == r.molecule]
-        ls = ":" if ("90" in r.molecule or "triplet" in r.molecule) else "-"
-        ax.plot(df.step, powerlaw(df.step, df.n_el), color=color, ls="-")
-        ax.plot(df.step, df.E - r.E_inf, color=color, alpha=0.5, ls=ls)
-    ax.plot([], [], color="dimgray", ls="-", label="Singlet")
-    ax.plot([], [], color="dimgray", ls=":", label="Triplet")
+        ls = ls_triplet if ("90" in r.molecule or "triplet" in r.molecule) else ls_singlet
+        ax.plot(df.step, powerlaw(df.step, df.n_el), color=color, ls=ls_fit, alpha=1)
+        ax.plot(df.step, df.E - r.E_inf, color=color, alpha=1, ls=ls)
+    ax.plot([], [], color="black", ls=ls_singlet, label="Singlet")
+    ax.plot([], [], color="black", ls=ls_triplet, label="Triplet")
+    ax.plot([], [], color="black", ls=ls_fit, label="power-law fit")
     ax.set_xscale("log")
     ax.set_yscale("log")
     # ax_combined.legend(ncol=3, loc="upper right")

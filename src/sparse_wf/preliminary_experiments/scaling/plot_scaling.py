@@ -8,9 +8,8 @@ import scienceplots
 plt.style.use(["science", "grid"])
 
 N_SWEEPS = 2
-REFERENCE_BATCH_SIZE = 1024
-N_EL_MIN_FOR_FIT = 120
-# N_EL_FOR_BREAKDOWN = 148
+REFERENCE_BATCH_SIZE = 512
+N_EL_MIN_FOR_FIT = 100
 N_EL_FOR_BREAKDOWN = 200
 
 
@@ -52,7 +51,7 @@ pivot["t_sampling"] = (pivot.n_el * N_SWEEPS - 1) * pivot.t_update + pivot.t_wf_
 pivot["t_total"] = pivot.t_sampling + pivot.t_E_kin + pivot.t_E_pot + pivot.t_Spin
 
 plt.close("all")
-fig, axes = plt.subplots(2, 2, figsize=(10, 7))
+fig, axes = plt.subplots(1, 4, figsize=(10, 4), width_ratios=[1,1,1,1])
 ax_upd, ax_Ekin, ax_tot, ax_speedup = axes.flatten()
 
 models = ["Ferminet",  "Psiformer", "Lapnet", "FiRE (dense)", "FiRE"]
@@ -61,6 +60,7 @@ markers = ["o", "s", "d", "^", "v"]
 for model, color, marker in zip(models, model_colors, markers):
     kwargs_filled = dict(marker=marker, ls="none", color=color)
     df_model = pivot[pivot.model == model]
+    model = model.replace(" (dense)", "\ndense")
 
     # Plot update times
     exponent = fit_and_plot(ax_upd, df_model.n_el, df_model.t_update, color)
@@ -80,21 +80,29 @@ for model, color, marker in zip(models, model_colors, markers):
     ax_tot.plot(df_model.n_el, df_model.t_total, label=label, **kwargs_filled)
     ax_tot.set_title("total optimization step")
 
-for ax in [ax_upd, ax_Ekin, ax_tot]:
+for ax, ymin in [(ax_upd, 1e-3), (ax_Ekin, 3e-2), (ax_tot, 3e-1)]:
     ax.set_yscale("log")
     ax.set_xscale("log")
-    ax.set_xlabel("number of valence electrons")
-    ax.set_ylabel("runtime / s")
-    ax.legend(loc="upper left")
+    ax.set_xlabel("valence electrons", fontsize=12)
+    if ax == ax_upd:
+        ax.set_ylabel("runtime / s")
+
+    lines_others = ax.get_lines()[1:6:2]
+    lines_fire = ax.get_lines()[7::2]
+    leg = ax.legend(lines_others, [l.get_label() for l in lines_others], loc="upper left", frameon=False, handletextpad=0.0, bbox_to_anchor=(-0.04, 1.02))
+    ax.legend(lines_fire, [l.get_label() for l in lines_fire], loc="lower right", frameon=False, handletextpad=0.0)
+    ax.add_artist(leg)
+    ax.set_xlim([60, 600])
+    ax.set_ylim([ymin, None])
     ax.set_xticks([70, 100, 140, 200, 300, 500])
     ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
     ax.xaxis.minorticks_off()
     # ax.axvline(N_EL_FOR_BREAKDOWN, color="dimgray", ls="-", zorder=-1)
-    # ax.grid(alpha=0.5)
-ax_Ekin.set_ylim([None, 1e4])
+    ax.grid(alpha=0.2)
+# ax_Ekin.set_ylim([None, 1e4])
 
 for ax, label in zip(axes.flatten(), "abcd"):
-    ax.text(0, 1.02, f"{label})", transform=ax.transAxes, va="bottom", ha="left", fontweight="bold", fontsize=12)
+    ax.text(-0.12, 1.02, f"\\textbf{{{label})}}", transform=ax.transAxes, va="bottom", ha="left", fontweight="bold", fontsize=12)
 
 # Speedup bar-chart
 df_speedup = pivot[pivot.n_el == N_EL_FOR_BREAKDOWN].set_index("model").reindex(models)
@@ -102,21 +110,27 @@ t_total_swann = df_speedup.loc["FiRE"].t_total
 df_speedup /= t_total_swann
 columns = {
     "t_sampling": "Sampling",
-    "t_E_kin": "Kin. energy",
+    "t_E_kin": "E$_\\textrm{kin}$",
     "t_E_pot": "ECP",
-    "t_Spin": "$S^+$ operator",
+    "t_Spin": "$S^+$",
 }
 df_speedup = df_speedup[columns.keys()]
 df_speedup = df_speedup.rename(columns=columns)
-df_speedup.plot(kind="bar", stacked=True, ax=ax_speedup, rot=0, color=COLOR_PALETTE)
+df_speedup.plot(kind="bar", stacked=True, ax=ax_speedup, rot=0, color=COLOR_PALETTE, width=0.75)
 for i, model in enumerate(models):
     ax_speedup.text(i, df_speedup.loc[model].sum(), f"{df_speedup.loc[model].sum():.1f}x", ha="center", va="bottom")
-ax_speedup.set_ylabel("Total time relative to FiRE")
-ax_speedup.set_title(f"Runtime breakdown for {N_EL_FOR_BREAKDOWN} electrons")
+# ax_speedup.set_ylabel("Total time relative to FiRE")
+ax_speedup.set_title(f"$T / T_\\textrm{{FiRE}}$ for {N_EL_FOR_BREAKDOWN} electrons")
 ax_speedup.set_ylim((0, df_speedup.sum(axis=1).max() * 1.15))
 print(df_speedup.sum(axis=1))
 ax_speedup.set_xlabel(None)
-ax_speedup.legend(loc="upper right", labelspacing=0.2, frameon=False)
+ax_speedup.legend(loc="upper right", labelspacing=0.2, frameon=False, ncol=2, columnspacing=0.8)
+ax_speedup.set_ylim([0, 21])
 ax_speedup.grid(False)
+ax_speedup.xaxis.minorticks_off()
+ax_speedup.set_xticklabels(["Fermi-\nnet", "Psi-\nformer", "Lap-\nNet", "FiRE\ndense", "FiRE"], rotation=0)
+# plt.setp(ax_speedup.get_xticklabels(), rotation=25, ha='right')
 fig.tight_layout()
-# savefig(fig, "scaling")
+fig.subplots_adjust(wspace=0.2)
+
+savefig(fig, "scaling")

@@ -1509,7 +1509,7 @@ for system_idx, name in names:
 
 for n_el_valence, n_el, name in sorted(system_sizes):
     print(f"{name:<25}: {n_el_valence:3d} valence electrons, {n_el:3d} electrons total")
-save_geometries(geoms_to_add)
+# save_geometries(geoms_to_add)
 
 
 

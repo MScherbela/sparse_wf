@@ -9,21 +9,22 @@ plt.style.use(['science', 'grid'])
 CUTOFF = 3.0
 
 df_agg = pd.read_csv("cumulene_pp_aggregated.csv")
-df_agg = df_agg[(df_agg["n_carbon"] <= 36) & (df_agg["cutoff"] == CUTOFF)]
+df_agg = df_agg[(df_agg["n_carbon"] <= 16) & (df_agg["cutoff"] == CUTOFF)]
 df_ref = pd.read_csv("orca_energies.csv", sep=",")
-include = ~df_ref.method.isin(["CASSCF", "CASCI", "RHF"])
-include &= ~df_ref.comment.str.contains("quintuplet")
-df_ref["method"] = df_ref["method"].str.replace("PBE0 CCSD(T)", "PBE0+CCSD(T)")
-df_ref = df_ref[include]
+df_ref["method"] = df_ref["method"].str.replace("PBE0+CCSD(T)", "PBE0 CCSD(T)")
+df_ref = df_ref[~df_ref.comment.str.contains("quintuplet")]
+df_ref = df_ref[df_ref.method.isin(["PBE0 D3BJ", "PBE0 CCSD(T)", "PBE0 DLPNO-CCSD(T)", "UHF"])]
 df_ref_cbs = cbs_extrapolate(df_ref)
 df_ref = pd.concat([df_ref, df_ref_cbs], axis=0, ignore_index=True)
 df_ref["method"] = df_ref["method"] + " / " + df_ref["basis_set"]
 df_ref["n_carbon"] = df_ref["comment"].apply(lambda s: int(s.split("_")[1].replace("C", "").replace("H4", "")))
 df_ref["angle"] = df_ref["comment"].apply(lambda s: 0 if "_0deg" in s else (90 if "90deg_triplet" in s else "90_quint"))
+df_ref = df_ref[df_ref.n_carbon <= 16]
 pivot_ref = df_ref.pivot_table(index=["method", "n_carbon"], columns="angle", values="E_final", aggfunc="mean")
 pivot_ref["deltaE"] = (pivot_ref[90] - pivot_ref[0])
 pivot_ref = pivot_ref.reset_index()
-
+print(pivot_ref.method.unique())
+#%%
 columns = {"n_carbon": "n_carbon", "E0": 0, "E90": 90, "deltaE_mean": "deltaE"}
 pivot_fire = df_agg.rename(columns=columns)
 pivot_fire = pivot_fire[columns.values()].copy()
@@ -31,13 +32,14 @@ pivot_fire["method"] = "FiRE"
 pivot = pd.concat([pivot_fire, pivot_ref], axis=0, ignore_index=True)
 
 delta_E_fire = pivot_fire.groupby("n_carbon")["deltaE"].mean().to_dict()
-pivot["deltaE_fire"] = pivot.n_carbon.map(delta_E_fire)
-pivot["deviation"] = pivot["deltaE"] - pivot["deltaE_fire"]
+pivot["deltaE_groundtruth"] = pivot.n_carbon.map(pivot[pivot.method == "PBE0 CCSD(T) / CBS"].set_index("n_carbon")["deltaE"])
+pivot["deviation"] = pivot["deltaE"] - pivot["deltaE_groundtruth"]
 pivot = pivot[pivot.n_carbon.isin([4, 6, 8, 12, 16, 20, 24, 36])]
 
 
 fig, ax_deltaE = plt.subplots(1, 1, figsize=(6, 4.5))
 ax_deviation = ax_deltaE.inset_axes([0.35, 0.57, 0.65, 0.43])
+ax_deviation.axhspan(-1.6, 1.6, color="gray", alpha=0.5)
 axes = [ax_deltaE, ax_deviation]
 
 # colors_dlpno = get_colors_from_cmap("Greens", np.linspace(0.4, 0.9, 3))
@@ -45,16 +47,17 @@ colors_cc = get_colors_from_cmap("Greys", np.linspace(0.6, 0.9, 2))
 
 methods = [
     # ("UHF / CBS", "purple"),
-    ("PBE0+CCSD(T) / CBS", colors_cc[1]),
-    ("PBE0+CCSD(T) / cc-pVDZ", colors_cc[0]),
+    # ("PBE0 CCSD(T) / cc-pVDZ", "k"),
+    ("PBE0 CCSD(T) / CBS", "k"),
+    # ("PBE0+CCSD(T) / cc-pVDZ", colors_cc[0]),
     # ("CCSD(T) / cc-pVTZ", colors_cc[1]),
     # ("DLPNO-CCSD(T) / cc-pVDZ", colors_dlpno[0]),
     # ("DLPNO-CCSD(T) / cc-pVTZ", colors_dlpno[1]),
-    ("DLPNO-CCSD(T) / CBS", COLOR_PALETTE[0]),
-    ("PBE0 DLPNO-CCSD(T) / cc-pVDZ", "navy"),
+    # ("PBE0 DLPNO-CCSD(T) / cc-pVDZ", COLOR_PALETTE[2]),
+    # ("PBE0 DLPNO-CCSD(T) / cc-pVDZ", "navy"),
     # ("F12/RI-CCSD(T) / cc-pVDZ", "steelblue"),
     # ("PBE0 D3BJ / def2-DZVP", "lightblue"),
-    ("PBE0 D3BJ / def2-TZVP", COLOR_PALETTE[2]),
+    ("PBE0 D3BJ / def2-TZVP", COLOR_PALETTE[0]),
     ("FiRE", COLOR_FIRE),
 ]
 
@@ -74,18 +77,18 @@ ax_deltaE.set_ylabel(r"$E_\text{twisted} - E_\text{planar}$ / m$E_\text{h}$")
 ax_deltaE.set_xlabel("number of carbon atoms")
 ax_deltaE.set_ylim([None, 75])
 
-ax_deviation.set_ylabel(r"$\Delta E - \Delta E_{\text{FiRE}}$ / m$E_\text{h}$")
-ax_deviation.axhline(0, color="red")
+ax_deviation.set_ylabel(r"$\Delta - \Delta_{\text{CCSD(T)}}$/mE$_\text{h}$")
+ax_deviation.axhline(0, color="k")
 ax_deviation.set_xticks(np.arange(len(n_carbon_to_idx)))
 ax_deviation.set_xticklabels([f"C{n}H4" for n in n_carbon_to_idx.keys()])
 ax_deviation.grid(False, axis="x")
 ax_deviation.set_xlim([-0.5, len(n_carbon_to_idx) - 0.5])
 ax_deviation.xaxis.minorticks_off()
-ax_deviation.set_ylim([-5, 3])
+ax_deviation.set_ylim([-15, 2])
 
 plt.figlegend(ncol=3, loc="upper center")
 fig.tight_layout()
-fig.subplots_adjust(top=0.87)
+fig.subplots_adjust(top=0.90)
 
 for fname, bbox in [
     # ("cumulene_C4H4_0deg_singlet.png", [0.15, 0.1, 0.25, 0.2]),

@@ -15,6 +15,8 @@ for r in runs:
     geom = r.config["molecule_args"]["database_args"]["comment"]
     angle = 90 if "90" in geom else 0
     n_carbon = int(geom.split("_")[1].replace("C", "").replace("H4", ""))
+    if n_carbon > 16:
+        continue
     meta_data = dict(
         name=r.name,
         n_carbon=n_carbon,

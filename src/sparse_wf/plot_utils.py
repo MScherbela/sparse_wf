@@ -43,13 +43,13 @@ def get_outlier_mask(x, window_size=1000, quantile=0.01, outlier_range=5):
     return is_outlier
 
 
-def savefig(fig, name, pdf=True, png=True):
+def savefig(fig, name, pdf=True, png=True, bbox_inches="tight"):
     if name.endswith(".png") or name.endswith(".pdf"):
         name = name[:-4]
     if png:
-        fig.savefig(name + ".png", bbox_inches="tight", dpi=200)
+        fig.savefig(name + ".png", bbox_inches=bbox_inches, dpi=200)
     if pdf:
-        fig.savefig(name + ".pdf", bbox_inches="tight")
+        fig.savefig(name + ".pdf", bbox_inches=bbox_inches)
 
 
 COLOR_FIRE = "#e15759"
@@ -68,7 +68,7 @@ COLOR_PALETTE = [
 
 
 def _extrapolate_basis_set(En, Em, n, exponential):
-    assert n in [2, 3]
+    assert n in [2, 3, 4]
     m = n + 1
     if exponential:
         alpha = 4.42 if n == 2 else 5.46
@@ -80,13 +80,24 @@ def _extrapolate_basis_set(En, Em, n, exponential):
     return E_cbs
 
 
-def cbs_extrapolate(df, HF_method="UHF", extrapolate=(2, 3)):
+def cbs_extrapolate(
+    df,
+    extrapolate=(2, 3),
+    HF_extrapolate=(3, 4),
+    HF_method="UHF",
+    cbs_name_HF="CBS",
+    cbs_name_rest="CBS",
+):
     df = df.copy()
     basis_set_sizes = {
         "cc-pVDZ": 2,
         "cc-pVTZ": 3,
         "cc-pVQZ": 4,
         "cc-pV5Z": 5,
+        "aug-cc-pVDZ": 2,
+        "aug-cc-pVTZ": 3,
+        "aug-cc-pVQZ": 4,
+        "aug-cc-pV5Z": 5,
         "def2-SVP": 2,
         "def2-TZVP": 3,
         "def2-QZVP": 4,
@@ -101,7 +112,9 @@ def cbs_extrapolate(df, HF_method="UHF", extrapolate=(2, 3)):
     pivot_hf = pivot[pivot["method"] == HF_method]
     pivot_rest = pivot[pivot["method"] != HF_method]
 
-    E_hf_cbs = _extrapolate_basis_set(pivot_hf["E_final"][3], pivot_hf["E_final"][4], 3, True)
+    E_hf_cbs = _extrapolate_basis_set(
+        pivot_hf["E_final"][HF_extrapolate[0]], pivot_hf["E_final"][HF_extrapolate[1]], HF_extrapolate[0], True
+    )
     if isinstance(extrapolate, tuple):
         assert len(extrapolate) == 2 and (extrapolate[0] + 1 == extrapolate[1])
         E1 = pivot_rest["E_final"][extrapolate[0]] - pivot_rest["E_hf"][extrapolate[0]]
@@ -111,10 +124,10 @@ def cbs_extrapolate(df, HF_method="UHF", extrapolate=(2, 3)):
         E_corr = pivot_rest["E_final"][extrapolate] - pivot_rest["E_hf"][extrapolate]
 
     df_hf_cbs = pd.DataFrame(
-        {"E_final": E_hf_cbs, "method": HF_method, "basis_set": "CBS", "comment": pivot_hf.comment}
+        {"E_final": E_hf_cbs, "method": HF_method, "basis_set": cbs_name_HF, "comment": pivot_hf.comment}
     )
     df_rest_cbs = pd.DataFrame(
-        {"E_corr": E_corr, "method": pivot_rest.method, "basis_set": "CBS", "comment": pivot_rest.comment}
+        {"E_corr": E_corr, "method": pivot_rest.method, "basis_set": cbs_name_rest, "comment": pivot_rest.comment}
     )
     df_rest_cbs = df_rest_cbs.merge(df_hf_cbs[["comment", "E_final"]], on="comment", how="left")
     df_rest_cbs["E_final"] += df_rest_cbs["E_corr"]

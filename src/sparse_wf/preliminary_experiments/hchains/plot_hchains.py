@@ -33,7 +33,8 @@ markers = "os"
 linestyles = ["-", "--"]
 for dist, ls, marker in zip(distances, linestyles, markers):
     df_dist = df[df["dist"] == dist]
-    label = f"FiRE $d={{{dist:.1f}}} a_0$"
+    # label = f"FiRE $d={{{dist:.1f}}} a_0$"
+    label = "FiRE" if dist == 1.8 else None
     ax_abs.errorbar(
         df_dist.cutoff,
         df_dist.error * 1000,
@@ -46,6 +47,8 @@ for dist, ls, marker in zip(distances, linestyles, markers):
         color=COLOR_FIRE,
     )
     ax_std.plot(df_dist.cutoff, df_dist.E_std * 1000, label=None, ls=ls, marker=marker, ms=4, color=COLOR_FIRE)
+ax_abs.plot([], [], color="k", ls="-", label="$d=1.8 a_0$")
+ax_abs.plot([], [], color="k", ls="--", label="$d=2.8 a_0$")
 
 # Relative quantities
 ax_rel.errorbar(df_rel.cutoff, df_rel.rel_error * 1000, df_rel.rel_error_sigma * 1000, color=COLOR_FIRE, capsize=3, label=None)
@@ -62,8 +65,8 @@ for idx_method, method in enumerate(ref_methods):
 for ax, label in zip(axes.flatten(), "abc"):
     ax.set_xlabel("cutoff / $a_0$")
     # ax.legend()
-    ax.text(0, 1.02, f"{label}", transform=ax.transAxes, va="bottom", ha="left", fontweight="bold", fontsize=12)
-plt.figlegend(loc="upper center", ncol=5)
+    ax.text(0, 1.02, f"\\textbf{{{label})}}", transform=ax.transAxes, va="bottom", ha="left", fontsize=12)
+plt.figlegend(loc="upper center", ncol=6)
 
 ax_abs.set_title("absolute error")
 ax_rel.set_title("relative error")

@@ -1,0 +1,12 @@
+molecule,LapNet,CCSD(T),LapNet_err
+01_Water_dimer,0.00725,0.00795,0.00008
+02_Formic_acid_dimer,0.0264,0.02988,0.0002
+03_Formamide_dimer,0.0226,0.02560,0.0001
+04_Uracil_dimer_h-bonded,0.0370,0.03289,0.0004
+05_Methane_dimer,0.0003,0.00084,0.0001
+06_Ethene_dimer,0.0016,0.00235,0.0001
+07_Uracil_dimer_stack,0.0117,0.01563,0.0004
+08_Ethene-ethyne_complex,0.00130,0.00238,0.00008
+09_Benzene-water_complex,0.0029,0.00522,0.0002
+10_Benzene_dimer_T-shaped,0.0026,0.00433,0.0001
+11_Phenol_dimer,0.0080,0.01131,0.0003
