@@ -1,6 +1,18 @@
+# %%
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+
+def format_value_with_error(value, error):
+    assert error < 1
+    n_digits = int(np.ceil(-np.log10(error)))
+    error_rounded = int(np.round(error * 10**n_digits))
+    assert 0 < error_rounded < 10
+    value_rounded = np.round(value, n_digits)
+    s = f"{{val:.{n_digits}f}}".format(val=value_rounded)
+    s += f"({error_rounded})"
+    return s
 
 
 def get_colors_from_cmap(cmap_name, values):
@@ -122,14 +134,30 @@ def cbs_extrapolate(
         E_corr = _extrapolate_basis_set(E1, E2, extrapolate[0], False)
     elif isinstance(extrapolate, int):
         E_corr = pivot_rest["E_final"][extrapolate] - pivot_rest["E_hf"][extrapolate]
+    elif extrapolate is None:
+        E_corr = None
 
     df_hf_cbs = pd.DataFrame(
         {"E_final": E_hf_cbs, "method": HF_method, "basis_set": cbs_name_HF, "comment": pivot_hf.comment}
     )
-    df_rest_cbs = pd.DataFrame(
-        {"E_corr": E_corr, "method": pivot_rest.method, "basis_set": cbs_name_rest, "comment": pivot_rest.comment}
-    )
-    df_rest_cbs = df_rest_cbs.merge(df_hf_cbs[["comment", "E_final"]], on="comment", how="left")
-    df_rest_cbs["E_final"] += df_rest_cbs["E_corr"]
-    df_rest_cbs = df_rest_cbs.drop(columns=["E_corr"])
-    return pd.concat([df_hf_cbs, df_rest_cbs], axis=0, ignore_index=True)
+    if E_corr is not None:
+        df_rest_cbs = pd.DataFrame(
+            {"E_corr": E_corr, "method": pivot_rest.method, "basis_set": cbs_name_rest, "comment": pivot_rest.comment}
+        )
+        df_rest_cbs = df_rest_cbs.merge(df_hf_cbs[["comment", "E_final"]], on="comment", how="left")
+        df_rest_cbs["E_final"] += df_rest_cbs["E_corr"]
+        df_rest_cbs = df_rest_cbs.drop(columns=["E_corr"])
+        df_hf_cbs = pd.concat([df_hf_cbs, df_rest_cbs], axis=0, ignore_index=True)
+    return df_hf_cbs
+
+
+def focal_point_analysis(energies, method_strings):
+    methods = [m.split("/") for m in method_strings]
+    assert all([len(m) == 2 for m in methods])  # pairs of method, basis set
+    E = energies[method_strings[0]]
+    for (method, basis_set), (larger_meth, _) in methods[1:], methods[:-1]:
+        E += energies[method + "/" + basis_set] - energies[larger_meth + "/" + basis_set]
+    return E
+
+
+MILLIHARTREE = "[m$E_\\text{h}$]"

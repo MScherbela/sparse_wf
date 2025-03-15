@@ -24,7 +24,7 @@ pivot_ref = df_ref.pivot_table(index=["method", "n_carbon"], columns="angle", va
 pivot_ref["deltaE"] = (pivot_ref[90] - pivot_ref[0])
 pivot_ref = pivot_ref.reset_index()
 print(pivot_ref.method.unique())
-#%%
+
 columns = {"n_carbon": "n_carbon", "E0": 0, "E90": 90, "deltaE_mean": "deltaE"}
 pivot_fire = df_agg.rename(columns=columns)
 pivot_fire = pivot_fire[columns.values()].copy()
@@ -37,8 +37,8 @@ pivot["deviation"] = pivot["deltaE"] - pivot["deltaE_groundtruth"]
 pivot = pivot[pivot.n_carbon.isin([4, 6, 8, 12, 16, 20, 24, 36])]
 
 
-fig, ax_deltaE = plt.subplots(1, 1, figsize=(6, 4.5))
-ax_deviation = ax_deltaE.inset_axes([0.35, 0.57, 0.65, 0.43])
+fig, ax_deltaE = plt.subplots(1, 1, figsize=(6, 3.5))
+ax_deviation = ax_deltaE.inset_axes([0.4, 0.5, 0.6, 0.5])
 ax_deviation.axhspan(-1.6, 1.6, color="gray", alpha=0.5)
 axes = [ax_deltaE, ax_deviation]
 
@@ -46,17 +46,7 @@ axes = [ax_deltaE, ax_deviation]
 colors_cc = get_colors_from_cmap("Greys", np.linspace(0.6, 0.9, 2))
 
 methods = [
-    # ("UHF / CBS", "purple"),
-    # ("PBE0 CCSD(T) / cc-pVDZ", "k"),
     ("PBE0 CCSD(T) / CBS", "k"),
-    # ("PBE0+CCSD(T) / cc-pVDZ", colors_cc[0]),
-    # ("CCSD(T) / cc-pVTZ", colors_cc[1]),
-    # ("DLPNO-CCSD(T) / cc-pVDZ", colors_dlpno[0]),
-    # ("DLPNO-CCSD(T) / cc-pVTZ", colors_dlpno[1]),
-    # ("PBE0 DLPNO-CCSD(T) / cc-pVDZ", COLOR_PALETTE[2]),
-    # ("PBE0 DLPNO-CCSD(T) / cc-pVDZ", "navy"),
-    # ("F12/RI-CCSD(T) / cc-pVDZ", "steelblue"),
-    # ("PBE0 D3BJ / def2-DZVP", "lightblue"),
     ("PBE0 D3BJ / def2-TZVP", COLOR_PALETTE[0]),
     ("FiRE", COLOR_FIRE),
 ]
@@ -73,11 +63,11 @@ for idx_method, (method, color) in enumerate(methods):
     ax_deviation.bar(x_bar, df["deviation"] * 1000, label=None, color=color, width=bar_width, zorder=3)
 
 ax_deltaE.axhline(0, color="black", linestyle="-", zorder=-1)
-ax_deltaE.set_ylabel(r"$E_\text{twisted} - E_\text{planar}$ / m$E_\text{h}$")
+ax_deltaE.set_ylabel(r"$E_\text{twisted} - E_\text{planar}$  [m$E_\text{h}$]")
 ax_deltaE.set_xlabel("number of carbon atoms")
-ax_deltaE.set_ylim([None, 75])
+ax_deltaE.set_ylim([None, 85])
 
-ax_deviation.set_ylabel(r"$\Delta - \Delta_{\text{CCSD(T)}}$/mE$_\text{h}$")
+ax_deviation.set_ylabel(r"$\Delta - \Delta_{\text{CCSD(T)}}$ [mE$_\text{h}$]")
 ax_deviation.axhline(0, color="k")
 ax_deviation.set_xticks(np.arange(len(n_carbon_to_idx)))
 ax_deviation.set_xticklabels([f"C{n}H4" for n in n_carbon_to_idx.keys()])
@@ -102,11 +92,20 @@ for fname, bbox in [
 
 savefig(fig, "cumulene_energy")
 
+pivot_tex = pivot[pivot.method.isin([m[0] for m in methods])]
+pivot_tex = pivot_tex.pivot_table(index="n_carbon", columns="method", values="deltaE") * 1000
+with open("cumulene.tex", "w") as f:
+    f.write("{molecule} & {FiRE} & {CCSD(T)} & {PBE0}\\\\\n")
+    f.write("\\midrule\n")
+    for n_carbon, row in pivot_tex.iterrows():
+        mol = "\ch{C_{" + str(n_carbon)+ "}H4}"
+        f.write(f"{mol} & {row['FiRE']:.1f} & {row['PBE0 CCSD(T) / CBS']:.1f} & {row['PBE0 D3BJ / def2-TZVP']:.1f} \\\\\n")
+
 #%%
 window = 1000
 df_full = pd.read_csv("cumulene_pp_energies.csv")
-fig, axes = plt.subplots(3, 3, figsize=(7, 7))
-n_carbon_values = [2, 4, 6, 8, 12, 16, 20, 24, 36]
+fig, axes = plt.subplots(2, 3, figsize=(7, 7))
+n_carbon_values = [2, 4, 6, 8, 12, 16]
 for idx_n_carbon, n_carbon in enumerate(n_carbon_values):
     ax = axes.flatten()[idx_n_carbon]
     twinx = ax.twinx()

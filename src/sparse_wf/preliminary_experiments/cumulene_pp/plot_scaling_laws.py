@@ -2,7 +2,7 @@
 import jax.scipy.optimize
 import pandas as pd
 import numpy as np
-from sparse_wf.plot_utils import get_outlier_mask, savefig
+from sparse_wf.plot_utils import get_outlier_mask, savefig, MILLIHARTREE
 import matplotlib.pyplot as plt
 import scienceplots
 import os
@@ -105,7 +105,7 @@ df_smoothed.append(preprocess_data(df_all))
 
 #%%
 
-fig, axes = plt.subplots(1, 2, figsize=(6, 3.5))
+fig, axes = plt.subplots(1, 2, figsize=(5.5, 3))
 
 ls_singlet, ls_triplet, ls_fit = ":", "--", "-"
 
@@ -115,8 +115,7 @@ for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "a
     alpha, beta, const = fit_params
     def powerlaw(t, n):
         return np.exp(const) * t**(-alpha) * n**beta
-    # fitted_equation = f"$E(t,n_\\mathrm{{el}}) - E(\\infty, n_\\mathrm{{el}}) \propto t^{{-{alpha:.1f}}}\\; n_\\mathrm{{el}}^{{{beta:.1f}}}$"
-    fitted_equation = f"$\Delta E \propto t^{{-{alpha:.1f}}}\\; n_\\mathrm{{el}}^{{{beta:.1f}}}$"
+    fitted_equation = f"$\Delta E \sim t^{{-{alpha:.1f}}}\\; n_\\mathrm{{el}}^{{{beta:.1f}}}$"
 
 
     for _, r in fit_pivot.iterrows():
@@ -130,55 +129,18 @@ for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "a
     ax.plot([], [], color="black", ls=ls_fit, label="power-law fit")
     ax.set_xscale("log")
     ax.set_yscale("log")
-    # ax_combined.legend(ncol=3, loc="upper right")
-    # ax.set_title(molecule_class + "\n" + fitted_equation)
     ax.set_title(molecule_class)
     ax.set_xlabel("optimization step $t$")
     if molecule_class == "cumulenes":
-        ax.set_ylabel(f"$(E - E_\infty)$ / m$E_h$")
-    ax.legend(loc="upper right", handlelength=1)
-    ax.text(0.05, 0.1, fitted_equation, transform=ax.transAxes, fontsize=12)
+        ax.set_ylabel(f"$(E - E_\infty)$ " + MILLIHARTREE)
+    # legend with less spacing between lines
+    ax.legend(loc="upper right", handlelength=1, labelspacing=0.3)
+    ax.text(0.02, 0.05, fitted_equation, transform=ax.transAxes, fontsize=11)
     ax.text(0, 1.02, f"\\textbf{{{ax_label})}}", transform=ax.transAxes, va="bottom", ha="left")
     print(f"Opt-step induced order beta/alpha: {beta/alpha:.2f}")
+axes[0].set_ylim([1e-4, 2e0])
 
 fig.tight_layout()
 fig.colorbar(sm, ax=axes.ravel().tolist(), orientation="vertical", label="$n_\\mathrm{el}$")
 fig.subplots_adjust(right=0.83)
 savefig(fig, "scaling_laws")
-
-#%%
-# fit_pivot["angle"] = fit_pivot.molecule.map(lambda x: int(x.split("_")[-1]))
-# fit_pivot["mol"] = fit_pivot.molecule.map(lambda x: x.split("_")[0])
-# fit_pivot["n_carbon"] = fit_pivot.mol.map(lambda x: int(x[1:].replace("H4", "")))
-# pivot = fit_pivot.pivot_table(index="n_carbon", columns="angle", values="E_inf").reset_index()
-# pivot["deltaE"] = (pivot[90] - pivot[0]) * 1000
-# print(pivot)
-
-# plt.figure()
-# plt.plot(pivot.n_carbon, pivot.deltaE, marker="o", ms=4, label="Extrapolated")
-
-# df_agg = pd.read_csv("cumulene_pp_aggregated.csv")
-# plt.plot(df_agg.n_carbon, df_agg.deltaE_mean * 1000, marker="s", ms=4, label="Last")
-# plt.legend()
-# x = np.linspace(2, 36)
-# plt.plot(x, 280 / x, color="k", ls="--", zorder=-1)
-# # plt.ylim([None, 40])
-
-# #%%
-# molecules = ["C20H4_0", "C20H4_90"]
-# E_inf_values = [-115.48626, -115.479996]
-# df = df_smoothed[0][df_smoothed[0].molecule.isin(molecules)]
-# fig, ax = plt.subplots(1, 1, figsize=(7, 6))
-# for mol, E_inf in zip(molecules, E_inf_values):
-#     df_mol = df[df.molecule == mol]
-#     ax.plot(df_mol.step, (df_mol.E - (E_inf)) * 1000, label=mol)
-# ax.set_yscale("log")
-# ax.set_xscale("log")
-
-
-
-
-# #%%
-# plt.figure()
-# plt.plot(loss_values)
-

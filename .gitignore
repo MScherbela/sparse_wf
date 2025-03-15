@@ -177,3 +177,4 @@ src/sparse_wf/preliminary_experiments/ferrocene/ferrocene_energies.csv
 src/sparse_wf/preliminary_experiments/hchains/cumulene_pp_energies.csv
 src/sparse_wf/preliminary_experiments/cumulene_pp/cumulene_spin_data.csv
 src/sparse_wf/preliminary_experiments/cumulene_pp/cumulene_pp_energies.csv
+src/sparse_wf/preliminary_experiments/interactions/interaction_energies.csv

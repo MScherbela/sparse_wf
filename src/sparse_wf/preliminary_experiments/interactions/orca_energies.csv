@@ -5,10 +5,13 @@ comment,method,basis_set,E_final
 01_Water_dimer,PBE0 CCSD(T),cc-pVQZ,-152.727094285362
 02_Formic_acid_dimer_Dissociated,MP2,aug-cc-pVQZ,-379.077206157163
 02_Formic_acid_dimer,CCSD(T),cc-pVDZ,-378.646549349771
+02_Formic_acid_dimer,UHF,aug-cc-pVDZ,-377.61323034039
 01_Water_dimer_Dissociated,HF,aug-cc-pV5Z,-152.134284486525
 03_Formamide_dimer,HF,cc-pVQZ,-338.044810274941
+02_Formic_acid_dimer_Dissociated,UHF,aug-cc-pVQZ,-377.706766178371
 01_Water_dimer_Dissociated,MP2,cc-pV5Z,-152.71721408458
 01_Water_dimer_Dissociated,NEVPT2,cc-pVTZ,-152.628334674158
+02_Formic_acid_dimer_Dissociated,CCSD(T),aug-cc-pVTZ,-379.031669403348
 03_Formamide_dimer_Dissociated,MP2,aug-cc-pVQZ,-339.337155114535
 01_Water_dimer_Dissociated,MP2,aug-cc-pVDZ,-152.521697708417
 03_Formamide_dimer,MP2,aug-cc-pVDZ,-338.972441968175
@@ -16,29 +19,41 @@ comment,method,basis_set,E_final
 03_Formamide_dimer,MP2,aug-cc-pVQZ,-339.362603352331
 01_Water_dimer,CCSD(T),aug-cc-pVDZ,-152.555970726339
 02_Formic_acid_dimer,HF,cc-pVQZ,-377.729703429491
+02_Formic_acid_dimer,UHF MP2,aug-cc-pVDZ,-378.678587327007
+02_Formic_acid_dimer_Dissociated,HF,aug-cc-pV5Z,-377.712550933674
 01_Water_dimer_Dissociated,HF,cc-pVQZ,-152.129314808196
 01_Water_dimer_Dissociated,MP2,aug-cc-pV5Z,-152.720475645128
+02_Formic_acid_dimer,UHF,aug-cc-pVTZ,-377.706623939415
 01_Water_dimer_Dissociated,CCSD(T),aug-cc-pVQZ,-152.727198771902
 01_Water_dimer_Dissociated,MP2,cc-pVDZ,-152.456985468691
 03_Formamide_dimer,HF,cc-pVDZ,-337.916258458897
+02_Formic_acid_dimer_Dissociated,HF,aug-cc-pVTZ,-377.682020204773
 01_Water_dimer_Dissociated,CCSD(T),cc-pVTZ,-152.664422031168
+02_Formic_acid_dimer,HF,aug-cc-pVTZ,-377.706623939445
 01_Water_dimer,HF,cc-pV5Z,-152.139634098085
+02_Formic_acid_dimer,HF,aug-cc-pVQZ,-377.731184737499
 01_Water_dimer_Dissociated,CCSD(T),cc-pVDZ,-152.482211124497
+02_Formic_acid_dimer_Dissociated,HF,aug-cc-pVDZ,-377.588575825706
 03_Formamide_dimer_Dissociated,HF,cc-pVDZ,-337.891991863086
 03_Formamide_dimer_Dissociated,HF,cc-pVTZ,-337.998442004288
+02_Formic_acid_dimer_Dissociated,UHF,aug-cc-pVDZ,-377.588575825804
 01_Water_dimer_Dissociated,CCSD(T),aug-cc-pVDZ,-152.547659606908
 01_Water_dimer_Dissociated,HF,cc-pV5Z,-152.133824922458
 01_Water_dimer_Dissociated,MP2,aug-cc-pVTZ,-152.657997847958
+02_Formic_acid_dimer_Dissociated,UHF MP2,aug-cc-pVTZ,-378.969886838334
 01_Water_dimer_Dissociated,HF,cc-pVDZ,-152.053375851881
 01_Water_dimer_Dissociated,CCSD(T),cc-pVQZ,-152.719602676033
 01_Water_dimer_Dissociated,MP2,aug-cc-pVQZ,-152.703859301099
 01_Water_dimer_Dissociated,NEVPT2,cc-pVDZ,-152.446839879111
 01_Water_dimer,HF,aug-cc-pVQZ,-152.137351242309
 03_Formamide_dimer,HF,cc-pVTZ,-338.019021852287
+02_Formic_acid_dimer_Dissociated,UHF MP2,aug-cc-pVDZ,-378.649075199305
+02_Formic_acid_dimer,CCSD(T),aug-cc-pVDZ,-378.737435514419
 01_Water_dimer,PBE0 CCSD(T),cc-pVTZ,-152.672892752079
 01_Water_dimer,HF,aug-cc-pVDZ,-152.088599426293
 03_Formamide_dimer_Dissociated,HF,cc-pVQZ,-338.025118630608
 01_Water_dimer_Dissociated,PBE0 CCSD(T),cc-pVTZ,-152.66347242328
+02_Formic_acid_dimer_Dissociated,HF,aug-cc-pVQZ,-377.706766178385
 01_Water_dimer,HF,aug-cc-pVTZ,-152.126617620973
 02_Formic_acid_dimer,HF,cc-pVTZ,-377.701124996814
 01_Water_dimer,HF,cc-pVDZ,-152.062536326368
@@ -48,6 +63,7 @@ comment,method,basis_set,E_final
 01_Water_dimer_Dissociated,PBE0 CCSD(T),cc-pVQZ,-152.718460425189
 02_Formic_acid_dimer,MP2,aug-cc-pVTZ,-379.00020258298
 02_Formic_acid_dimer_Dissociated,HF,cc-pVTZ,-377.675315995562
+02_Formic_acid_dimer,HF,aug-cc-pV5Z,-377.736845098256
 03_Formamide_dimer_Dissociated,CCSD(T),cc-pVDZ,-338.927417060309
 01_Water_dimer,HF,cc-pVTZ,-152.12095528671
 01_Water_dimer,MP2,aug-cc-pVDZ,-152.529947282965
@@ -56,6 +72,7 @@ comment,method,basis_set,E_final
 01_Water_dimer,CCSDT,cc-pVTZ,-152.673959533649
 01_Water_dimer_Dissociated,HF,aug-cc-pVQZ,-152.131648774683
 01_Water_dimer,HF,aug-cc-pV5Z,-152.139944787653
+02_Formic_acid_dimer,HF,aug-cc-pVDZ,-377.613230340322
 03_Formamide_dimer_Dissociated,CCSD(T),cc-pVTZ,-339.281518211586
 01_Water_dimer,PBE0 CCSD(T),cc-pVDZ,-152.492737656028
 01_Water_dimer_Dissociated,HF,aug-cc-pVTZ,-152.120899302732
@@ -63,8 +80,11 @@ comment,method,basis_set,E_final
 01_Water_dimer,CCSD(T),cc-pVTZ,-152.673821605966
 01_Water_dimer_Dissociated,PBE0 CCSD(T),cc-pVDZ,-152.481490176964
 01_Water_dimer,MP2,cc-pVDZ,-152.46871180883
+02_Formic_acid_dimer,UHF,aug-cc-pVQZ,-377.731184737441
 01_Water_dimer,CCSD(T),aug-cc-pVQZ,-152.735281249937
 01_Water_dimer,MP2,cc-pVTZ,-152.646981627054
+02_Formic_acid_dimer,UHF MP2,aug-cc-pVTZ,-379.000202578786
+02_Formic_acid_dimer,CCSD(T),aug-cc-pVTZ,-379.062246601845
 02_Formic_acid_dimer_Dissociated,HF,cc-pVDZ,-377.556861238562
 01_Water_dimer_Dissociated,CCSDT,cc-pVDZ,-152.482535808106
 01_Water_dimer,MP2,cc-pVQZ,-152.704031068037
@@ -78,11 +98,13 @@ comment,method,basis_set,E_final
 01_Water_dimer,NEVPT2,cc-pVTZ,-152.638141999891
 02_Formic_acid_dimer_Dissociated,CCSD(T),cc-pVTZ,-378.999556334497
 01_Water_dimer_Dissociated,HF,aug-cc-pVDZ,-152.08257796202
+02_Formic_acid_dimer_Dissociated,CCSD(T),aug-cc-pVDZ,-378.707730872773
 03_Formamide_dimer,CCSD(T),cc-pVDZ,-338.956025874647
 01_Water_dimer,MP2,aug-cc-pV5Z,-152.728447637706
 02_Formic_acid_dimer,HF,cc-pVDZ,-377.586255193287
 01_Water_dimer_Dissociated,CCSD(T),aug-cc-pVTZ,-152.68466321119
 01_Water_dimer,CCSD(T),cc-pVQZ,-152.728219642465
+02_Formic_acid_dimer_Dissociated,UHF,aug-cc-pVTZ,-377.682020204849
 02_Formic_acid_dimer_Dissociated,CCSD(T),cc-pVDZ,-378.613051253158
 01_Water_dimer,CCSDT,cc-pVDZ,-152.49376809376
 01_Water_dimer_Dissociated,MP2,cc-pVQZ,-152.695279500431

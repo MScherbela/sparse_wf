@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from sparse_wf.plot_utils import savefig, COLOR_PALETTE, COLOR_FIRE
+from sparse_wf.plot_utils import savefig, COLOR_PALETTE, COLOR_FIRE, MILLIHARTREE
 import scienceplots
 plt.style.use(["science", "grid"])
 
@@ -23,7 +23,7 @@ df_rel = df.pivot_table(index="cutoff", columns="dist", values=["error", "E_mean
 df_rel["rel_error"] = df_rel[("error", 2.8)] - df_rel[("error", 1.8)]
 df_rel["rel_error_sigma"] = np.sqrt(df_rel[("E_mean_sigma", 2.8)] ** 2 + df_rel[("E_mean_sigma", 1.8)] ** 2)
 df_rel = df_rel.reset_index()
-#%%
+
 fig, axes = plt.subplots(1, 3, figsize=(8, 3))
 ax_abs, ax_rel, ax_std = axes.flatten()
 
@@ -52,7 +52,7 @@ ax_abs.plot([], [], color="k", ls="--", label="$d=2.8 a_0$")
 
 # Relative quantities
 ax_rel.errorbar(df_rel.cutoff, df_rel.rel_error * 1000, df_rel.rel_error_sigma * 1000, color=COLOR_FIRE, capsize=3, label=None)
-ax_rel.axhline(0, color="k", linestyle="-")
+ax_rel.axhline(0, color="dimgray", linestyle="-")
 
 for idx_method, method in enumerate(ref_methods):
     error18, error28, error_rel = pivot_ref.loc[method, [1.8, 2.8, "deltaE"]]
@@ -71,9 +71,9 @@ plt.figlegend(loc="upper center", ncol=6)
 ax_abs.set_title("absolute error")
 ax_rel.set_title("relative error")
 ax_std.set_title("standard deviation")
-ax_abs.set_ylabel(f"$E_\\mathrm{{FiRE}} - E_\\mathrm{{{GROUND_TRUTH}}}$ / mHa")
-ax_rel.set_ylabel(f"$\Delta E_\\mathrm{{FiRE}} - \Delta E_\\mathrm{{{GROUND_TRUTH}}}$ / mHa")
-ax_std.set_ylabel("$\sigma(E_\\mathrm{FiRE})$ / mHa")
+ax_abs.set_ylabel(f"$E_\\mathrm{{FiRE}} - E_\\mathrm{{{GROUND_TRUTH}}}$ " + MILLIHARTREE)
+ax_rel.set_ylabel(f"$\Delta E_\\mathrm{{FiRE}} - \Delta E_\\mathrm{{{GROUND_TRUTH}}}$ " + MILLIHARTREE)
+ax_std.set_ylabel("$\sigma(E_\\mathrm{FiRE})$ " + MILLIHARTREE)
 fig.tight_layout()
 fig.subplots_adjust(top=0.8)
 savefig(fig, "hchain_energies")
