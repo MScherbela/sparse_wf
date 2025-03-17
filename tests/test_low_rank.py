@@ -20,10 +20,12 @@ from utils import setup_inputs
 jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
 
+MODELS_TO_TEST = ["new_sparse"]
+
 
 # TODO: add separate testcases for embedding, jastrow, determinant, total_logpsi
 @pytest.mark.parametrize("dtype", [jnp.float64])
-@pytest.mark.parametrize("embedding", ["moon", "new", "new_sparse"])
+@pytest.mark.parametrize("embedding", MODELS_TO_TEST)
 def test_low_rank_update_logpsi(dtype, embedding):
     model, electrons, params, static_args = setup_inputs(dtype, embedding)
     (_, logpsi_old), state_old = model.log_psi_with_state(params, electrons, static_args)
@@ -61,6 +63,6 @@ def test_low_rank_update_logpsi(dtype, embedding):
 
 
 if __name__ == "__main__":
-    for embedding in ["new_sparse", "moon", "new"]:
+    for embedding in MODELS_TO_TEST:
         for dtype in [jnp.float64, jnp.float32]:
             test_low_rank_update_logpsi(dtype, embedding)

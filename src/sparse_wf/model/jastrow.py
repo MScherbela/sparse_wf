@@ -66,36 +66,30 @@ class ElElCusp(nn.Module):
 
 class GlobalAttentionJastrow(nn.Module):
     n_up: int
+    emb_dim: int
     n_register: int
-    register_dim: int
+    value_dim: int
     out_dims: Sequence[int]
 
     def setup(self):
-        self.register_keys = self.param(
-            "register_keys",
-            nn.initializers.normal(1, jnp.float32),
-            (self.n_register, self.register_dim),
-        )
-        self.Q_W = Linear(self.n_register * self.register_dim)
-        self.V_W = Linear(self.n_register * self.register_dim)
+        self.queries = Linear(self.n_register, use_bias=False)
+        self.W_value = Linear(self.n_register * self.value_dim)
         self.out = MLP([*self.out_dims, 2])
         self.scale = self.param("scale", nn.initializers.zeros, (2,), jnp.float32)
         self.bias = self.param("bias", nn.initializers.ones, (1,), jnp.float32)
 
     def attention_and_values(self, h: Float[Array, "... feature_dim"]):
-        queries = self.Q_W(h).reshape(*h.shape[:-1], self.n_register, self.register_dim)
-        values = self.V_W(h).reshape(*h.shape[:-1], self.n_register, self.register_dim)
-
-        attention = (queries * self.register_keys).sum(-1)
-        attention = ElementWise(lambda x: jnp.exp(-x / jnp.sqrt(self.register_dim)))(attention)
-        return attention, attention[..., None] * values  # attention is ... x reg, values is ... x reg x dim
+        attention = self.queries(h)  # ... x el x reg
+        attention = ElementWise(lambda x: jnp.exp(-x))(attention)  # ... x el x reg
+        values = self.W_value(h).reshape(*h.shape[:-1], self.n_register, self.value_dim)  # ... x el x reg x value-dim
+        return attention, attention[..., None] * values  # attention is ... x el x reg, values is ... x reg x value-dim
 
     def readout(
         self,
         normalizer: Float[Array, "n_nodes n_reg"],
         values: Float[Array, "n_nodes n_reg feature_dim"],
     ):
-        values = (values / normalizer[..., None]).reshape(-1)
+        values = (values / normalizer[..., None]).reshape(-1)  # [2 * n_reg * value_dim]
         jastrow = self.out(values)
         return jastrow * self.scale + jnp.concatenate([jnp.zeros(1, dtype=self.bias.dtype), self.bias])
 
@@ -146,8 +140,8 @@ class GlobalAttentionJastrow(nn.Module):
         if isinstance(up_norm, FwdLaplArray):
             stack = fwd_lap(stack, argnums=(0, 1))
 
-        norm = stack(up_norm, down_norm)
-        values = stack(up_values, down_values)
+        norm = stack(up_norm, down_norm)  # 2 x n_reg
+        values = stack(up_values, down_values)  # 2 x n_reg x value_dim
         return norm, values
 
     def __call__(self, h: Float[Array, "n_nodes feature_dim"]):
@@ -188,6 +182,7 @@ def get_changed_pair_indices(n_el: int, n_up: int, idx_changed: ElectronIdx):
 
 class Jastrow(nn.Module):
     n_up: int
+    emb_dim: int
     e_e_cusps: Literal["none", "psiformer", "yukawa"]
     use_e_e_mlp: bool
     use_log_jastrow: bool
@@ -223,6 +218,7 @@ class Jastrow(nn.Module):
         if self.use_attention:
             self.att = GlobalAttentionJastrow(
                 self.n_up,
+                self.emb_dim,
                 self.attention_heads,
                 self.attention_dim,
                 (self.mlp_width,) * self.mlp_depth,

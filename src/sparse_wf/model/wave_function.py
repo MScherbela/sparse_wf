@@ -122,6 +122,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], LowRankS
                 emb_mod = NewEmbedding.create(R, Z, n_electrons, n_up, **embedding["new"])
             case "new_sparse":
                 emb_mod = NewSparseEmbedding.create(R, Z, n_electrons, n_up, **embedding["new"])
+
                 _sparse_jacobian = True
             case _:
                 raise ValueError(f"Unknown embedding type {embedding['embedding']}")
@@ -145,7 +146,7 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], LowRankS
             spin_restricted=spin_restricted,
             embedding=emb_mod,  # type: ignore
             to_orbitals=to_orbitals,
-            jastrow=Jastrow(n_up, **jastrow),
+            jastrow=Jastrow(n_up, emb_mod.feature_dim, **jastrow),
             _sparse_jacobian=_sparse_jacobian,
         )
 

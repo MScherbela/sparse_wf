@@ -23,12 +23,12 @@ def linebreak(s, lmax=12):
 
 
 
-df_fire = pd.read_csv("interactions_aggregated.csv")
-df_fire = df_fire[df_fire.cutoff == 3]
 df_ref = pd.read_csv("interaction_references.csv")
-
-df = df_fire[["molecule", "deltaE_mean", "deltaE_err"]].rename(columns={"deltaE_mean": "FiRE", "deltaE_err": "FiRE_err"})
-df = df.merge(df_ref, on="molecule").set_index("molecule") * 1000
+df_fire = pd.read_csv("interactions_aggregated.csv")
+df_fire = df_fire[df_fire.cutoff.isin([3, 5])]
+df_fire = df_fire.pivot_table(["deltaE_mean", "deltaE_err"], index="molecule", columns="cutoff", aggfunc="mean")
+df_fire.columns = [f"FiRE_{c}_err" if "err" in name else f"FiRE_{c}" for name, c in df_fire.columns.values]
+df = df_fire.merge(df_ref, on="molecule").set_index("molecule") * 1000
 
 fig, axes = plt.subplots(1, 2, figsize=(8, 4.5), width_ratios=[1, 0.75])
 ax_s22, ax_benz = axes
@@ -39,31 +39,33 @@ ax_scatter = ax_s22.inset_axes([0.68, 0.15, 0.3, 0.35])
 ref_method = "CCSD(T)"
 
 methods = [
-    ("LapNet", COLOR_PALETTE[0], "s"),
-    ("FiRE", COLOR_FIRE, "o")
+    ("LapNet", "LapNet", COLOR_PALETTE[0], "s"),
+    ("FiRE_3", "FiRE, $c{=}3$", COLOR_FIRE, "o"),
+    ("FiRE_5", "FiRE, $c{=}5$",COLOR_PALETTE[1], "v"),
 ]
 
-for idx_method, (method, color, marker) in enumerate(methods):
+bar_width = 0.27
+for idx_method, (method, label, color, marker) in enumerate(methods):
     ax_scatter.errorbar(df[ref_method], df[method], yerr=df[method+"_err"], color=color, marker=marker, ls="none", capsize=3, label=method, ms=3)
     delta_to_ref = df[method] - df[ref_method]
-    pos_barchart = np.arange(len(df)) - 0.2 + 0.4 * idx_method
+    pos_barchart = np.arange(len(df)) + bar_width * (idx_method - 1)
     mae = np.mean(np.abs(delta_to_ref))
     print(f"MAE {method:<10}: {mae:.1f} mEh")
 
     # label = f"{method}, {mae:.1f} mE$_h$ MAE"
-    label=method
-    ax_s22.barh(pos_barchart, delta_to_ref, color=color, height=0.4, zorder=3, label=label)
+    ax_s22.barh(pos_barchart, delta_to_ref, color=color, height=bar_width, zorder=3, label=label)
     ax_s22.errorbar(delta_to_ref, pos_barchart, xerr=df[method+"_err"], color="k", marker="none", ls="none", capsize=3, zorder=4)
 
-with open("s22_table.tex", "w") as f:
-    f.write("{molecule} & {FiRE} & {LapNet} & {CCSD(T)}\\\\\n")
-    f.write("\\midrule\n")
-    for mol, row in df.iterrows():
-        s_fire = format_value_with_error(row["FiRE"], row["FiRE_err"])
-        s_lapnet = format_value_with_error(row["LapNet"], row["LapNet_err"])
-        s_ccsdt = f"{row['CCSD(T)']:.2f}"
-        mol = " ".join(mol.split("_")[1:])
-        f.write(f"{mol} & {s_fire} & {s_lapnet} & {s_ccsdt}\\\\\n")
+# with open("s22_table.tex", "w") as f:
+#     f.write("{molecule} & {FiRE, $c=3$}, {FiRE, $c=5$}, & {LapNet} & {CCSD(T)}\\\\\n")
+#     f.write("\\midrule\n")
+#     for mol, row in df.iterrows():
+#         s_fire_3 = format_value_with_error(row["FiRE_3"], row["FiRE_3_err"])
+#         s_fire_5 = format_value_with_error(row["FiRE_5"], row["FiRE_5_err"])
+#         s_lapnet = format_value_with_error(row["LapNet"], row["LapNet_err"])
+#         s_ccsdt = f"{row['CCSD(T)']:.2f}"
+#         mol = " ".join(mol.split("_")[1:])
+#         f.write(f"{mol} & {s_fire_3} & {s_fire_5} & {s_lapnet} & {s_ccsdt}\\\\\n")
 
 
 
@@ -161,6 +163,7 @@ with open("benzene_table.tex", "w") as f:
         f.write(f"{method} & {s}\\\\\n")
 
 ref_type_labeled = {r: False for r in df_agg["ref_type"].unique()}
+bar_width = 0.8
 for i, r in df_agg.iterrows():
     E, method, ref_type = r["deltaE_mean"] * 1000, r["method"], r["ref_type"]
     if method == "Experiment":
@@ -177,7 +180,7 @@ for i, r in df_agg.iterrows():
         color = COLOR_FIRE
     # label = ref_type if not ref_type_labeled[ref_type] else None
     ref_type_labeled[ref_type] = True
-    ax_benz.barh(i, E, height=0.8, color=color, label=None, zorder=3)
+    ax_benz.barh(i, E, height=bar_width, color=color, label=None, zorder=3)
     ax_benz.text(0.2 * np.sign(E), i, f"{E:.1f}", va="center", ha="left" if np.sign(E) > 0 else "right", color="white", zorder=4)
 
 for label, color in colors.items():

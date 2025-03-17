@@ -85,7 +85,7 @@ for ax, ymin in [(ax_upd, 1e-3), (ax_Ekin, 3e-2), (ax_tot, 3e-1)]:
     ax.set_xscale("log")
     ax.set_xlabel("valence electrons", fontsize=12)
     if ax == ax_upd:
-        ax.set_ylabel("runtime / s")
+        ax.set_ylabel("runtime [sec]")
 
     lines_others = ax.get_lines()[1:6:2]
     lines_fire = ax.get_lines()[7::2]

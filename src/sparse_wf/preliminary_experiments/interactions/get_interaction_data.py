@@ -24,7 +24,7 @@ for r in runs:
         geom="dissociated" if mol_comment.endswith("_Dissociated") else "equilibrium",
         cutoff=r.config["model_args"]["embedding"]["new"]["cutoff"],
     )
-    gpu_hours_total += 4 * r.summary["_runtime"] / 3600
+    gpu_hours_total += 4 * r.summary.get("_runtime", 0) / 3600
 
     history = []
     for h in r.scan_history(["opt/step", "opt/E", "opt/E_std"], page_size=10_000):
