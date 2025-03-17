@@ -109,7 +109,7 @@ line_styles = [
     (0, (3, 5, 1, 5, 1, 5))
 ]
 
-fig, (ax, ax2) = plt.subplots(1, 2, figsize=(10, 3))
+fig, (ax, ax2) = plt.subplots(1, 2, figsize=(7, 3), width_ratios=[2, 1])
 ax.plot(pd.Series(final_deltas)[order], 's', color=colors[0], label='FiRE', zorder=5, linestyle=line_styles[0])
 ax.plot(reference.loc['ZPE-corr\'d exp'][order], '*', color='black', label='exp', zorder=-1, linestyle=line_styles[1])
 ax.fill_between(range(len(order)), reference.loc['ZPE-corr\'d exp'][order] - 1.6, reference.loc['ZPE-corr\'d exp'][order] + 1.6, color='black', alpha=0.1, zorder=-10, label='exp $\pm$ chem. acc')
@@ -129,28 +129,36 @@ leg = ax.legend(legend_dict.values(), legend_dict.keys(), loc='upper right')
 x = np.arange(len(order))
 w = 0.175
 n = 4
-pos = x - (n+1)/2 * w
-ax2.bar(pos := pos + w, pd.Series(final_deltas)[order] -reference.loc['ZPE-corr\'d exp'][order], width=w, color=colors[0], label='FiRE', zorder=10, linestyle=line_styles[0])
-ax2.bar(pos := pos + w, reference.loc['CCSD(T)/FPA'][order] - reference.loc['ZPE-corr\'d exp'][order], width=w, color=colors[1], label='CCSD(T)/FPA', zorder=5, linestyle=line_styles[2])
-ax2.bar(pos := pos + w, reference.loc['ACI-DSRG-MRPT2'][order] - reference.loc['ZPE-corr\'d exp'][order], width=w, color=colors[2], label='ACI-DSRG-MRPT2', zorder=6, linestyle=line_styles[3])
-ax2.bar(pos := pos + w, reference.loc['AFQMC'][order] - reference.loc['ZPE-corr\'d exp'][order], width=w, color=colors[3], label='AFQMC', zorder=4, linestyle=line_styles[4])
+pos = x + (n+1)/2 * w
+ax2.barh(pos := pos - w, pd.Series(final_deltas)[order] -reference.loc['ZPE-corr\'d exp'][order], height=w, color=colors[0], label='FiRE', zorder=10, linestyle=line_styles[0])
+ax2.barh(pos := pos - w, reference.loc['CCSD(T)/FPA'][order] - reference.loc['ZPE-corr\'d exp'][order], height=w, color=colors[1], label='CCSD(T)/FPA', zorder=5, linestyle=line_styles[2])
+ax2.barh(pos := pos - w, reference.loc['ACI-DSRG-MRPT2'][order] - reference.loc['ZPE-corr\'d exp'][order], height=w, color=colors[2], label='ACI-DSRG-MRPT2', zorder=6, linestyle=line_styles[3])
+ax2.barh(pos := pos - w, reference.loc['AFQMC'][order] - reference.loc['ZPE-corr\'d exp'][order], height=w, color=colors[3], label='AFQMC', zorder=4, linestyle=line_styles[4])
 for container in ax2.containers:
-    pad = 16 if container.get_label() == 'AFQMC' else 3
-    ax2.bar_label(container, fmt='%.1f', padding=pad, zorder=11, rotation=90)
-ax2.errorbar(pos, reference.loc['AFQMC'][order] - reference.loc['ZPE-corr\'d exp'][order], afqmc_error, color=scale_lightness(colors[3], 0.7), capsize=2, label='AFQMC', linestyle='', zorder=5)
-ax2.axhline(0, color='black', zorder=100, linestyle=line_styles[1])
-ax2.axhspan(-1.6, 1.6, color='black', alpha=0.1, zorder=-10, label='exp$\pm$ chem. acc')
-ax2.set_xticks(x, reference.columns)
+    pad = 12 if container.get_label() == 'AFQMC' else 3
+    ax2.bar_label(container, fmt='%.1f', padding=pad, zorder=11)
+ax2.errorbar(reference.loc['AFQMC'][order] - reference.loc['ZPE-corr\'d exp'][order], pos, xerr=afqmc_error, color=scale_lightness(colors[3], 0.7), capsize=2, label='AFQMC', linestyle='', zorder=5)
+ax2.axvline(0, color='black', zorder=100, linestyle=line_styles[1])
+ax2.axvspan(-1.6, 1.6, color='black', alpha=0.1, zorder=-10, label='exp$\pm$ chem. acc')
+ax2.set_yticks(x, reference.columns[::-1], rotation=45)
 # ax2.set_xticklabels([])
-ax2.set_ylim(-10, 10)
-ax2.tick_params(axis='x', which='minor', bottom=False, top=False)
-ax2.set_ylabel(r"$\Delta - \Delta_\text{exp}$ [mHa]", labelpad=-2)
+ax2.set_xlim(-8, 10)
+ax2.tick_params(axis='y', which='minor', left=False, right=False)
+ax2.set_xlabel(r"$\Delta - \Delta_\text{exp}$ [mHa]")
 # ax2.set_xlabel('$n$-acene')
 
-fig.subplots_adjust(wspace=0.2)
+fig.subplots_adjust(wspace=0.3)
 plt.savefig("acene_final.pdf", bbox_inches="tight")
 #%%
+our = final_energies.unstack()
+our[r'FiRE'] = (our['triplet'] - our['singlet']) * 1000
+our = our.rename(columns={'triplet': r'$E^\text{FiRE}_\text{triplet}$ (Ha)', 'singlet': r'$E^\text{FiRE}_\text{singlet}$ (Ha)'})
+our = our.dropna().T
+columns = ['ZPE-corr\'d exp', 'FiRE', 'CCSD(T)/FPA', 'ACI-DSRG-MRPT2', 'AFQMC']
+print(pd.concat([our, reference]).T[columns].loc[order].to_latex(float_format="%.1f"))
 #%%
+#%%
+
 #%%
 window = 5000
 fig, axes = plt.subplots(1, len(energies_kcal_per_mol), figsize=(10, 3))
