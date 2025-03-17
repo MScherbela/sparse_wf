@@ -138,13 +138,14 @@ ax.plot(reference.loc['AFQMC'][order], 'o', color=colors[3], label='AFQMC', zord
 ax.set_ylabel(r"$E_\text{triplet} - E_\text{singlet}$ [mHa]")
 ax.tick_params(axis='x', which='minor', bottom=False, top=False)
 ax.set_title('Absolute singlet-triplet gap')
+ax.set_xticks(range(len(order)), order, rotation=10)
 handles, labels = ax.get_legend_handles_labels()
 legend_dict = dict(zip(labels, handles))
 legend_dict['exp $\pm$ chem. acc'] = (legend_dict.pop('exp'), legend_dict['exp $\pm$ chem. acc'])
 leg = ax.legend(legend_dict.values(), legend_dict.keys(), loc='upper right')
 
 # ax2 = ax.inset_axes([0.45, 0.5, 0.55, 0.5])
-x = np.arange(len(order))
+x = np.arange(len(order))[::-1]
 w = 0.175
 n = 4
 pos = x + (n+1)/2 * w
@@ -159,7 +160,7 @@ ax2.errorbar(pd.Series(final_deltas)[order] - reference.loc['ZPE-corr\'d exp'][o
 ax2.errorbar(reference.loc['AFQMC'][order] - reference.loc['ZPE-corr\'d exp'][order], pos, xerr=afqmc_error, color=scale_lightness(colors[3], 0.7), capsize=2, label='AFQMC', linestyle='', zorder=5)
 ax2.axvline(0, color='black', zorder=100, linestyle=line_styles[1])
 ax2.axvspan(-1.6, 1.6, color='black', alpha=0.1, zorder=-10, label='exp$\pm$ chem. acc')
-ax2.set_yticks(x, reference.columns[::-1], rotation=45)
+ax2.set_yticks(x, reference.columns, rotation=45)
 # ax2.set_xticklabels([])
 ax2.set_xlim(-10, 12)
 ax2.tick_params(axis='y', which='minor', left=False, right=False)
@@ -171,6 +172,9 @@ for ax, label in zip((ax, ax2), "cd"):
 
 fig.subplots_adjust(wspace=0.35)
 plt.savefig("acene_final.pdf", bbox_inches="tight")
+#%%
+
+
 #%%
 our = final_energies.unstack()
 our[r'FiRE'] = (our['triplet'] - our['singlet']) * 1000
