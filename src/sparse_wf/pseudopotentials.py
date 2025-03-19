@@ -381,7 +381,7 @@ def make_nonlocal_pseudopotential(
             # vmap over l-values
             return jax.vmap(lambda v: jnp.interp(dist_ae, xp=r_grid, fp=v))(v_grid_nonloc[idx_ecp_atom])
 
-        psi_ratio, actual_static = batched_vmap(get_psi_ratio, max_batch_size=64)(
+        psi_ratio, actual_static = batched_vmap(get_psi_ratio, max_batch_size=512)(
             r_integration, idx_el
         )  # [n_integrations]
         V_nonloc = get_radial_potential(dist_ae, idx_ecp_atom)  # [n_integrations * n_l_values]
