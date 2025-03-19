@@ -373,7 +373,7 @@ def make_nonlocal_pseudopotential(
             idx_changed = idx_el[None]
             (sign, logpsi), _ = logpsi_fn.log_psi_low_rank_update(params, electrons_new, idx_changed, static, state)
             f_ratio = sign * sign_denom * jnp.exp(logpsi - logpsi_denom)
-            actual_static = logpsi_fn.get_static_input(electrons, electrons_new, idx_changed)
+            actual_static = logpsi_fn.get_static_input(electrons, electrons_new, idx_changed, False)
             return f_ratio, actual_static
 
         @jax.vmap  # vmap over integration points

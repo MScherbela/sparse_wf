@@ -52,7 +52,7 @@ ignore = ["F722"]
 
 [tool.mypy]
 strict = false
-exclude = ['src/sparse_wf/preliminary_experiments', 'analysis']
+exclude = ['src/sparse_wf/preliminary_experiments', 'analysis', 'runs']
 disable_error_code = ["valid-type", "import-untyped", "import-not-found"]
 
 [tool.pytest_env]

@@ -74,6 +74,14 @@ class Geometry:
                 Z.append(int(tokens[0]) if tokens[0].isdigit() else PERIODIC_TABLE.index(tokens[0].capitalize()) + 1)
         return cls(R, Z, 0, None, comment or comment_from_file, name or comment_from_file)
 
+    def save_as_xyz(self, fname):
+        with open(fname, "w") as f:
+            f.write(f"{self.n_atoms}\n")
+            f.write(f"{self.hash}__{self.name}__{self.comment}\n")
+            for r, z in zip(self.R * BOHR_IN_ANGSTROM, self.Z):
+                coords = " ".join([f"{float(x):-10.6f}" for x in r])
+                f.write(f"{PERIODIC_TABLE[z - 1]:<3} {coords}\n")
+
     @property
     def n_el(self):
         return int(np.sum(self.Z)) - self.charge

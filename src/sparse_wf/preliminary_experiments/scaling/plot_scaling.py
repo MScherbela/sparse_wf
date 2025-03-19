@@ -107,7 +107,7 @@ for ax, label in zip(axes.flatten(), "abcd"):
 # Speedup bar-chart
 df_speedup = pivot[pivot.n_el == N_EL_FOR_BREAKDOWN].set_index("model").reindex(models)
 t_total_swann = df_speedup.loc["FiRE"].t_total
-df_speedup /= t_total_swann
+# df_speedup /= t_total_swann
 columns = {
     "t_sampling": "Sampling",
     "t_E_kin": "E$_\\textrm{kin}$",
@@ -118,14 +118,14 @@ df_speedup = df_speedup[columns.keys()]
 df_speedup = df_speedup.rename(columns=columns)
 df_speedup.plot(kind="bar", stacked=True, ax=ax_speedup, rot=0, color=COLOR_PALETTE, width=0.75)
 for i, model in enumerate(models):
-    ax_speedup.text(i, df_speedup.loc[model].sum(), f"{df_speedup.loc[model].sum():.1f}x", ha="center", va="bottom")
+    ax_speedup.text(i, df_speedup.loc[model].sum()+2, f"{df_speedup.loc[model].sum() / t_total_swann:.0f}$\\times$", ha="center", va="bottom")
 # ax_speedup.set_ylabel("Total time relative to FiRE")
-ax_speedup.set_title(f"$T / T_\\textrm{{FiRE}}$ for {N_EL_FOR_BREAKDOWN} electrons")
+ax_speedup.set_title(f"total for {N_EL_FOR_BREAKDOWN} val. electrons")
 ax_speedup.set_ylim((0, df_speedup.sum(axis=1).max() * 1.15))
 print(df_speedup.sum(axis=1))
 ax_speedup.set_xlabel(None)
 ax_speedup.legend(loc="upper right", labelspacing=0.2, frameon=False, ncol=2, columnspacing=0.8)
-ax_speedup.set_ylim([0, 21])
+ax_speedup.set_ylim([0, 170])
 ax_speedup.grid(False)
 ax_speedup.xaxis.minorticks_off()
 ax_speedup.set_xticklabels(["Fermi-\nnet", "Psi-\nformer", "Lap-\nNet", "FiRE\ndense", "FiRE"], rotation=0)

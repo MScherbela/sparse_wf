@@ -105,13 +105,16 @@ df_smoothed.append(preprocess_data(df_all))
 
 #%%
 
-fig, axes = plt.subplots(1, 2, figsize=(5.5, 3))
+# fig, axes = plt.subplots(1, 2, figsize=(5.5, 3))
+fig, axes = plt.subplots(3, 1, figsize=(4, 5), height_ratios=[1, 1, 0.07])
+cax = axes[-1]
+axes = axes[:-1]
 
 ls_singlet, ls_triplet, ls_fit = ":", "--", "-"
 
 sm = plt.cm.ScalarMappable(cmap=plt.get_cmap("viridis"), norm=plt.Normalize(0, 130, clip=True))
 for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "acenes"], "ab", axes):
-    fit_pivot, fit_params, loss_values = fit_powerlaw(df_smooth, opt_steps=1_000)
+    fit_pivot, fit_params, loss_values = fit_powerlaw(df_smooth, opt_steps=1000)
     alpha, beta, const = fit_params
     def powerlaw(t, n):
         return np.exp(const) * t**(-alpha) * n**beta
@@ -130,9 +133,9 @@ for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "a
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_title(molecule_class)
-    ax.set_xlabel("optimization step $t$")
-    if molecule_class == "cumulenes":
-        ax.set_ylabel(f"$(E - E_\infty)$ " + MILLIHARTREE)
+    ax.set_xlabel("optimization step $t$", labelpad=0)
+    # if molecule_class == "cumulenes":
+    ax.set_ylabel(f"$(E - E_\infty)$ " + MILLIHARTREE)
     # legend with less spacing between lines
     ax.legend(loc="upper right", handlelength=1, labelspacing=0.3)
     ax.text(0.02, 0.05, fitted_equation, transform=ax.transAxes, fontsize=11)
@@ -141,6 +144,10 @@ for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "a
 axes[0].set_ylim([1e-4, 2e0])
 
 fig.tight_layout()
-fig.colorbar(sm, ax=axes.ravel().tolist(), orientation="vertical", label="$n_\\mathrm{el}$")
-fig.subplots_adjust(right=0.83)
+plt.colorbar(sm, cax=cax, orientation="horizontal")
+cax.set_xlabel("$n_\\mathrm{el}$", labelpad=-2)
+
+# cbar = fig.colorbar(sm, ax=axes.ravel().tolist(), orientation="horizontal")
+# cbar.set_label("$n_\\mathrm{el}$", labelpad=-4)
+fig.subplots_adjust(hspace=0.5)
 savefig(fig, "scaling_laws")

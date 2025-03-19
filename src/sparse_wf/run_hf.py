@@ -16,11 +16,13 @@ default_config = load_yaml(pathlib.Path(__file__).parent / "../../config/default
 molecule_args = default_config["molecule_args"]
 hf_args = default_config["pretraining"]["hf"]
 hf_args["cache_dir"] = DEFAULT_CACHE_DIR
-hf_args["restricted"] = True
+hf_args["newton"] = True
 
 geom_names = [
-    "corannulene_dimer",
-    "corannulene_dissociated",
+    "Ferrocene_Toma16_red",
+    "Ferrocene_Toma19_red",
+    "Ferrocene_Toma16_red_charged",
+    "Ferrocene_Toma19_red_charged",
 ]
 
 for geom_str in geom_names:

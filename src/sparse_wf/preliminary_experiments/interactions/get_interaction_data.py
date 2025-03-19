@@ -3,9 +3,11 @@ import wandb
 import pandas as pd
 import numpy as np
 from sparse_wf.plot_utils import get_outlier_mask
+import re
 
 api = wandb.Api()
 runs = api.runs("tum_daml_nicholas/interactions")
+runs = [r for r in runs if re.match("(\d\d_|c5_\d\d_).*", r.name)]
 
 benzene_dimer_runs = api.runs("tum_daml_nicholas/benzene")
 benzene_dimer_runs = [r for r in benzene_dimer_runs if r.name.startswith("HLR_")]

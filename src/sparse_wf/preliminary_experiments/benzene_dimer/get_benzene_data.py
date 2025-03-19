@@ -46,12 +46,12 @@ for cutoff in df["cutoff"].unique():
     pivot = df[df["cutoff"] == cutoff]
     pivot = pivot.pivot_table(index="opt/step", columns="dist", values="opt/E", aggfunc="mean")
     if len(pivot.columns) < 2:
-        print(f"Not enough data for, c={cutoff}, dist={dist}")
+        print(f"Not enough data for, c={cutoff}")
         continue
     pivot["deltaE"] = pivot[4.95] - pivot[10.0]
     pivot = pivot[pivot.deltaE.notna()]
     is_outlier = get_outlier_mask(pivot["deltaE"])
-    print(f"c={cutoff}, dist={dist}, Outliers removed:", np.sum(is_outlier))
+    print(f"c={cutoff}, Outliers removed:", np.sum(is_outlier))
     pivot = pivot[~is_outlier]
     pivot = pivot.iloc[-n_eval_steps:]
     E_mean = pivot.mean()

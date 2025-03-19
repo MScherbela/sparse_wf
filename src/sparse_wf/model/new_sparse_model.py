@@ -375,7 +375,7 @@ class NewSparseEmbedding(PyTreeNode):
             nuc_embedding=h_nuc,
         )
 
-    def get_static_input(self, electrons_old, electrons_new=None, idx_changed=None) -> StaticArgs[Int]:
+    def get_static_input(self, electrons_old, electrons_new=None, idx_changed=None, laplacian=True) -> StaticArgs[Int]:
         n_elec = electrons_old.shape[0]
         electrons = electrons_old if (electrons_new is None) else electrons_new
         assert electrons.ndim == 2
@@ -387,7 +387,10 @@ class NewSparseEmbedding(PyTreeNode):
         in_cutoff = is_neighbour(electrons, self.cutoff)
         n_pairs_same = jnp.sum(in_cutoff & is_same_spin, dtype=jnp.int32)
         n_pairs_diff = jnp.sum(in_cutoff & ~is_same_spin, dtype=jnp.int32)
-        n_triplets = jnp.sum(in_cutoff[:, None, :] & in_cutoff[None, :, :], dtype=jnp.int32)
+        if laplacian:
+            n_triplets = jnp.sum(in_cutoff[:, None, :] & in_cutoff[None, :, :], dtype=jnp.int32)
+        else:
+            n_triplets = jnp.zeros((), dtype=jnp.int32)  # type: ignore
 
         if electrons_new is not None:
             in_cutoff_old = is_neighbour(electrons_old, self.cutoff)
@@ -398,7 +401,9 @@ class NewSparseEmbedding(PyTreeNode):
             n_changed_pair_same = jnp.sum(is_required_pair & is_same_spin, dtype=jnp.int32)
             n_changed_pair_diff = jnp.sum(is_required_pair & ~is_same_spin, dtype=jnp.int32)
         else:
-            n_changed_hout, n_changed_pair_same, n_changed_pair_diff = 0, 0, 0  # type: ignore
+            n_changed_hout = jnp.zeros((), dtype=jnp.int32)
+            n_changed_pair_same = jnp.zeros((), dtype=jnp.int32)
+            n_changed_pair_diff = jnp.zeros((), dtype=jnp.int32)
         return StaticArgs(
             n_pairs_same,
             n_pairs_diff,

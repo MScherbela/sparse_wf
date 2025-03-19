@@ -199,12 +199,16 @@ class MoonLikeWaveFunction(ParameterizedWaveFunction[MoonLikeParams[T], LowRankS
         return self.signed(params, electrons, static)[1]
 
     def get_static_input(
-        self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+        self,
+        electrons: Electrons,
+        electrons_new: Optional[Electrons] = None,
+        idx_changed: Optional[ElectronIdx] = None,
+        laplacian=True,
     ) -> StaticInput:
         get_static_fn = self.embedding.get_static_input
         for _ in range(electrons.ndim - 2):
-            get_static_fn = jax.vmap(get_static_fn)
-        return get_static_fn(electrons, electrons_new, idx_changed)
+            get_static_fn = jax.vmap(get_static_fn, in_axes=(0, 0, 0, None))
+        return get_static_fn(electrons, electrons_new, idx_changed, laplacian)
 
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices:
         return hf_orbitals_to_fulldet_orbitals(hf_orbitals)

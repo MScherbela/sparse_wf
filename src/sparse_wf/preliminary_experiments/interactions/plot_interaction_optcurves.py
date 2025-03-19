@@ -13,7 +13,7 @@ colors = {
     7: "red",
 }
 
-window = 2000
+window = 2_000
 
 molecules = sorted(df_all.molecule.unique())
 fig, axes = plt.subplots(4, 3, figsize=(10, 12))
@@ -54,4 +54,5 @@ for mol, ax in zip(molecules, axes.flatten()):
     energies = fire_energies +[df_ref.loc[mol, "LapNet"], df_ref.loc[mol, "CCSD(T)"]]
     ax.set_ylim([min(energies)-5, max(energies)+5])
 fig.tight_layout()
+fig.savefig("interaction_energies.png")
 

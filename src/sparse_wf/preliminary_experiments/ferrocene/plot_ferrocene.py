@@ -22,7 +22,7 @@ deltaE_orca = (pivot["charged"] - pivot["neutral"]) * 1000
 E_fpa = deltaE_orca["DLPNO-CCSD(T)/CBS23"] + (deltaE_orca["CCSD(T)/CBS2"] - deltaE_orca["DLPNO-CCSD(T)/CBS2"])
 
 references = [
-    ("Experiment", 258, "k"),
+    ("Experiment", 258 - 0.2, "k"), # 0.2 mHa ZPE correction at PBE0/D3BJ TZ level
     ("B3LYP / TZ", 237.4, COLOR_PALETTE[0]),
     ("PBE0 / CBS", deltaE_orca["PBE0 D3BJ/CBS23"], COLOR_PALETTE[1]),
     ("DLPNO-CCSD(T) / CBS", deltaE_orca["DLPNO-CCSD(T)/CBS23"], COLOR_PALETTE[3]),
@@ -44,7 +44,7 @@ df["deltaE"] = df["deltaE"].ffill(limit=10)
 df["deltaE_smooth"] = df["deltaE"].rolling(window=window, min_periods=window//10).mean()
 
 plt.close("all")
-fig, ax = plt.subplots(1, 1, figsize=(2.5, 3))
+fig, ax = plt.subplots(1, 1, figsize=(2, 3))
 
 exp_uncertainty = 1.65 # mHa; original resolution of photoemission is given as 0.04-0.05 eV
 # 0.045 eV = 1.65 mHa
@@ -75,6 +75,7 @@ img = img.crop(img.getbbox())
 image_ax = fig.add_axes([0.15, 0.1, 0.3, 0.3])
 image_ax.imshow(img)
 image_ax.axis("off")
+ax.text(-0.28, 1.025, "\\textbf{e)}", transform=ax.transAxes, va="top", ha="left")
 
 savefig(fig, "ferrocene")
 

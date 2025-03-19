@@ -172,6 +172,7 @@ def make_dense_spring_preconditioner(
             damping=jnp.array(damping, jnp.float32),
         )
 
+    @functools.partial(jax.jit, static_argnums=(2,))
     def precondition(
         params: P,
         electrons: Electrons,

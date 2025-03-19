@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 
 
 def format_value_with_error(value, error):
-    assert error < 1
+    if np.isnan(value):
+        return "--"
     n_digits = int(np.ceil(-np.log10(error)))
     error_rounded = int(np.round(error * 10**n_digits))
     assert 0 < error_rounded < 10

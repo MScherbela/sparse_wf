@@ -1511,5 +1511,10 @@ for n_el_valence, n_el, name in sorted(system_sizes):
     print(f"{name:<25}: {n_el_valence:3d} valence electrons, {n_el:3d} electrons total")
 # save_geometries(geoms_to_add)
 
+# g = [g for g in geoms_to_add if g.comment == "02_Formic_acid_dimer_Dissociated"][0]
+for g in geoms_to_add:
+    g.save_as_xyz(f"/home/scherbelam20/tmp/s22/{g.comment}.xyz")
+
+
 
 

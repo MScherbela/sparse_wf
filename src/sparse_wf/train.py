@@ -90,7 +90,7 @@ def main(
         else:
             # SBATCH settings: -N {nr_of_nodes} --ntasks-per-node={gpus_per_node} --gres=gpu:{gpus_per_node}; do not use --gpus-per-task
             jax.distributed.initialize()
-    logging.info(f'Run name: {loggers.args["name"]}')
+    logging.info(f"Run name: {loggers.args['name']}")
     logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
     logging.info(f"Atomic numbers: {Z}; Effective charges: {effective_charges}; Spin configuration: ({n_up}, {n_dn})")
 

@@ -11,7 +11,7 @@ import matplotlib as mpl
 mpl.rcParams["savefig.bbox"] = None
 
 
-def linebreak(s, lmax=12):
+def linebreak(s, lmax=16):
     tokens = s.split()
     lines = [""]
     for t in tokens:
@@ -30,25 +30,24 @@ df_fire = df_fire.pivot_table(["deltaE_mean", "deltaE_err"], index="molecule", c
 df_fire.columns = [f"FiRE_{c}_err" if "err" in name else f"FiRE_{c}" for name, c in df_fire.columns.values]
 df = df_fire.merge(df_ref, on="molecule").set_index("molecule") * 1000
 
-fig, axes = plt.subplots(1, 2, figsize=(8, 4.5), width_ratios=[1, 0.75])
+fig, axes = plt.subplots(1, 2, figsize=(8, 4), width_ratios=[1, 0.75])
 ax_s22, ax_benz = axes
-
 # Add inset axis in the bottom right of ax_s22
-ax_scatter = ax_s22.inset_axes([0.68, 0.15, 0.3, 0.35])
+# ax_scatter = ax_s22.inset_axes([0.68, 0.15, 0.3, 0.35])
 
 ref_method = "CCSD(T)"
 
 methods = [
     ("LapNet", "LapNet", COLOR_PALETTE[0], "s"),
-    ("FiRE_3", "FiRE, $c{=}3$", COLOR_FIRE, "o"),
-    ("FiRE_5", "FiRE, $c{=}5$",COLOR_PALETTE[1], "v"),
+    # ("FiRE_3", "FiRE, $c{=}3$", COLOR_FIRE, "o"),
+    ("FiRE_5", "FiRE, $c=5$", COLOR_FIRE, "o"),
 ]
 
-bar_width = 0.27
+bar_width = 0.8 / len(methods)
 for idx_method, (method, label, color, marker) in enumerate(methods):
-    ax_scatter.errorbar(df[ref_method], df[method], yerr=df[method+"_err"], color=color, marker=marker, ls="none", capsize=3, label=method, ms=3)
+    # ax_scatter.errorbar(df[ref_method], df[method], yerr=df[method+"_err"], color=color, marker=marker, ls="none", capsize=3, label=method, ms=3)
     delta_to_ref = df[method] - df[ref_method]
-    pos_barchart = np.arange(len(df)) + bar_width * (idx_method - 1)
+    pos_barchart = np.arange(len(df)) + bar_width * (idx_method - len(methods) / 2 + 0.5)
     mae = np.mean(np.abs(delta_to_ref))
     print(f"MAE {method:<10}: {mae:.1f} mEh")
 
@@ -56,16 +55,16 @@ for idx_method, (method, label, color, marker) in enumerate(methods):
     ax_s22.barh(pos_barchart, delta_to_ref, color=color, height=bar_width, zorder=3, label=label)
     ax_s22.errorbar(delta_to_ref, pos_barchart, xerr=df[method+"_err"], color="k", marker="none", ls="none", capsize=3, zorder=4)
 
-# with open("s22_table.tex", "w") as f:
-#     f.write("{molecule} & {FiRE, $c=3$}, {FiRE, $c=5$}, & {LapNet} & {CCSD(T)}\\\\\n")
-#     f.write("\\midrule\n")
-#     for mol, row in df.iterrows():
-#         s_fire_3 = format_value_with_error(row["FiRE_3"], row["FiRE_3_err"])
-#         s_fire_5 = format_value_with_error(row["FiRE_5"], row["FiRE_5_err"])
-#         s_lapnet = format_value_with_error(row["LapNet"], row["LapNet_err"])
-#         s_ccsdt = f"{row['CCSD(T)']:.2f}"
-#         mol = " ".join(mol.split("_")[1:])
-#         f.write(f"{mol} & {s_fire_3} & {s_fire_5} & {s_lapnet} & {s_ccsdt}\\\\\n")
+with open("s22_table.tex", "w") as f:
+    f.write("{molecule} & {FiRE, $c=3$}, {FiRE, $c=5$}, & {LapNet} & {CCSD(T)}\\\\\n")
+    f.write("\\midrule\n")
+    for mol, row in df.iterrows():
+        s_fire_3 = format_value_with_error(row["FiRE_3"], row["FiRE_3_err"])
+        s_fire_5 = format_value_with_error(row["FiRE_5"], row["FiRE_5_err"])
+        s_lapnet = format_value_with_error(row["LapNet"], row["LapNet_err"])
+        s_ccsdt = f"{row['CCSD(T)']:.2f}"
+        mol = " ".join(mol.split("_")[1:])
+        f.write(f"{mol} & {s_fire_3} & {s_fire_5} & {s_lapnet} & {s_ccsdt}\\\\\n")
 
 
 
@@ -75,26 +74,44 @@ for idx_method, (method, label, color, marker) in enumerate(methods):
 for y in [3.5, 6.5]:
     ax_s22.axhline(y, color="dimgray", ls="--", lw=0.5, alpha=0.5)
 
-mol_names = [" ".join(m.split("_")[1:]) for m in df.index]
-for i, m in enumerate(mol_names):
-    mol_names[i] = m.replace(" T-shaped", "").replace("h-bonded", "H-bonded")
-mol_names = [linebreak(m) for m in mol_names]
+mol_name_translation = {
+"01_Water_dimer": "2$\\times$ water",
+"02_Formic_acid_dimer": "2$\\times$ formic acid",
+"03_Formamide_dimer": "2$\\times$ formamid",
+"04_Uracil_dimer_h-bonded": "H-bonded uracil",
+"05_Methane_dimer": "2$\\times$ methane",
+"06_Ethene_dimer": "2$\\times$ ethene",
+"07_Uracil_dimer_stack": "Stacked uracil",
+"08_Ethene-ethyne_complex": "Ethene-ethyne",
+"09_Benzene-water_complex": "Benzene-water",
+"10_Benzene_dimer_T-shaped": "2$\\times$ benzene",
+"11_Phenol_dimer": "2$\\times$ phenol",
+}
+mol_names = [mol_name_translation[m] for m in df.index]
+
+# mol_names = [" ".join(m.split("_")[1:]) for m in df.index]
+# for i, m in enumerate(mol_names):
+#     mol_names[i] = m.replace(" T-shaped", "").replace("h-bonded", "H-bonded")
 
 
+# mol_names = [linebreak(m) for m in mol_names]
+
+
+xlims = [-5, 6]
 ax_s22.set_xlabel("$E_\\textrm{NN-VMC}$ - $E_\\textrm{CCSD(T)}$ " + MILLIHARTREE)
 ax_s22.grid(False, axis="y")
 ax_s22.yaxis.minorticks_off()
 ax_s22.legend(loc="upper right")
 ax_s22.set_yticks(np.arange(len(df)))
 ax_s22.set_yticklabels(mol_names)
-ax_s22.set_xlim([-6,5])
+ax_s22.set_xlim(xlims)
 ax_s22.axvline(0, color="black", ls="-")
 ax_s22.axvspan(-1.6, 1.6, color="dimgray", alpha=0.3)
 ax_s22.invert_yaxis()
 
 idx_start = 0
 for interaction, n_mol in [("H-bonds", 4), ("Dispersion", 3), ("Mixed interactions", 4)]:
-    x_pos = -9.8
+    x_pos = xlims[0] - 4
     line = Line2D([x_pos, x_pos], [idx_start-0.4, idx_start+n_mol - 1 + 0.4], color="gray", lw=1)
     line.set_clip_on(False)
     ax_s22.add_line(line)
@@ -102,34 +119,36 @@ for interaction, n_mol in [("H-bonds", 4), ("Dispersion", 3), ("Mixed interactio
     idx_start += n_mol
 
 # draw a rectangle with dashed lines on ax_s22
-ax_s22.add_patch(plt.Rectangle((-4.5, 8.5), 4.7, 1, fill=False, linestyle="--", color="gray", lw=1))
+ax_s22.add_patch(plt.Rectangle((-4.5, 8.5), 5.5, 1, fill=False, linestyle="--", color="gray", lw=1))
 
-ax_scatter.set_xlabel("$E_\\textrm{CCSD(T)}$ " + MILLIHARTREE, labelpad=-1)
-ax_scatter.set_ylabel("$E_\\textrm{NN-VMC}$ " + MILLIHARTREE, labelpad=0.5)
-scatter_range = np.array([0, 40])
-ax_scatter.plot(scatter_range, scatter_range, color="black", ls=":")
-ax_scatter.fill_between(scatter_range, scatter_range - 1.6, scatter_range + 1.6, color="gray", alpha=0.3)
-ax_scatter.set_xlim(scatter_range)
-ax_scatter.set_ylim(scatter_range)
+# ax_scatter.set_xlabel("$E_\\textrm{CCSD(T)}$ " + MILLIHARTREE, labelpad=-1)
+# ax_scatter.set_ylabel("$E_\\textrm{NN-VMC}$ " + MILLIHARTREE, labelpad=0.5)
+# scatter_range = np.array([0, 40])
+# ax_scatter.plot(scatter_range, scatter_range, color="black", ls=":")
+# ax_scatter.fill_between(scatter_range, scatter_range - 1.6, scatter_range + 1.6, color="gray", alpha=0.3)
+# ax_scatter.set_xlim(scatter_range)
+# ax_scatter.set_ylim(scatter_range)
 fig.tight_layout()
 
 
 
 # Benzene dimer
 # cutoffs = ["3.0", "Transfer7.0"]
-cutoffs = ["3.0", "7.0"]
+cutoffs = ["3.0", "5.0", "7.0"]
 dists = [4.95, 10.0]
 
 df_agg = pd.read_csv("../benzene_dimer/benzene_aggregated.csv")
 df_agg = df_agg[df_agg["cutoff"].isin(cutoffs)]
 df_agg["method"] = "FiRE $c=" + df_agg.cutoff.str.replace("Transfer", "") + "$"
 df_agg["ref_type"] = "FiRE"
+df_agg = df_agg.sort_values("cutoff")
 
 df_ref = pd.read_csv("../benzene_dimer/benzene_references.csv")
 df_ref = df_ref[~df_ref.method.str.contains("UHF")]
 df_agg = pd.concat([df_ref, df_agg], axis=0, ignore_index=True)
 
-df_agg["method"] = df_agg["method"].str.replace(" (", "\n").str.replace("al)", "al")
+df_agg["method"] = df_agg["method"].str.replace(" (", "\n")
+df_agg["method"] = df_agg["method"].apply(lambda s: s[:-1] if s.endswith(")") else s)
 df_agg["method"] = df_agg["method"].str.replace(" $", "\n$")
 df_agg["method"] = df_agg["method"].str.replace(" / ", "\n")
 
@@ -165,8 +184,8 @@ with open("benzene_table.tex", "w") as f:
 ref_type_labeled = {r: False for r in df_agg["ref_type"].unique()}
 bar_width = 0.8
 for i, r in df_agg.iterrows():
-    E, method, ref_type = r["deltaE_mean"] * 1000, r["method"], r["ref_type"]
-    if method == "Experiment":
+    E, E_err, method, ref_type = r["deltaE_mean"] * 1000, r["deltaE_err"]*1000, r["method"], r["ref_type"]
+    if "Experiment" in method:
         color = colors["Experiment"]
     elif "CCSD" in method:
         color = colors["CCSD(T)"]
@@ -181,12 +200,14 @@ for i, r in df_agg.iterrows():
     # label = ref_type if not ref_type_labeled[ref_type] else None
     ref_type_labeled[ref_type] = True
     ax_benz.barh(i, E, height=bar_width, color=color, label=None, zorder=3)
-    ax_benz.text(0.2 * np.sign(E), i, f"{E:.1f}", va="center", ha="left" if np.sign(E) > 0 else "right", color="white", zorder=4)
+    ax_benz.errorbar(E, i, xerr=E_err, color="k", marker="none", ls="none", capsize=3, zorder=4)
+    x_pos_text, color = (0.3, "white") if np.abs(E) >=2 else (E + 0.6, "k")
+    ax_benz.text(x_pos_text, i, f"{E:.1f}", va="center", ha="left", color=color, zorder=4, fontsize=9)
 
 for label, color in colors.items():
     ax_benz.barh([np.nan], [np.nan], color=color, label=label)
 ax_benz.set_yticks(range(len(df_agg)))
-ax_benz.set_yticklabels(df_agg["method"])
+ax_benz.set_yticklabels(df_agg["method"], fontsize=9)
 ax_benz.invert_yaxis()
 ax_benz.grid(False, axis="y")
 ax_benz.yaxis.minorticks_off()
@@ -194,6 +215,7 @@ ax_benz.yaxis.minorticks_off()
 ax_benz.axvline(delta_E_exp * 1000, color="k", linestyle="--", zorder=0)
 ax_benz.axvline(0, color="k", linestyle="-", zorder=0)
 ax_benz.legend(loc="lower right", ncol=1)
+# ax_benz.set_xlim([None, 22])
 
 # for y in [2.5, 7.5]:
 #     ax.axhline(y, color="k", ls="--", alpha=0.5, zorder=0, lw=0.5)
@@ -210,7 +232,7 @@ image_ax.axis("off")
 fig.tight_layout(rect=[0.0, 0, 1, 1])
 fig.subplots_adjust(wspace=0.4)
 ax_s22.text(0.04, 0.97, "\\textbf{a)}", transform=fig.transFigure, va="top", ha="left")
-ax_s22.text(0.57, 0.97, "\\textbf{b)}", transform=fig.transFigure, va="top", ha="left")
+ax_s22.text(0.59, 0.97, "\\textbf{b)}", transform=fig.transFigure, va="top", ha="left")
 savefig(fig, "interactions", bbox_inches=None)
 
 

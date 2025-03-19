@@ -553,7 +553,11 @@ class MoonEmbedding(PyTreeNode, Embedding[MoonEmbeddingParams, MoonState]):
         return jnp.concatenate([jnp.ones(self.n_up), -jnp.ones(self.n_electrons - self.n_up)]).astype(jnp.float32)
 
     def get_static_input(
-        self, r: Electrons, r_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+        self,
+        r: Electrons,
+        r_new: Optional[Electrons] = None,
+        idx_changed: Optional[ElectronIdx] = None,
+        laplacian=True,
     ) -> StaticInputMoon:
         n_el = r.shape[-2]
         dist_ee, dist_ne = get_full_distance_matrices(r, self.R)
