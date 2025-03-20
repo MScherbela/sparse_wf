@@ -135,7 +135,7 @@ ax.plot(reference.loc['ACI-DSRG-MRPT2'][order], 'v', color=colors[2], label='ACI
 ax.plot(reference.loc['AFQMC'][order], 'o', color=colors[3], label='AFQMC', zorder=2, linestyle=line_styles[4])
 # ax.errorbar(range(len(order)), reference.loc['AFQMC'][order], afqmc_error, color=colors[3], zorder=2, capsize=4)
 # ax.set_xlabel('$n$-acene')
-ax.set_ylabel(r"$E_\text{triplet} - E_\text{singlet}$ [mHa]")
+ax.set_ylabel(r"$E_\text{triplet} - E_\text{singlet}$ [m$E_\text{h}$]")
 ax.tick_params(axis='x', which='minor', bottom=False, top=False)
 ax.set_title('Absolute singlet-triplet gap')
 ax.set_xticks(range(len(order)), order, rotation=10)
@@ -164,7 +164,7 @@ ax2.set_yticks(x, reference.columns, rotation=45)
 # ax2.set_xticklabels([])
 ax2.set_xlim(-10, 12)
 ax2.tick_params(axis='y', which='minor', left=False, right=False)
-ax2.set_title(r"$\Delta - \Delta_\text{exp}$ [mHa]")
+ax2.set_title(r"$\Delta - \Delta_\text{exp}$ [m$E_\text{h}$]")
 # ax2.set_xlabel('$n$-acene')
 
 for ax, label in zip((ax, ax2), "cd"):
