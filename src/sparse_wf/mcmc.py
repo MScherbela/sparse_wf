@@ -226,6 +226,8 @@ def mcmc_steps_low_rank(
 
         # Track actual static neigbour counts
         actual_static = get_static_fn(electrons, proposed_electrons, idx_el_changed)
+        # We don't need to compute the triplets here and can safely set them to zero to avoid unnecessary computation
+        actual_static = actual_static.replace(n_triplets=jnp.zeros((), dtype=jnp.int32))
         static_mean = tree_add(static_mean, actual_static)
         static_max = tree_maximum(static_max, actual_static)
 
