@@ -35,8 +35,11 @@ from folx.api import FwdLaplArray, FwdJacobian
 from jaxtyping import Float, Array
 import jax.tree_util as jtu
 from flax import struct
+from folx import batched_vmap
 
 T = TypeVar("T", bound=int | Int)
+
+MAX_PAIRS_VMAP = 1000
 
 
 @struct.dataclass
@@ -497,14 +500,14 @@ class NewSparseEmbedding(PyTreeNode):
         )
         Gamma_same, edge_same = cast(
             tuple[list[jax.Array], list[jax.Array]],
-            jax.vmap(edge_fn_same)(
+            batched_vmap(edge_fn_same, MAX_PAIRS_VMAP)(
                 get(electrons, idx_ct_same, 0.0),
                 get(electrons, idx_nb_same, self.cutoff),
             ),
         )
         Gamma_diff, edge_diff = cast(
             tuple[list[jax.Array], list[jax.Array]],
-            jax.vmap(edge_fn_diff)(
+            batched_vmap(edge_fn_diff, MAX_PAIRS_VMAP)(
                 get(electrons, idx_ct_diff, 0.0),
                 get(electrons, idx_nb_diff, self.cutoff),
             ),
@@ -592,14 +595,14 @@ class NewSparseEmbedding(PyTreeNode):
         edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff, cutoff)
         Gamma_same, edge_same = cast(
             tuple[list[jax.Array], list[jax.Array]],
-            jax.vmap(edge_fn_same)(
+            batched_vmap(edge_fn_same, MAX_PAIRS_VMAP)(
                 get(electrons, idx_ct_same, 0.0),
                 get(electrons, idx_nb_same, self.cutoff),
             ),
         )
         Gamma_diff, edge_diff = cast(
             tuple[list[jax.Array], list[jax.Array]],
-            jax.vmap(edge_fn_diff)(
+            batched_vmap(edge_fn_diff, MAX_PAIRS_VMAP)(
                 get(electrons, idx_ct_diff, 0.0),
                 get(electrons, idx_nb_diff, self.cutoff),
             ),

@@ -4,7 +4,7 @@ from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.system import get_molecule, get_atomic_numbers
 from sparse_wf.mcmc import init_electrons
 from sparse_wf.mcmc import make_mcmc
-from sparse_wf.tree_utils import tree_max
+from sparse_wf.pseudopotentials import make_pseudopotential
 from sparse_wf.api import StaticInputs
 import jax
 import jax.numpy as jnp
@@ -53,7 +53,7 @@ Z = get_atomic_numbers(mol)
 effective_charges = mol.atom_charges()
 n_up, n_dn = mol.nelec
 n_el = n_up + n_dn
-electrons = init_electrons(rng_r, mol, batch_size)
+electrons = init_electrons(rng_r, mol, batch_size, stddev=2.0)
 electrons_new, idx_changed = perturb_electrons(rng_r, electrons, stepsize)
 
 wf = MoonLikeWaveFunction.create(mol, **model_args)
@@ -68,6 +68,10 @@ print(static_args)
 
 # get_E_loc = jax.jit(jax.vmap(wf.local_energy, in_axes=(None, 0, None)), static_argnums=2)
 # get_logpsi = jax.jit(jax.vmap(wf, in_axes=(None, 0, None)), static_argnums=2)
+
+pp_local, pp_nonlocal = make_pseudopotential(wf.Z,
+ molecule_args["pseudopotentials"],
+ default_config["optimization"]["pp_grid_points"])
 mcmc_step, mcmc_state = make_mcmc(wf, R, Z, n_el, mcmc_args)
 mcmc_step = jax.jit(mcmc_step, static_argnums=3)
 
@@ -76,6 +80,7 @@ def func_to_profile(params, electrons, static_args):
     # result = get_E_loc(params, electrons, static_args)
     result = mcmc_step(rng_mcmc, params, electrons, static_args, mcmc_state)[0]
     # get_E_kin = jax.jit(jax.vmap(wf.kinetic_energy, in_axes=(None, 0, None)), static_argnums=2)
+
     # result = get_E_kin(params, electrons, static_args.mcmc)
     return result.block_until_ready()
 

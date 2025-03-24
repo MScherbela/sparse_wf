@@ -30,6 +30,7 @@ from sparse_wf.api import (
 from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
 from sparse_wf.tree_utils import tree_add, tree_maximum, tree_zeros_like
+from folx import batched_vmap
 
 
 P, MS = TypeVar("P"), TypeVar("MS")
@@ -212,7 +213,8 @@ def mcmc_steps_low_rank(
         (_, logpsi), model_state = logpsi_fn.log_psi_low_rank_update(params, r, idx_changed, static, model_state)
         return 2 * logpsi, model_state
 
-    logprob, model_state = jax.vmap(log_prob_fn)(electrons)
+    # logprob, model_state = jax.vmap(log_prob_fn)(electrons)
+    logprob, model_state = batched_vmap(log_prob_fn, max_batch_size=128)(electrons)
 
     @functools.partial(jax.vmap, in_axes=(None, 0))
     def step_fn(i, carry):
@@ -425,14 +427,14 @@ def assign_spins_to_atoms(R: Nuclei, Z: Charges):
     return np.array(ind_atom)
 
 
-def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> Electrons:
+def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int, stddev=1.0) -> Electrons:
     if jax.device_count() > 1:
         batch_size = batch_size - (batch_size % jax.device_count())
         local_batch_size = (batch_size // jax.device_count()) * jax.local_device_count()
     else:
         local_batch_size = batch_size
     key_up, key_dn, atom_key, subkey = jax.random.split(key, 4)
-    electrons = jax.random.normal(subkey, (local_batch_size, mol.nelectron, 3), dtype=jnp.float32)
+    electrons = jax.random.normal(subkey, (local_batch_size, mol.nelectron, 3), dtype=jnp.float32) * stddev
 
     R = np.array(mol.atom_coords(), dtype=jnp.float32)
     n_atoms = len(R)

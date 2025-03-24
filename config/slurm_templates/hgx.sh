@@ -3,12 +3,12 @@
 #SBATCH -N 1
 #SBATCH --gpus-per-task={n_gpus}
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task 8
+#SBATCH --cpus-per-task 16
 #SBATCH --partition hgx
 #SBATCH --qos={qos}
 #SBATCH --output stdout.txt
 #SBATCH --time {time}
-#SBATCH --mem={n_gpus*40}G
+#SBATCH --mem={n_gpus*80}G
 #SBATCH --signal=B:USR1@300
 #SBATCH --export=NONE
 SLURM_EXPORT_ENV=ALL
@@ -29,5 +29,6 @@ export OMP_NUM_THREADS=10
 export MKL_NUM_THREADS=10
 export NVIDIA_TF32_OVERRIDE=0
 export WANDB_DIR="${{HOME}}/tmp"
+export JAX_TRACEBACK_FILTERING=off
 srun sparse-wf-run full_config.yaml &
 wait

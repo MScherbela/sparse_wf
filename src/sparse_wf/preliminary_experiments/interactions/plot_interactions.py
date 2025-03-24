@@ -30,7 +30,7 @@ df_fire = df_fire.pivot_table(["deltaE_mean", "deltaE_err"], index="molecule", c
 df_fire.columns = [f"FiRE_{c}_err" if "err" in name else f"FiRE_{c}" for name, c in df_fire.columns.values]
 df = df_fire.merge(df_ref, on="molecule").set_index("molecule") * 1000
 
-fig, axes = plt.subplots(1, 2, figsize=(8, 4), width_ratios=[1, 0.75])
+fig, axes = plt.subplots(1, 2, figsize=(8.5, 4.2), width_ratios=[1, 1])
 ax_s22, ax_benz = axes
 # Add inset axis in the bottom right of ax_s22
 # ax_scatter = ax_s22.inset_axes([0.68, 0.15, 0.3, 0.35])
@@ -39,7 +39,6 @@ ref_method = "CCSD(T)"
 
 methods = [
     ("LapNet", "LapNet", COLOR_PALETTE[0], "s"),
-    # ("FiRE_3", "FiRE, $c{=}3$", COLOR_FIRE, "o"),
     ("FiRE_5", "FiRE, $c=5$", COLOR_FIRE, "o"),
 ]
 
@@ -67,10 +66,6 @@ with open("s22_table.tex", "w") as f:
         f.write(f"{mol} & {s_fire_3} & {s_fire_5} & {s_lapnet} & {s_ccsdt}\\\\\n")
 
 
-
-# for pos, n_steps in enumerate(df_fire.opt_step_end):
-#     ax_s22.text(0.5, pos, f"{n_steps/1000:.0f}k steps", ha="left", va="center", color="black")
-
 for y in [3.5, 6.5]:
     ax_s22.axhline(y, color="dimgray", ls="--", lw=0.5, alpha=0.5)
 
@@ -89,15 +84,7 @@ mol_name_translation = {
 }
 mol_names = [mol_name_translation[m] for m in df.index]
 
-# mol_names = [" ".join(m.split("_")[1:]) for m in df.index]
-# for i, m in enumerate(mol_names):
-#     mol_names[i] = m.replace(" T-shaped", "").replace("h-bonded", "H-bonded")
-
-
-# mol_names = [linebreak(m) for m in mol_names]
-
-
-xlims = [-5, 6]
+xlims = [-5, 5]
 ax_s22.set_xlabel("$E_\\textrm{NN-VMC}$ - $E_\\textrm{CCSD(T)}$ " + MILLIHARTREE)
 ax_s22.grid(False, axis="y")
 ax_s22.yaxis.minorticks_off()
@@ -119,21 +106,12 @@ for interaction, n_mol in [("H-bonds", 4), ("Dispersion", 3), ("Mixed interactio
     idx_start += n_mol
 
 # draw a rectangle with dashed lines on ax_s22
-ax_s22.add_patch(plt.Rectangle((-4.5, 8.5), 5.5, 1, fill=False, linestyle="--", color="gray", lw=1))
+ax_s22.add_patch(plt.Rectangle((-3, 8.5), 6, 1, fill=False, linestyle="--", color="gray", lw=1))
 
-# ax_scatter.set_xlabel("$E_\\textrm{CCSD(T)}$ " + MILLIHARTREE, labelpad=-1)
-# ax_scatter.set_ylabel("$E_\\textrm{NN-VMC}$ " + MILLIHARTREE, labelpad=0.5)
-# scatter_range = np.array([0, 40])
-# ax_scatter.plot(scatter_range, scatter_range, color="black", ls=":")
-# ax_scatter.fill_between(scatter_range, scatter_range - 1.6, scatter_range + 1.6, color="gray", alpha=0.3)
-# ax_scatter.set_xlim(scatter_range)
-# ax_scatter.set_ylim(scatter_range)
 fig.tight_layout()
 
 
-
 # Benzene dimer
-# cutoffs = ["3.0", "Transfer7.0"]
 cutoffs = ["3.0", "5.0", "7.0"]
 dists = [4.95, 10.0]
 
@@ -154,7 +132,7 @@ df_agg["method"] = df_agg["method"].str.replace(" / ", "\n")
 
 
 colors = {
-    "Experiment": "dimgray",
+    "Experiment\nZPVE corrected": "dimgray",
     "CCSD(T)": "k",
     "Ferminet": COLOR_PALETTE[1],
     "Psiformer": COLOR_PALETTE[2],
@@ -167,7 +145,8 @@ color_ferminet, color_psiformer, color_lapnet = COLOR_PALETTE[1:4]
 
 exp_uncertainty = 0.8 # mHa; original value is 2 - 2.8 kcal/mol
 df_agg["deltaE_mean"] *= -1
-delta_E_exp = df_agg[df_agg["ref_type"] == "Experiment"]["deltaE_mean"].iloc[0]
+df_experiment = df_agg[df_agg["ref_type"] == "Experiment"]
+delta_E_range = (df_experiment["deltaE_mean"] - df_experiment["deltaE_err"]).min(), (df_experiment["deltaE_mean"] + df_experiment["deltaE_err"]).max()
 
 with open("benzene_table.tex", "w") as f:
     f.write("{method} & {interaction energy}\\\\\n")
@@ -186,7 +165,7 @@ bar_width = 0.8
 for i, r in df_agg.iterrows():
     E, E_err, method, ref_type = r["deltaE_mean"] * 1000, r["deltaE_err"]*1000, r["method"], r["ref_type"]
     if "Experiment" in method:
-        color = colors["Experiment"]
+        color = colors["Experiment\nZPVE corrected"]
     elif "CCSD" in method:
         color = colors["CCSD(T)"]
     elif "FermiNet" in method:
@@ -208,18 +187,15 @@ for label, color in colors.items():
     ax_benz.barh([np.nan], [np.nan], color=color, label=label)
 ax_benz.set_yticks(range(len(df_agg)))
 ax_benz.set_yticklabels(df_agg["method"], fontsize=9)
-ax_benz.invert_yaxis()
 ax_benz.grid(False, axis="y")
 ax_benz.yaxis.minorticks_off()
 # ax.grid(alpha=0.5, axis="x")
-ax_benz.axvline(delta_E_exp * 1000, color="k", linestyle="--", zorder=0)
+# ax_benz.axvline(delta_E_exp * 1000, color="k", linestyle="--", zorder=0)
 ax_benz.axvline(0, color="k", linestyle="-", zorder=0)
 ax_benz.legend(loc="lower right", ncol=1)
-# ax_benz.set_xlim([None, 22])
+ax_benz.set_ylim([len(df_agg) - 1 + bar_width/2+0.1, -bar_width/2-0.1, ])
 
-# for y in [2.5, 7.5]:
-#     ax.axhline(y, color="k", ls="--", alpha=0.5, zorder=0, lw=0.5)
-ax_benz.axvspan(delta_E_exp * 1000 - exp_uncertainty, delta_E_exp * 1000 + exp_uncertainty, color="k", alpha=0.1, zorder=0)
+ax_benz.axvspan(delta_E_range[0] * 1000, delta_E_range[1] * 1000, color="k", alpha=0.1, zorder=0)
 ax_benz.set_xlabel("binding energy $E$ " + MILLIHARTREE)
 
 # Insert a picture in the lower left corner
@@ -232,7 +208,7 @@ image_ax.axis("off")
 fig.tight_layout(rect=[0.0, 0, 1, 1])
 fig.subplots_adjust(wspace=0.4)
 ax_s22.text(0.04, 0.97, "\\textbf{a)}", transform=fig.transFigure, va="top", ha="left")
-ax_s22.text(0.59, 0.97, "\\textbf{b)}", transform=fig.transFigure, va="top", ha="left")
+ax_s22.text(0.535, 0.97, "\\textbf{b)}", transform=fig.transFigure, va="top", ha="left")
 savefig(fig, "interactions", bbox_inches=None)
 
 

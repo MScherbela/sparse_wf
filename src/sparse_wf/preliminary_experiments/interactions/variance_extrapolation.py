@@ -16,12 +16,13 @@ def get_E_extrapolated(energies, variances):
 window = 5000
 steps_min = 5000
 plt.close("all")
-fig, axes = plt.subplots(7,5, figsize=(12, 14))
+fig, axes = plt.subplots(7,4, figsize=(12, 14))
 
 df_all = pd.read_csv("interaction_energies.csv")
 df_all["run"] = df_all["molecule"] + df_all["geom"] + df_all["cutoff"].astype(str)
 molecules = sorted(df_all.molecule.unique())
-cutoffs = [3, 5]
+# cutoffs = [3, 5]
+cutoffs = [5]
 geoms = ["equilibrium", "dissociated"]
 
 
@@ -34,7 +35,7 @@ for mol, cutoff in itertools.product(molecules, cutoffs):
         print("Not enough runs for", mol, cutoff)
         continue
     steps_max = int(df_group.min())
-    if steps_max < 20_000:
+    if steps_max < 15_000:
         print("Not enough data for", mol, cutoff)
         continue
     for geom in geoms:
@@ -84,7 +85,7 @@ pivot = df_final.pivot_table(index=["molecule", "cutoff"], columns="geom", value
 pivot = pivot.swaplevel(axis=1)
 interaction = (pivot["dissociated"] - pivot["equilibrium"]) * 1000
 # interaction["shift"] = interaction["E_inf"] - interaction["E_last"]
-# interaction["extrapolation"] = (pivot[("equilibrium", "E_last")] - pivot[("equilibrium", "E_inf")] ) * 1000
+interaction["extrapolation"] = (pivot[("equilibrium", "E_last")] - pivot[("equilibrium", "E_inf")] ) * 1000
 
 df_ref = pd.read_csv("interaction_references.csv").set_index("molecule") * 1000
 interaction = interaction.join(df_ref[["LapNet", "CCSD(T)"]])

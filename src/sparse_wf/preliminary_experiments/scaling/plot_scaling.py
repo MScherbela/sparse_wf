@@ -12,6 +12,7 @@ REFERENCE_BATCH_SIZE = 512
 N_EL_MIN_FOR_FIT = 100
 N_EL_FOR_BREAKDOWN = 200
 
+NAIVE_FIRE_NAME = "Naive FiRE"
 
 def fit_and_plot(ax, x, y, color, ls="-", n_fit_min=N_EL_MIN_FOR_FIT):
     include_in_fit = (x >= n_fit_min) & (np.isfinite(y))
@@ -32,7 +33,7 @@ df = pd.read_csv("data/timings_4k.csv")
 df["t"] = df["t"] * REFERENCE_BATCH_SIZE / df.batch_size
 df["n_el"] = df["system_size"] * 4 + 4
 df_fire_dense = df[df.model == "FiRE"].copy()
-df_fire_dense["model"] = "FiRE (dense)"
+df_fire_dense["model"] = NAIVE_FIRE_NAME
 df_fire_dense = df_fire_dense[~df_fire_dense.operation.isin(["E_kin", "wf_lowrank"])]
 df_fire_dense["operation"] = df_fire_dense["operation"].str.replace("E_kin_dense", "E_kin")
 df = pd.concat([df, df_fire_dense], ignore_index=True)
@@ -54,13 +55,14 @@ plt.close("all")
 fig, axes = plt.subplots(1, 4, figsize=(10, 4), width_ratios=[1,1,1,1])
 ax_upd, ax_Ekin, ax_tot, ax_speedup = axes.flatten()
 
-models = ["Ferminet",  "Psiformer", "Lapnet", "FiRE (dense)", "FiRE"]
+models = ["Ferminet",  "Psiformer", "Lapnet", NAIVE_FIRE_NAME, "FiRE"]
 model_colors = [COLOR_PALETTE[i] for i in [0, 2, 3, 1]] + [COLOR_FIRE]
 markers = ["o", "s", "d", "^", "v"]
 for model, color, marker in zip(models, model_colors, markers):
     kwargs_filled = dict(marker=marker, ls="none", color=color)
     df_model = pivot[pivot.model == model]
-    model = model.replace(" (dense)", "\ndense")
+    # model = model.replace(" (dense)", "\ndense")
+    model = model.replace(" ", "\n")
 
     # Plot update times
     exponent = fit_and_plot(ax_upd, df_model.n_el, df_model.t_update, color)
@@ -128,7 +130,7 @@ ax_speedup.legend(loc="upper right", labelspacing=0.2, frameon=False, ncol=2, co
 ax_speedup.set_ylim([0, 170])
 ax_speedup.grid(False)
 ax_speedup.xaxis.minorticks_off()
-ax_speedup.set_xticklabels(["Fermi-\nnet", "Psi-\nformer", "Lap-\nNet", "FiRE\ndense", "FiRE"], rotation=0)
+ax_speedup.set_xticklabels(["Fermi-\nnet", "Psi-\nformer", "Lap-\nNet", "Naive\nFiRE", "FiRE"], rotation=0)
 # plt.setp(ax_speedup.get_xticklabels(), rotation=25, ha='right')
 fig.tight_layout()
 fig.subplots_adjust(wspace=0.2)
