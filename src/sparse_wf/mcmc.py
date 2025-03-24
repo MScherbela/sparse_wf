@@ -30,7 +30,6 @@ from sparse_wf.api import (
 from sparse_wf.jax_utils import jit, pmean_if_pmap, pmax_if_pmap
 from sparse_wf.model.graph_utils import NO_NEIGHBOUR
 from sparse_wf.tree_utils import tree_add, tree_maximum, tree_zeros_like
-from folx import batched_vmap
 
 
 P, MS = TypeVar("P"), TypeVar("MS")
@@ -213,8 +212,8 @@ def mcmc_steps_low_rank(
         (_, logpsi), model_state = logpsi_fn.log_psi_low_rank_update(params, r, idx_changed, static, model_state)
         return 2 * logpsi, model_state
 
-    # logprob, model_state = jax.vmap(log_prob_fn)(electrons)
-    logprob, model_state = batched_vmap(log_prob_fn, max_batch_size=128)(electrons)
+    logprob, model_state = jax.vmap(log_prob_fn)(electrons)
+    # logprob, model_state = batched_vmap(log_prob_fn, max_batch_size=128)(electrons)
 
     @functools.partial(jax.vmap, in_axes=(None, 0))
     def step_fn(i, carry):

@@ -16,6 +16,12 @@ import time
 import pathlib
 import yaml
 
+def print_peak_memory(comment=""):
+    memory_stats = jax.local_devices()[0].memory_stats()
+    peak_gb = memory_stats["peak_bytes_in_use"] / (1024**3)
+    print(f"PEAK MEMORY: {peak_gb:5.2f} GB {comment}")
+
+
 def perturb_electrons(rng, r, stepsize):
     batch_size, n_el, _ = r.shape
     rng_select, rng_move = jax.random.split(rng)
@@ -35,7 +41,9 @@ print(jax.devices())
 
 default_config = yaml.load(open(DEFAULT_CONFIG_PATH, "r"), Loader=yaml.CLoader)
 model_args = default_config["model_args"]
+# model_args["embedding"]["new"]["cutoff_1el"] = 20.0
 model_args["embedding"]["new"]["cutoff"] = 7.0
+model_args["embedding"]["new"]["rematerialize_pairs"] = False
 molecule_args = default_config["molecule_args"]
 molecule_args["database_args"]["comment"] = "corannulene_dimer"
 # molecule_args["database_args"]["comment"] = "cumulene_C4H4_0deg_singlet"
@@ -43,7 +51,8 @@ mcmc_args = default_config["mcmc_args"]
 mcmc_args["single_electron_args"]["sweeps"] = 0.1
 mcmc_args["jump_steps"] = 0
 
-batch_size = 512
+batch_size = 256
+
 stepsize = 0.5
 rng_r, rng_model, rng_mcmc = jax.random.split(jax.random.PRNGKey(0), 3)
 
@@ -55,46 +64,75 @@ n_up, n_dn = mol.nelec
 n_el = n_up + n_dn
 electrons = init_electrons(rng_r, mol, batch_size, stddev=1.0)
 electrons_new, idx_changed = perturb_electrons(rng_r, electrons, stepsize)
+print_peak_memory(" after init electrons")
 
 wf = MoonLikeWaveFunction.create(mol, **model_args)
 print("Initializing params")
 params = wf.init(rng_model, electrons[0])
 params = jtu.tree_map(lambda x: jnp.array(x, dtype), params)
-static_args = wf.get_static_input(electrons, electrons_new, idx_changed)
+print_peak_memory(" after init params")
+static_args = wf.get_static_input(electrons, electrons_new, idx_changed, laplacian=False)
 static_args = jtu.tree_map(lambda x: int(jnp.max(x)), static_args)
 static_args = static_args.round_with_padding(1.0, n_el, n_el//2, len(R))
 static_args = StaticInputs(mcmc=static_args, mcmc_jump=static_args, pp=static_args)
+print_peak_memory(" after get_static_input")
 print(static_args)
+
 
 # get_E_loc = jax.jit(jax.vmap(wf.local_energy, in_axes=(None, 0, None)), static_argnums=2)
 # get_logpsi = jax.jit(jax.vmap(wf, in_axes=(None, 0, None)), static_argnums=2)
 
-mcmc_step, mcmc_state = make_mcmc(wf, R, Z, n_el, mcmc_args)
-mcmc_step = jax.jit(mcmc_step, static_argnums=3)
+# mcmc_step, mcmc_state = make_mcmc(wf, R, Z, n_el, mcmc_args)
+# mcmc_step = jax.jit(mcmc_step, static_argnums=3)
+
+# get_embedding = jax.jit(jax.vmap(wf.embedding.apply, in_axes=(None, 0, None)), static_argnums=2)
+def dummy_loss(params, electrons, static_args):
+    psi = jax.vmap(wf, in_axes=(None, 0, None))(params, electrons, static_args)
+    return jnp.sum(psi)
+
+get_psi = jax.jit(jax.vmap(wf, in_axes=(None, 0, None)), static_argnums=(2,))
+get_grad_psi = jax.jit(jax.grad(dummy_loss), static_argnums=(2,))
+
+psi = get_psi(params, electrons, static_args.mcmc)
+print_peak_memory(" after get_psi")
+
+grad_psi = get_grad_psi(params, electrons, static_args.mcmc)
+print_peak_memory(" after get_grad_psi")
 
 
-def func_to_profile(params, electrons, static_args):
-    # result = get_E_loc(params, electrons, static_args)
-    result = mcmc_step(rng_mcmc, params, electrons, static_args, mcmc_state)[0]
-    # get_E_kin = jax.jit(jax.vmap(wf.kinetic_energy, in_axes=(None, 0, None)), static_argnums=2)
 
-    # result = get_E_kin(params, electrons, static_args.mcmc)
-    return result.block_until_ready()
+# def func_to_profile(params, electrons, static_args):
+#     # result = get_E_loc(params, electrons, static_args)
+#     # result = mcmc_step(rng_mcmc, params, electrons, static_args, mcmc_state)[0]
+#     # result = get_embedding(params.embedding, electrons, static_args.mcmc)
+#     result = grad_psi(params, electrons, static_args.mcmc)
+#     # get_E_kin = jax.jit(jax.vmap(wf.kinetic_energy, in_axes=(None, 0, None)), static_argnums=2)
+
+#     # result = get_E_kin(params, electrons, static_args.mcmc)
+#     return jax.block_until_ready(result)
 
 
-print("Running warmup passes for compilation")
-for i in range(1):
-    print(f"Warmup pass {i}")
-    result = func_to_profile(params, electrons, static_args)
+# print("Running warmup passes for compilation")
+# for i in range(1):
+#     print(f"Warmup pass {i}")
+#     result = func_to_profile(params, electrons, static_args)
 
-print("Running actual passes for profiling")
-with jax.profiler.trace("/tmp/tensorboard"):
-# with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True, create_perfetto_trace=True):
-    timings = []
-    for i in range(1):
-        print(f"Pass {i}")
-        t0 = time.perf_counter()
-        result = func_to_profile(params, electrons, static_args)
-        t1 = time.perf_counter()
-        timings.append(t1 - t0)
-    print(f"Duration: T={np.mean(timings):.3f} +- {np.std(timings) / np.sqrt(len(timings)):.3f} s")
+# print("Running actual passes for profiling")
+# with jax.profiler.trace("/tmp/tensorboard"):
+# # with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True, create_perfetto_trace=True):
+#     timings = []
+#     for i in range(1):
+#         print(f"Pass {i}")
+#         t0 = time.perf_counter()
+#         result = func_to_profile(params, electrons, static_args)
+#         t1 = time.perf_counter()
+#         timings.append(t1 - t0)
+#     print(f"Duration: T={np.mean(timings):.3f} +- {np.std(timings) / np.sqrt(len(timings)):.3f} s")
+# print_peak_memory(" after func_to_profile")
+
+# memory_stats = jax.local_devices()[0].memory_stats()
+# for k,v in memory_stats.items(): # type: ignore
+#     v = f"{v / (1024**3):6.2f} GB" if ("byte" in k) or ("alloc_size" in k) else v
+#     print(f"{k:<40}: {v}")
+
+# jax.profiler.save_device_memory_profile("/tmp/jax-trace/memory.prof", backend="gpu")

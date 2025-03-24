@@ -431,6 +431,7 @@ class NewEmbeddingArgs(TypedDict):
     pair_n_envelopes: int
     low_rank_buffer: int
     n_updates: int
+    rematerialize_pairs: bool
 
 
 class MoonEmbeddingArgs(TypedDict):

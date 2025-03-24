@@ -36,6 +36,7 @@ model_args:
       pair_n_envelopes: 32
       low_rank_buffer: 2
       n_updates: 1
+      rematerialize_pairs: false
     moon:
       cutoff: 5.0
       cutoff_1el: 20.0
