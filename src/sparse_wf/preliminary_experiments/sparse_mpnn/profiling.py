@@ -35,7 +35,7 @@ print(jax.devices())
 
 default_config = yaml.load(open(DEFAULT_CONFIG_PATH, "r"), Loader=yaml.CLoader)
 model_args = default_config["model_args"]
-model_args["embedding"]["new"]["cutoff"] = 5.0
+model_args["embedding"]["new"]["cutoff"] = 7.0
 molecule_args = default_config["molecule_args"]
 molecule_args["database_args"]["comment"] = "corannulene_dimer"
 # molecule_args["database_args"]["comment"] = "cumulene_C4H4_0deg_singlet"
@@ -43,7 +43,7 @@ mcmc_args = default_config["mcmc_args"]
 mcmc_args["single_electron_args"]["sweeps"] = 0.1
 mcmc_args["jump_steps"] = 0
 
-batch_size = 256
+batch_size = 512
 stepsize = 0.5
 rng_r, rng_model, rng_mcmc = jax.random.split(jax.random.PRNGKey(0), 3)
 
@@ -53,7 +53,7 @@ Z = get_atomic_numbers(mol)
 effective_charges = mol.atom_charges()
 n_up, n_dn = mol.nelec
 n_el = n_up + n_dn
-electrons = init_electrons(rng_r, mol, batch_size, stddev=2.0)
+electrons = init_electrons(rng_r, mol, batch_size, stddev=1.0)
 electrons_new, idx_changed = perturb_electrons(rng_r, electrons, stepsize)
 
 wf = MoonLikeWaveFunction.create(mol, **model_args)
@@ -69,9 +69,6 @@ print(static_args)
 # get_E_loc = jax.jit(jax.vmap(wf.local_energy, in_axes=(None, 0, None)), static_argnums=2)
 # get_logpsi = jax.jit(jax.vmap(wf, in_axes=(None, 0, None)), static_argnums=2)
 
-pp_local, pp_nonlocal = make_pseudopotential(wf.Z,
- molecule_args["pseudopotentials"],
- default_config["optimization"]["pp_grid_points"])
 mcmc_step, mcmc_state = make_mcmc(wf, R, Z, n_el, mcmc_args)
 mcmc_step = jax.jit(mcmc_step, static_argnums=3)
 

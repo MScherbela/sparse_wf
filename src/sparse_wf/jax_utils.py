@@ -337,3 +337,24 @@ def vmap_reduction(f: C, reductions, max_batch_size=None, *vmap_args, **vmap_kwa
         return jtu.tree_map(lambda f, x: jtu.tree_map(f, x), reductions, unreduced)
 
     return cast(C, vmap_reduction_f)
+
+
+def chunked_reduce(f: C, chunk_size):
+    """function f has signature carry = f(carry, x)"""
+
+    def chunked_f(carry, *args):
+        N = args[0].shape[0]
+        assert all([arg.shape[0] == N for arg in args])
+        n_full_chunks, N_rest = divmod(N, chunk_size)
+        N_full = n_full_chunks * chunk_size
+
+        if n_full_chunks:
+            args_full = [a[:N_full].reshape(n_full_chunks, chunk_size, *a.shape[1:]) for a in args]
+            carry, _ = jax.lax.scan(lambda c, x: (f(c, *x), None), carry, args_full)
+
+        if N_rest:
+            args_rest = [a[N_full:] for a in args]
+            carry = f(carry, *args_rest)
+        return carry
+
+    return chunked_f
