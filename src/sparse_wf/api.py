@@ -587,6 +587,7 @@ class OptimizationArgs(TypedDict):
     spin_operator_args: SpinOperatorArgs
     energy_operator: Literal["dense", "sparse"]
     pp_grid_points: dict[str, int]  # number of spherical grid points for pseudopotential integration
+    pp_nonloc_batch_size: int
     cutoff_transition_steps: float
 
 

@@ -86,9 +86,12 @@ def make_trainer(
     energy_operator: Literal["sparse", "dense"],
     pseudopotentials: Sequence[str],
     pp_grid_points: dict[str, int],
+    pp_nonloc_batch_size: int,
     cutoff_transition_steps: float,
 ):
-    energy_fn = make_local_energy(wave_function, energy_operator, pseudopotentials, pp_grid_points)
+    energy_fn = make_local_energy(
+        wave_function, energy_operator, pseudopotentials, pp_grid_points, pp_nonloc_batch_size
+    )
     batched_energy_fn = vmap_reduction(
         energy_fn,
         (lambda x: x, lambda x: pmax_if_pmap(jnp.max(x))),

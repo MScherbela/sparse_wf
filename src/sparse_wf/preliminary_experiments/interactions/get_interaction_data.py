@@ -29,7 +29,7 @@ for r in runs:
     gpu_hours_total += 4 * r.summary.get("_runtime", 0) / 3600
 
     history = []
-    for h in r.scan_history(["opt/step", "opt/E", "opt/E_std"], page_size=10_000):
+    for h in r.scan_history(["opt/step", "opt/E", "opt/E_std", "opt/update_norm"], page_size=10_000):
         history.append(h | metadata)
     df = pd.DataFrame(history)
     if len(df):

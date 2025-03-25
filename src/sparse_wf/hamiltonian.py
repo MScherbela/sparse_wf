@@ -51,6 +51,7 @@ def make_local_energy(
     energy_operator: Literal["sparse", "dense"],
     pseudopotentials: Sequence[str],  # list of atoms for which to use pseudopotentials
     pp_grid_points: dict[str, int],
+    pp_nonloc_batch_size: int,
 ):
     """Create a local energy function from a wave function"""
     match energy_operator.lower():
@@ -61,7 +62,9 @@ def make_local_energy(
         case _:
             raise ValueError(f"Unknown energy operator: {energy_operator}")
 
-    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials, pp_grid_points)
+    eff_charges, pp_local, pp_nonlocal = make_pseudopotential(
+        wf.Z, pseudopotentials, pp_grid_points, pp_nonloc_batch_size
+    )
 
     def local_energy(
         key: jax.Array, params: P, electrons: Electrons, static: StaticInput

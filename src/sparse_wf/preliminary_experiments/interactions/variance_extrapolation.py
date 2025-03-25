@@ -14,13 +14,15 @@ def get_E_extrapolated(energies, variances):
     return popt
 
 window = 5000
-steps_min = 5000
+steps_min = 15000
 plt.close("all")
-fig, axes = plt.subplots(7,4, figsize=(12, 14))
+fig, axes = plt.subplots(4,3, figsize=(12, 14))
 
 df_all = pd.read_csv("interaction_energies.csv")
 df_all["run"] = df_all["molecule"] + df_all["geom"] + df_all["cutoff"].astype(str)
 molecules = sorted(df_all.molecule.unique())
+molecules = [m for m in molecules if m[:2] in ["02", "03", "04", "11"]]
+
 # cutoffs = [3, 5]
 cutoffs = [5]
 geoms = ["equilibrium", "dissociated"]
@@ -35,7 +37,7 @@ for mol, cutoff in itertools.product(molecules, cutoffs):
         print("Not enough runs for", mol, cutoff)
         continue
     steps_max = int(df_group.min())
-    if steps_max < 15_000:
+    if steps_max < 25_000:
         print("Not enough data for", mol, cutoff)
         continue
     for geom in geoms:
@@ -51,7 +53,7 @@ for mol, cutoff in itertools.product(molecules, cutoffs):
         df["E_smooth"] = df["opt/E"].rolling(window=2000).mean()
         df["var_smooth"] = (df["opt/E_std"]**2).rolling(window=2000).mean()
         df = df[~df.E_smooth.isna()]
-        df_sub = df.iloc[::50]
+        df_sub = df.iloc[::100]
 
         res = scipy.stats.linregress(df_sub.var_smooth, df_sub.E_smooth)
         E_inf, slope, E_inf_err, r_value = res.intercept, res.slope, res.intercept_stderr, res.rvalue

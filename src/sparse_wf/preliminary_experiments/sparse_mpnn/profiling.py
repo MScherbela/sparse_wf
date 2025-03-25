@@ -1,4 +1,5 @@
 import os
+
 os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 from sparse_wf.model.wave_function import MoonLikeWaveFunction
 from sparse_wf.system import get_molecule, get_atomic_numbers
@@ -6,6 +7,7 @@ from sparse_wf.mcmc import init_electrons
 from sparse_wf.mcmc import make_mcmc
 from sparse_wf.pseudopotentials import make_pseudopotential
 from sparse_wf.api import StaticInputs
+from sparse_wf.tree_utils import tree_max
 import jax
 import jax.numpy as jnp
 from pyscf.gto import Mole
@@ -15,6 +17,8 @@ import jax.tree_util as jtu
 import time
 import pathlib
 import yaml
+import functools
+
 
 def print_peak_memory(comment=""):
     memory_stats = jax.local_devices()[0].memory_stats()
@@ -31,6 +35,12 @@ def perturb_electrons(rng, r, stepsize):
     return r_new, idx[:, None]
 
 
+def load_checkpoint(fname, batch_size):
+    with open(fname, "rb") as f:
+        state = state.deserialize(f.read(), batch_size)
+    return state
+
+
 DEFAULT_CONFIG_PATH = pathlib.Path(__file__).parent / "../../../../config/default.yaml"
 
 dtype = jnp.float32
@@ -42,19 +52,21 @@ print(jax.devices())
 default_config = yaml.load(open(DEFAULT_CONFIG_PATH, "r"), Loader=yaml.CLoader)
 model_args = default_config["model_args"]
 # model_args["embedding"]["new"]["cutoff_1el"] = 20.0
-model_args["embedding"]["new"]["cutoff"] = 7.0
-model_args["embedding"]["new"]["rematerialize_pairs"] = False
+model_args["embedding"]["new"]["cutoff"] = 5.0
+model_args["embedding"]["new"]["rematerialize_pairs"] = True
 molecule_args = default_config["molecule_args"]
-molecule_args["database_args"]["comment"] = "corannulene_dimer"
+molecule_args["database_args"]["comment"] = "corannulene_dissociated"
 # molecule_args["database_args"]["comment"] = "cumulene_C4H4_0deg_singlet"
 mcmc_args = default_config["mcmc_args"]
 mcmc_args["single_electron_args"]["sweeps"] = 0.1
 mcmc_args["jump_steps"] = 0
 
-batch_size = 256
+batch_size = 16
+pp_nonloc_batch_size = 512
 
 stepsize = 0.5
-rng_r, rng_model, rng_mcmc = jax.random.split(jax.random.PRNGKey(0), 3)
+rng_r, rng_model, rng_mcmc, rng_pp = jax.random.split(jax.random.PRNGKey(0), 4)
+rng_pp = jax.random.split(rng_pp, batch_size)
 
 mol = get_molecule(molecule_args)
 R = np.array(mol.atom_coords())
@@ -71,12 +83,40 @@ print("Initializing params")
 params = wf.init(rng_model, electrons[0])
 params = jtu.tree_map(lambda x: jnp.array(x, dtype), params)
 print_peak_memory(" after init params")
-static_args = wf.get_static_input(electrons, electrons_new, idx_changed, laplacian=False)
+static_args = wf.get_static_input(electrons, electrons_new, idx_changed, laplacian=True)
 static_args = jtu.tree_map(lambda x: int(jnp.max(x)), static_args)
-static_args = static_args.round_with_padding(1.0, n_el, n_el//2, len(R))
+static_args = static_args.round_with_padding(1.0, n_el, n_el // 2, len(R))
 static_args = StaticInputs(mcmc=static_args, mcmc_jump=static_args, pp=static_args)
 print_peak_memory(" after get_static_input")
 print(static_args)
+
+_, _, pp_nonloc = make_pseudopotential(
+    wf.Z,
+    molecule_args["pseudopotentials"],
+    default_config["optimization"]["pp_grid_points"],
+    pp_nonloc_batch_size,
+)
+
+
+@functools.partial(jax.jit, static_argnums=(3,))
+@functools.partial(jax.vmap, in_axes=(0, None, 0, None))
+def get_E_pot(rng_pp, params, electrons, static):
+    return pp_nonloc(rng_pp, wf, params, electrons, static)
+
+
+E_pot, new_static_pp = jax.block_until_ready(get_E_pot(rng_pp, params, electrons, static_args.mcmc))
+print_peak_memory(" after E_pot (low statics)")
+
+static_args_pp = tree_max(new_static_pp, axis=0).round_with_padding(1.0, n_el, n_el // 2, len(R))
+static_args_pp = jtu.tree_map(int, static_args_pp)
+print(static_args_pp)
+E_pot, new_static_pp = jax.block_until_ready(get_E_pot(rng_pp, params, electrons, static_args_pp))
+print_peak_memory(" after E_pot (correct statics)")
+
+
+# get_E_kin = jax.jit(jax.vmap(wf.kinetic_energy, in_axes=(None, 0, None)), static_argnums=2)
+# E = jax.block_until_ready(get_E_kin(params, electrons, static_args.mcmc))
+# print_peak_memory(" after Ekin")
 
 
 # get_E_loc = jax.jit(jax.vmap(wf.local_energy, in_axes=(None, 0, None)), static_argnums=2)
@@ -86,19 +126,18 @@ print(static_args)
 # mcmc_step = jax.jit(mcmc_step, static_argnums=3)
 
 # get_embedding = jax.jit(jax.vmap(wf.embedding.apply, in_axes=(None, 0, None)), static_argnums=2)
-def dummy_loss(params, electrons, static_args):
-    psi = jax.vmap(wf, in_axes=(None, 0, None))(params, electrons, static_args)
-    return jnp.sum(psi)
+# def dummy_loss(params, electrons, static_args):
+#     psi = jax.vmap(wf, in_axes=(None, 0, None))(params, electrons, static_args)
+#     return jnp.sum(psi)
 
-get_psi = jax.jit(jax.vmap(wf, in_axes=(None, 0, None)), static_argnums=(2,))
-get_grad_psi = jax.jit(jax.grad(dummy_loss), static_argnums=(2,))
+# get_psi = jax.jit(jax.vmap(wf, in_axes=(None, 0, None)), static_argnums=(2,))
+# get_grad_psi = jax.jit(jax.grad(dummy_loss), static_argnums=(2,))
 
-psi = get_psi(params, electrons, static_args.mcmc)
-print_peak_memory(" after get_psi")
+# psi = get_psi(params, electrons, static_args.mcmc)
+# print_peak_memory(" after get_psi")
 
-grad_psi = get_grad_psi(params, electrons, static_args.mcmc)
-print_peak_memory(" after get_grad_psi")
-
+# grad_psi = get_grad_psi(params, electrons, static_args.mcmc)
+# print_peak_memory(" after get_grad_psi")
 
 
 # def func_to_profile(params, electrons, static_args):

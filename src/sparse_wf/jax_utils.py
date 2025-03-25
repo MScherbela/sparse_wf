@@ -304,6 +304,12 @@ def get_from_main_process(data, has_device_axis=False):
     return data_on_main
 
 
+def get_peak_memory():
+    memory_stats = jax.local_devices()[0].memory_stats()
+    peak_gb = memory_stats["peak_bytes_in_use"] / (1024**3)
+    return peak_gb
+
+
 def rng_sequence(key):
     while True:
         key, subkey = jax.random.split(key)

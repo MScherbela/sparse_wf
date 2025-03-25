@@ -84,7 +84,7 @@ mol_name_translation = {
 }
 mol_names = [mol_name_translation[m] for m in df.index]
 
-xlims = [-5, 5]
+xlims = [-7, 5]
 ax_s22.set_xlabel("$E_\\textrm{NN-VMC}$ - $E_\\textrm{CCSD(T)}$ " + MILLIHARTREE)
 ax_s22.grid(False, axis="y")
 ax_s22.yaxis.minorticks_off()

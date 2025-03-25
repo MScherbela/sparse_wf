@@ -340,6 +340,7 @@ def make_nonlocal_pseudopotential(
     ecp_mask: EcpMask,
     cutoffs: EcpCutoffs,
     n_quad_points: Integer[np.ndarray, " n_ecp_atoms"],
+    batchsize_nonloc: int,
 ):
     unique_n_quad_points = np.unique(n_quad_points)
     unique_n_quad_points = unique_n_quad_points[unique_n_quad_points > 0]
@@ -381,7 +382,7 @@ def make_nonlocal_pseudopotential(
             # vmap over l-values
             return jax.vmap(lambda v: jnp.interp(dist_ae, xp=r_grid, fp=v))(v_grid_nonloc[idx_ecp_atom])
 
-        psi_ratio, actual_static = batched_vmap(get_psi_ratio, max_batch_size=512)(
+        psi_ratio, actual_static = batched_vmap(get_psi_ratio, max_batch_size=batchsize_nonloc)(
             r_integration, idx_el
         )  # [n_integrations]
         V_nonloc = get_radial_potential(dist_ae, idx_ecp_atom)  # [n_integrations * n_l_values]
@@ -409,6 +410,7 @@ def make_pseudopotential(
     charges: Charges,
     symbols: Sequence[str],
     n_quad_points: dict[str, int],
+    pp_nonloc_batch_size: int,
     ecp: str = "ccecp",  # basis set
     cutoff_value: float = 1e-7,
 ):
@@ -448,6 +450,6 @@ def make_pseudopotential(
 
     pp_local = make_local_pseudopotential(grid_radius, loc_grid_values, ecp_mask)
     pp_nonlocal = make_nonlocal_pseudopotential(
-        grid_radius, non_loc_grid_values, ecp_mask, cutoffs, n_integration_points
+        grid_radius, non_loc_grid_values, ecp_mask, cutoffs, n_integration_points, pp_nonloc_batch_size
     )
     return effective_charges, pp_local, pp_nonlocal
