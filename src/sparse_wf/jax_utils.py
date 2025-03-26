@@ -345,12 +345,11 @@ def vmap_reduction(f: C, reductions, max_batch_size=None, *vmap_args, **vmap_kwa
     return cast(C, vmap_reduction_f)
 
 
-def chunked_reduce(f: Callable, chunk_size):
+def chunked_reduce(f: Callable, chunk_size) -> Callable:
     """function f has signature carry = f(carry, x)"""
 
     f_remat = jax.checkpoint(lambda c, x: (f(c, *x), None))
 
-    # @jax.jit
     def chunked_f(carry, *args):
         N = args[0].shape[0]
         assert all([arg.shape[0] == N for arg in args])

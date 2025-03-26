@@ -88,10 +88,7 @@ def contract(h_residual, h_ct, h_nb, Gamma, edges, idx_ctr, idx_nb):
 
 # @functools.partial(jax.jit, static_argnums=(0,))
 def contract_pair(pair_fn, electrons, msg_ct, msg_nb, h, idx_ct, idx_nb):
-    Gamma, edge = jax.vmap(pair_fn)(
-        get(electrons, idx_ct, 0.0),
-        get(electrons, idx_nb, 1000.0),
-    )
+    Gamma, edge = jax.vmap(pair_fn)(get(electrons, idx_ct, 0.0), get(electrons, idx_nb, 1000.0))
     return contract(h, msg_ct, msg_nb, Gamma, edge, idx_ct, idx_nb)
 
 
@@ -513,9 +510,6 @@ class NewSparseEmbedding(PyTreeNode):
         if self.rematerialize_pairs:
             h0_fn = jax.checkpoint(h0_fn)  # type: ignore
         h0_fn = batched_vmap(h0_fn, max_batch_size=max_batch_elec_init, out_axes=-2)
-        edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same, cutoff)
-        edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff, cutoff)
-
         h0, (msg_ct_same, msg_ct_diff, msg_nb_same, msg_nb_diff) = cast(
             tuple[
                 jax.Array,
@@ -524,15 +518,16 @@ class NewSparseEmbedding(PyTreeNode):
             h0_fn(electrons, R_nb_en, nuc_params_en),
         )
 
-        contract_same = chunked_reduce(
-            functools.partial(contract_pair, edge_fn_same, electrons, msg_ct_same[0], msg_nb_same[0]), MAX_PAIRS_VMAP
-        )
-        contract_diff = chunked_reduce(
-            functools.partial(contract_pair, edge_fn_diff, electrons, msg_ct_diff[0], msg_nb_diff[0]), MAX_PAIRS_VMAP
-        )
+        edge_fn_same = functools.partial(self.edge_same.apply, params.edge_same, cutoff)
+        edge_fn_diff = functools.partial(self.edge_diff.apply, params.edge_diff, cutoff)
+        contract_same = functools.partial(contract_pair, edge_fn_same, electrons, msg_ct_same[0], msg_nb_same[0])
+        contract_diff = functools.partial(contract_pair, edge_fn_diff, electrons, msg_ct_diff[0], msg_nb_diff[0])
+        contract_same = chunked_reduce(contract_same, MAX_PAIRS_VMAP)  # type: ignore
+        contract_diff = chunked_reduce(contract_diff, MAX_PAIRS_VMAP)  # type: ignore
+
         if self.rematerialize_pairs:
-            contract_same = jax.checkpoint(contract_same)
-            contract_diff = jax.checkpoint(contract_diff)
+            contract_same = jax.checkpoint(contract_same)  # type: ignore
+            contract_diff = jax.checkpoint(contract_diff)  # type: ignore
 
         h = h0
         h = contract_same(h, idx_ct_same, idx_nb_same)
@@ -654,10 +649,10 @@ class NewSparseEmbedding(PyTreeNode):
             electrons, R_nb_en, nuc_params_en
         )
         Gamma_same, edge_same = jax.vmap(fwd_lap(edge_fn_same))(
-            get(electrons, idx_ct_same, 0.0), get(electrons, idx_nb_same, 1.0)
+            get(electrons, idx_ct_same, 0.0), get(electrons, idx_nb_same, 1000.0)
         )
         Gamma_diff, edge_diff = jax.vmap(fwd_lap(edge_fn_diff))(
-            get(electrons, idx_ct_diff, 0.0), get(electrons, idx_nb_diff, 1.0)
+            get(electrons, idx_ct_diff, 0.0), get(electrons, idx_nb_diff, 1000.0)
         )
         jac_h0_padded = jnp.concatenate(
             [
@@ -677,8 +672,8 @@ class NewSparseEmbedding(PyTreeNode):
                 h,
                 h_ct_same[n],
                 h_nb_same[n],
-                Gamma_same[n],
-                edge_same[n],
+                Gamma_same,
+                edge_same,
                 idx_ct_same,
                 idx_nb_same,
                 idx_jac_same,
@@ -687,8 +682,8 @@ class NewSparseEmbedding(PyTreeNode):
                 h,
                 h_ct_diff[n],
                 h_nb_diff[n],
-                Gamma_diff[n],
-                edge_diff[n],
+                Gamma_diff,
+                edge_diff,
                 idx_ct_diff,
                 idx_nb_diff,
                 idx_jac_diff,

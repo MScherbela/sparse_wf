@@ -16,6 +16,7 @@ import pytest
 from folx.api import FwdJacobian, FwdLaplArray
 from jax import config as jax_config
 from sparse_wf.jax_utils import fwd_lap
+from unittest.mock import patch
 
 from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap
 
@@ -104,7 +105,9 @@ def test_energy(dtype, embedding):
     rtol = get_relative_tolerance(dtype) * 1e3
     model, electrons, params, static_args = setup_inputs(dtype, embedding)
 
-    E_dense = model.kinetic_energy_dense(params, electrons, static_args)
+    with patch("jax.checkpoint", lambda f: f):
+        # folx errors when tracing through jax.checkpoint; replace with identity
+        E_dense = model.kinetic_energy_dense(params, electrons, static_args)
     E_sparse = model.kinetic_energy(params, electrons, static_args)
     for E, label in zip([E_sparse, E_dense], ["sparse", "dense"]):
         assert E.dtype == dtype, f"energy {label}: {E.dtype} != {dtype}"

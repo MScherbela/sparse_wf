@@ -33,6 +33,7 @@ def build_model(mol, embedding="moon"):
                 pair_n_envelopes=4,
                 low_rank_buffer=2,
                 n_updates=1,
+                rematerialize_pairs=False,
             ),
             moon=MoonEmbeddingArgs(
                 cutoff=3.0,
