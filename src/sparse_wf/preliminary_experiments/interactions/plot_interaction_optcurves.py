@@ -1,4 +1,4 @@
-#%%
+# %%
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -22,8 +22,10 @@ for mol, ax in zip(molecules, axes.flatten()):
     cutoffs = sorted(df_mol.cutoff.unique())
     fire_energies = []
     for cutoff in df_mol.cutoff.unique():
-    # for cutoff in [3]:
-        pivot = df_mol[df_mol["cutoff"] == cutoff].pivot_table(index="opt/step", columns="geom", values="opt/E", aggfunc="mean")
+        # for cutoff in [3]:
+        pivot = df_mol[df_mol["cutoff"] == cutoff].pivot_table(
+            index="opt/step", columns="geom", values="opt/E", aggfunc="mean"
+        )
         if (len(pivot.columns) != 2) or (len(pivot) < window):
             print("Not enough data for", mol, cutoff)
             continue
@@ -51,8 +53,7 @@ for mol, ax in zip(molecules, axes.flatten()):
         ax.axhline(df_ref.loc[mol, method], color=color, ls="-")
     if len(cutoffs) > 1:
         ax.legend()
-    energies = fire_energies +[df_ref.loc[mol, "LapNet"], df_ref.loc[mol, "CCSD(T)"]]
-    ax.set_ylim([min(energies)-5, max(energies)+5])
+    energies = fire_energies + [df_ref.loc[mol, "LapNet"], df_ref.loc[mol, "CCSD(T)"]]
+    ax.set_ylim([min(energies) - 5, max(energies) + 5])
 fig.tight_layout()
 fig.savefig("interaction_energies.png")
-

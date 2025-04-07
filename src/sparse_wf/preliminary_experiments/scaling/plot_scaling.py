@@ -10,6 +10,7 @@ plt.style.use(["science", "grid"])
 N_SWEEPS = 2
 REFERENCE_BATCH_SIZE = 512
 N_EL_MIN_FOR_FIT = 100
+N_EL_MIN_FOR_PLOT = 100
 N_EL_FOR_BREAKDOWN = 200
 
 NAIVE_FIRE_NAME = "Naive FiRE"
@@ -38,6 +39,7 @@ df_fire_dense = df_fire_dense[~df_fire_dense.operation.isin(["E_kin", "wf_lowran
 df_fire_dense["operation"] = df_fire_dense["operation"].str.replace("E_kin_dense", "E_kin")
 df = pd.concat([df, df_fire_dense], ignore_index=True)
 df["model"] = df["model"].apply(lambda s: s[0].capitalize() + s[1:])
+df = df[df.n_el >= N_EL_MIN_FOR_PLOT]
 
 pivot = df.pivot_table(index=["model", "n_el"], columns="operation", values="t").reset_index()
 pivot = pivot.rename(columns={"E_kin": "t_E_kin", "wf_full": "t_wf_full", "wf_lowrank": "t_wf_lowrank"})
@@ -62,7 +64,7 @@ for model, color, marker in zip(models, model_colors, markers):
     kwargs_filled = dict(marker=marker, ls="none", color=color)
     df_model = pivot[pivot.model == model]
     # model = model.replace(" (dense)", "\ndense")
-    model = model.replace(" ", "\n")
+    # model = model.replace(" ", "\n")
 
     # Plot update times
     exponent = fit_and_plot(ax_upd, df_model.n_el, df_model.t_update, color)
@@ -92,11 +94,11 @@ for ax, ymin in [(ax_upd, 1e-3), (ax_Ekin, 3e-2), (ax_tot, 3e-1)]:
     lines_others = ax.get_lines()[1:6:2]
     lines_fire = ax.get_lines()[7::2]
     leg = ax.legend(lines_others, [l.get_label() for l in lines_others], loc="upper left", frameon=False, handletextpad=0.0, bbox_to_anchor=(-0.04, 1.02))
-    ax.legend(lines_fire, [l.get_label() for l in lines_fire], loc="lower right", frameon=False, handletextpad=0.0)
+    ax.legend(lines_fire, [l.get_label() for l in lines_fire], loc="lower right", frameon=False, handletextpad=0.0, bbox_to_anchor=(1.02, -0.02))
     ax.add_artist(leg)
-    ax.set_xlim([60, 600])
+    ax.set_xlim([90, 550])
     ax.set_ylim([ymin, None])
-    ax.set_xticks([70, 100, 140, 200, 300, 500])
+    ax.set_xticks([100, 140, 200, 300, 500])
     ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
     ax.xaxis.minorticks_off()
     # ax.axvline(N_EL_FOR_BREAKDOWN, color="dimgray", ls="-", zorder=-1)
@@ -116,9 +118,13 @@ columns = {
     "t_E_pot": "ECP",
     "t_Spin": "$S^+$",
 }
+
+color_palette_bar = ["#023047", "#219ebc","#ffb703","#fb8500"]
+
+
 df_speedup = df_speedup[columns.keys()]
 df_speedup = df_speedup.rename(columns=columns)
-df_speedup.plot(kind="bar", stacked=True, ax=ax_speedup, rot=0, color=COLOR_PALETTE, width=0.75)
+df_speedup.plot(kind="bar", stacked=True, ax=ax_speedup, rot=0, color=color_palette_bar, width=0.75)
 for i, model in enumerate(models):
     ax_speedup.text(i, df_speedup.loc[model].sum()+2, f"{df_speedup.loc[model].sum() / t_total_swann:.0f}$\\times$", ha="center", va="bottom")
 # ax_speedup.set_ylabel("Total time relative to FiRE")

@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sparse_wf.plot_utils import get_outlier_mask, COLOR_FIRE, COLOR_PALETTE, cbs_extrapolate, get_colors_from_cmap, abbreviate_basis_set, savefig
+from sparse_wf.plot_utils import get_outlier_mask, COLOR_FIRE, COLOR_PALETTE, cbs_extrapolate, get_colors_from_cmap, abbreviate_basis_set, savefig, format_value_with_error
 from PIL import Image
 import scienceplots
 plt.style.use(['science', 'grid'])
@@ -55,6 +55,8 @@ n_carbon_to_idx = {n: i for i,n in enumerate(pivot.n_carbon.unique())}
 bar_width = 0.9 / len(methods)
 for idx_method, (method, color) in enumerate(methods):
     label = abbreviate_basis_set(method)
+    if label == "FiRE":
+        label += f", $c={CUTOFF:.0f}a_0$"
     marker = "^" if "DZ" in method else ("v" if "TZ" in method else "s")
     df = pivot[pivot["method"] == method]
     ax_deltaE.plot(df["n_carbon"], df["deltaE"] * 1000, label=label, linestyle="-", marker=marker, color=color, alpha=1)
@@ -94,12 +96,14 @@ savefig(fig, "cumulene_energy")
 
 pivot_tex = pivot[pivot.method.isin([m[0] for m in methods])]
 pivot_tex = pivot_tex.pivot_table(index="n_carbon", columns="method", values="deltaE") * 1000
+fire_uncertainty = df_agg.set_index("n_carbon")["deltaE_err"]*1000
 with open("cumulene.tex", "w") as f:
-    f.write("{molecule} & {FiRE} & {CCSD(T)} & {PBE0}\\\\\n")
+    f.write("{molecule} & {FiRE, $c=3a_0$} & {CCSD(T)} & {PBE0}\\\\\n")
     f.write("\\midrule\n")
     for n_carbon, row in pivot_tex.iterrows():
         mol = "\ch{C_{" + str(n_carbon)+ "}H4}"
-        f.write(f"{mol} & {row['FiRE']:.1f} & {row['PBE0 CCSD(T) / CBS']:.1f} & {row['PBE0 D3BJ / def2-TZVP']:.1f} \\\\\n")
+        s_fire = format_value_with_error(row["FiRE"], fire_uncertainty[n_carbon])
+        f.write(f"{mol} & {s_fire} & {row['PBE0 CCSD(T) / CBS']:.1f} & {row['PBE0 D3BJ / def2-TZVP']:.1f} \\\\\n")
 
 #%%
 window = 1000

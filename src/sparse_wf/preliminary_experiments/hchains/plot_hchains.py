@@ -63,7 +63,7 @@ for idx_method, method in enumerate(ref_methods):
     ax_abs.axhline(error18, color=color, linestyle="-", label=method)
 
 for ax, label in zip(axes.flatten(), "abc"):
-    ax.set_xlabel("cutoff / $a_0$")
+    ax.set_xlabel("cutoff $[a_0]$")
     # ax.legend()
     ax.text(0, 1.02, f"\\textbf{{{label})}}", transform=ax.transAxes, va="bottom", ha="left", fontsize=12)
 plt.figlegend(loc="upper center", ncol=6)

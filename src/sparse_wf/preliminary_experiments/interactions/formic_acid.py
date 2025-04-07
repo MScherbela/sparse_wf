@@ -1,9 +1,10 @@
-#%%
+# %%
 import pandas as pd
 from sparse_wf.plot_utils import cbs_extrapolate, focal_point_analysis
 
 molecule = "Formic acid dimer"
 # molecule = "Water dimer"
+
 
 def rename_basis_set(b):
     if b.startswith("CBS"):
@@ -18,15 +19,16 @@ def rename_basis_set(b):
         return "5"
     raise ValueError(f"Unknown basis set {b}")
 
-df = pd.read_csv('orca_energies.csv')
+
+df = pd.read_csv("orca_energies.csv")
 # df = df[df.method.isin(["HF", "MP2"])]
 df = df[df.basis_set.str.startswith("aug") & (~df.method.str.contains("UHF"))]
 # df = df[~(df.method.isin(["HF", "MP2"]) & df.basis_set.str.startswith("cc-pV"))]
-df_hfcbs23 = cbs_extrapolate(df, None, (2,3), "HF", "CBS23", None)
-df_hfcbs34 = cbs_extrapolate(df, None, (3,4), "HF", "CBS34", None)
-df_23 = cbs_extrapolate(df, (2, 3), (4,5), "HF", "CBS45", "CBS23")
-df_34 = cbs_extrapolate(df, (3, 4), (4,5), "HF", "CBS45", "CBS34")
-df_45 = cbs_extrapolate(df, (4, 5), (4,5), "HF", "CBS45", "CBS45")
+df_hfcbs23 = cbs_extrapolate(df, None, (2, 3), "HF", "CBS23", None)
+df_hfcbs34 = cbs_extrapolate(df, None, (3, 4), "HF", "CBS34", None)
+df_23 = cbs_extrapolate(df, (2, 3), (4, 5), "HF", "CBS45", "CBS23")
+df_34 = cbs_extrapolate(df, (3, 4), (4, 5), "HF", "CBS45", "CBS34")
+df_45 = cbs_extrapolate(df, (4, 5), (4, 5), "HF", "CBS45", "CBS45")
 df = pd.concat([df, df_hfcbs23, df_hfcbs34, df_23, df_34, df_45], axis=0, ignore_index=True)
 df["basis_set"] = df["basis_set"].apply(rename_basis_set)
 df["method"] = df["method"] + "/" + df["basis_set"]

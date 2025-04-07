@@ -13,6 +13,7 @@ import pathlib
 import yaml
 import jax.tree_util as jtu
 import jaxlib.xla_extension
+from unittest.mock import patch
 
 DEFAULT_CONFIG_PATH = pathlib.Path(__file__).parent / "../../../../config/default.yaml"
 
@@ -54,20 +55,6 @@ def get_model(mol, cutoff):
     return wf
 
 
-# def make_potential_energy(wf, use_ecp):
-#     pseudopotentials = ["C", "N", "O"] if use_ecp else []
-#     eff_charges, pp_local, pp_nonlocal = make_pseudopotential(wf.Z, pseudopotentials, n_quad_points=dict(default=4))
-
-#     def get_potential_energy(key: jax.Array, params, electrons, static):
-#         potential = potential_energy(electrons, wf.R, eff_charges)
-#         potential += pp_local(electrons, wf.R)
-#         nl_pp, new_static = pp_nonlocal(key, wf, params, electrons, static)
-#         potential += nl_pp
-#         return potential, new_static
-
-#     return get_potential_energy
-
-
 def single_electron_move(rng, electrons, stepsize):
     batch_size, n_el, _ = electrons.shape
     rng = jax.random.split(rng, (batch_size, 2))
@@ -78,22 +65,6 @@ def single_electron_move(rng, electrons, stepsize):
         return r.at[idx].add(dr), idx[None]
 
     return jax.vmap(update)(electrons, rng)
-
-
-# def electron_swap(rng, electrons):
-#     batch_size, n_el, _ = electrons.shape
-#     n_up = n_el // 2
-#     rng = jax.random.split(rng, (batch_size, 2))
-
-#     def update(r, key):
-#         idx_up = jax.random.randint(key[0], [], 0, n_up)
-#         idx_dn = jax.random.randint(key[1], [], n_up, n_el)
-#         r_up = r[idx_up]
-#         r = r.at[idx_up].set(r[idx_dn])
-#         r = r.at[idx_dn].set(r_up)
-#         return r, jnp.stack([idx_up, idx_dn])
-
-#     return jax.vmap(update)(electrons, rng)
 
 
 def jit_and_await(f, static_argnums=None):
@@ -192,7 +163,7 @@ if __name__ == "__main__":
     default_system_sizes = np.unique(default_system_sizes)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=1024)
+    parser.add_argument("--batch_size", type=int, default=4096)
     parser.add_argument("--use_ecp", action="store_true", default=False)
     parser.add_argument("--system_sizes", nargs="+", type=int, default=default_system_sizes)
     parser.add_argument("--cutoff", type=float, default=3.0)
@@ -202,10 +173,12 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output", type=str, default="timings.txt")
     parser.add_argument("--profile", action="store_true", default=False)
     parser.add_argument("--operations", nargs="+", default=["wf_full", "wf_lowrank", "E_kin", "E_kin_dense"])
-    args = parser.parse_args()
+    args = parser.parse_args("--operations E_kin_dense --batch_size 16".split())
 
     settings = {k: v for k, v in vars(args).items() if k not in ["output", "profile", "system_sizes"]}
     for operation in args.operations:
+        if operation == "E_kin_dense":
+            patch("jax.checkpoint", lambda f: f)
         batch_size = args.batch_size
         for idx_system_size, system_size in enumerate(sorted(args.system_sizes)):
             while batch_size > 0:

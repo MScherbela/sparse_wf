@@ -235,6 +235,7 @@ def make_dense_spring_preconditioner(
         local_precond_cotangents = local_precond_cotangents.astype(jnp.float32)
         local_natgrad = jacT @ local_precond_cotangents
         natgrad = psum(local_natgrad)
+        natgrad_norm = jnp.sqrt(jnp.sum(natgrad**2))
         # Add momentum term
         natgrad += last_grad_not_J
         # Add aux_not_in_J part without rescaling with damping
@@ -244,6 +245,7 @@ def make_dense_spring_preconditioner(
         aux_data = {}
         aux_data["opt/log10_S_cond_nr"] = jnp.log10(cond_nr)
         aux_data["opt/damping"] = actual_damping
+        aux_data["opt/spring/natgrad_norm"] = natgrad_norm
         aux_data["opt/spring/aux_grad_norm"] = jnp.sqrt(jnp.sum(flat_aux_grad**2))
         aux_data["opt/spring/aux_in_J_norm"] = jnp.sqrt(jnp.sum(aux_in_J**2))
         aux_data["opt/spring/aux_not_in_J_norm"] = jnp.sqrt(jnp.sum(aux_not_J**2))

@@ -4,7 +4,7 @@ from sparse_wf.system import get_molecule
 import yaml
 import pathlib
 
-DEFAULT_CACHE_DIR = "~/runs/pyscf_cache"
+DEFAULT_CACHE_DIR = "~/runs/pyscf_cache2"
 
 
 def load_yaml(fname):
@@ -19,10 +19,11 @@ hf_args["cache_dir"] = DEFAULT_CACHE_DIR
 hf_args["newton"] = True
 
 geom_names = [
-    "Ferrocene_Toma16_red",
-    "Ferrocene_Toma19_red",
-    "Ferrocene_Toma16_red_charged",
-    "Ferrocene_Toma19_red_charged",
+    "corannulene_dimer",
+    # "Ferrocene_Toma16_red",
+    # "Ferrocene_Toma19_red",
+    # "Ferrocene_Toma16_red_charged",
+    # "Ferrocene_Toma19_red_charged",
 ]
 
 for geom_str in geom_names:
