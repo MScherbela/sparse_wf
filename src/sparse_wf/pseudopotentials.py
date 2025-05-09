@@ -374,7 +374,9 @@ def make_nonlocal_pseudopotential(
             idx_changed = idx_el[None]
             (sign, logpsi), _ = logpsi_fn.log_psi_low_rank_update(params, electrons_new, idx_changed, static, state)
             f_ratio = sign * sign_denom * jnp.exp(logpsi - logpsi_denom)
-            actual_static = logpsi_fn.get_static_input(electrons, electrons_new, idx_changed, False)
+            actual_static = logpsi_fn.get_static_input(electrons, electrons_new, idx_changed)
+            # We don't need to compute the triplets here and can safely set them to zero to avoid unnecessary computation
+            actual_static = actual_static.replace(n_triplets=jnp.zeros((), dtype=jnp.int32))
             return f_ratio, actual_static
 
         @jax.vmap  # vmap over integration points

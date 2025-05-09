@@ -37,7 +37,7 @@ methods = [
     "ACI-DSRG-MRPT2",
     "DMRG-pDFT",
 ]
-afqmc_error = [1.2, 1.2, 1.6, 1.6, 0]
+afqmc_error = np.array([1.2, 1.2, 1.6, 1.6, 0]) * 1.6
 reference = pd.DataFrame(energies_kcal_per_mol, index=methods) * 1.6
 #%%
 
@@ -134,7 +134,7 @@ line_styles = [
     (0, (3, 5, 1, 5, 1, 5))
 ]
 
-fig, ax = plt.subplots(1, 1, figsize=(5, 4))
+fig, (ax, ax2) = plt.subplots(1, 2, figsize=(6, 3), width_ratios=[2, 1.1])
 ax.plot(pd.Series(final_deltas)[order], 's', color=colors[0], label='FiRE', zorder=5, linestyle=line_styles[0])
 ax.plot(reference.loc['ZPE-corr\'d exp'][order], '*', color='black', label='experiment', zorder=-1, linestyle=line_styles[1])
 ax.fill_between(range(len(order)), reference.loc['ZPE-corr\'d exp'][order] - 1.6, reference.loc['ZPE-corr\'d exp'][order] + 1.6, color='black', alpha=0.1, zorder=-10, label='exp$\pm$ chem. acc')
@@ -145,10 +145,15 @@ ax.plot(reference.loc['AFQMC'][order], 'o', color=colors[3], label='AFQMC', zord
 # ax.set_xlabel('$n$-acene')
 ax.set_ylabel(r"$E_\text{triplet} - E_\text{singlet}$ " + MILLIHARTREE)
 ax.tick_params(axis='x', which='minor', bottom=False, top=False)
-leg = ax.legend(loc='lower left')
+ax.set_title('Absolute singlet-triplet gap')
+ax.set_xticks(range(len(order)), order, rotation=10)
+handles, labels = ax.get_legend_handles_labels()
+legend_dict = dict(zip(labels, handles))
+legend_dict['exp $\pm$ chem. acc'] = (legend_dict.pop('exp'), legend_dict['exp $\pm$ chem. acc'])
+leg = ax.legend(legend_dict.values(), legend_dict.keys(), loc='upper right')
 
-ax2 = ax.inset_axes([0.5, 0.5, 0.5, 0.5])
-x = np.arange(len(order))
+# ax2 = ax.inset_axes([0.45, 0.5, 0.55, 0.5])
+x = np.arange(len(order))[::-1]
 w = 0.175
 n = 4
 pos = x - (n+1)/2 * w
@@ -165,8 +170,20 @@ ax2.tick_params(axis='x', which='minor', bottom=False, top=False)
 ax2.set_ylabel(r"$\Delta_\text{method} - \Delta_\text{exp}$ " + MILLIHARTREE, labelpad=-2)
 ax2.set_xlabel('$n$-acene')
 
+fig.subplots_adjust(wspace=0.35)
 plt.savefig("acene_final.pdf", bbox_inches="tight")
 #%%
+
+
+#%%
+our = final_energies.unstack()
+our[r'FiRE'] = (our['triplet'] - our['singlet']) * 1000
+our = our.rename(columns={'triplet': r'$E^\text{FiRE}_\text{triplet}$ (Ha)', 'singlet': r'$E^\text{FiRE}_\text{singlet}$ (Ha)'})
+our = our.dropna().T
+columns = ['ZPE-corr\'d exp', 'FiRE', 'CCSD(T)/FPA', 'ACI-DSRG-MRPT2', 'AFQMC']
+print(pd.concat([our, reference]).T[columns].loc[order].to_latex(float_format="%.1f"))
+# %%
+
 #%%
 #%%
 # window = 5000
