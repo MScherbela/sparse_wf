@@ -3,13 +3,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sparse_wf.plot_utils import (
-    get_outlier_mask,
-    extrapolate_relative_energy,
     MILLIHARTREE,
     COLOR_PALETTE,
-    scale_lightness,
     savefig,
-    fit_with_joint_slope,
     format_value_with_error,
     COLOR_FIRE,
 )
@@ -50,19 +46,19 @@ methods = [
     ("no_CBS", "No CBS:\nCCSD(T)/TZ\n+DMRG", COLOR_PALETTE[1]),
     ("no_DMRG", "No DMRG:\nCCSD(T)/CBS", COLOR_PALETTE[2]),
     # ("composite/nonrel", "No relativistic", COLOR_PALETTE[3]),
-    ("FiRE", "FiRE, $c=5a_0$", COLOR_FIRE),
+    ("FiRE_ext", "FiRE, $c=5a_0$", COLOR_FIRE),
 ]
 
 fig, ax = plt.subplots(1, 1, figsize=(5, 3.5))
 for idx_method, (method, label, color) in enumerate(methods):
     E = mae_vs_comp[method]
     ax.barh([idx_method], [E], color=color)
-    if E > 1.4:
+    if E > 1:
         ax.text(0.2, idx_method, f"{E:.1f}", va="center", ha="left", color="white")
     else:
         ax.text(E + 0.2, idx_method, f"{E:.1f}", va="center", ha="left", color="k")
 
-ax.set_ylim([-BAR_WIDTH / 2, len(methods) - 1 + BAR_WIDTH / 2])
+ax.set_ylim([-BAR_WIDTH / 2 -0.1, len(methods) - 1 + BAR_WIDTH / 2 + 0.1])
 ax.invert_yaxis()
 ax.set_yticks(np.arange(len(methods)))
 ax.set_yticklabels([m[1] for m in methods])
@@ -122,7 +118,7 @@ df_tex = df.copy()
 # df_tex.insert(0, "HC", 0)
 
 uncertainty_mean = np.sqrt(np.var(uncertainty_fire) / len(uncertainty_fire))
-uncertainty_fire_rel = np.sqrt(uncertainty_fire**2 + uncertainty_mean**2)
+uncertainty_fire_rel = np.sqrt(uncertainty_fire**2 + uncertainty_mean ** 2)
 uncertainty_MAE = np.sum(uncertainty_fire_rel**2) / np.sqrt(len(uncertainty_fire_rel))
 with open("Fe2S2_energies.tex", "w") as f:
     geom_header = "{method} & " + " & ".join([f"{{{g}}}" for g in list(df_tex)]) + " & {MAE}\\\\\n"
