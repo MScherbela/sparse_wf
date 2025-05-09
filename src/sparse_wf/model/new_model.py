@@ -560,7 +560,11 @@ class NewEmbedding(struct.PyTreeNode, Embedding[EmbeddingParams, EmbeddingState]
         return move_axis(h), dep_out
 
     def get_static_input(
-        self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+        self,
+        electrons: Electrons,
+        electrons_new: Optional[Electrons] = None,
+        idx_changed: Optional[ElectronIdx] = None,
+        laplacian=True,
     ) -> StaticInputNewModel[Int]:
         dist_ee, dist_ne = get_full_distance_matrices(electrons, self.R)
         n_ee = jnp.max(jnp.sum(dist_ee < self.cutoff, axis=-1, dtype=jnp.int32))

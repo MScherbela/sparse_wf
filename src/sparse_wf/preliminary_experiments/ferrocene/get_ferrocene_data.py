@@ -7,7 +7,7 @@ import re
 
 def get_data(run, **metadata):
     data = []
-    for h in run.scan_history(["opt/step", "opt/E", "opt/E_std"], page_size=10_000):
+    for h in run.scan_history(["opt/step", "opt/E", "opt/E_std", "opt/update_norm", "opt/spring/last_grad_not_in_J_norm"], page_size=10_000):
         data.append(h)
     df = pd.DataFrame(data)
     df = df.sort_values("opt/step")

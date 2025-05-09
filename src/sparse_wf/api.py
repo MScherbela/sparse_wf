@@ -144,7 +144,11 @@ class Embedding(Protocol[P2, ES]):
     ): ...
     def init(self, key: PRNGKeyArray, electrons: Electrons, static: StaticInput) -> P2: ...
     def get_static_input(
-        self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+        self,
+        electrons: Electrons,
+        electrons_new: Optional[Electrons] = None,
+        idx_changed: Optional[ElectronIdx] = None,
+        laplacian=True,
     ) -> StaticInput: ...
     def low_rank_update(
         self, params: P2, electrons: Electrons, changed_electrons: ElectronIdx, static: StaticInput, state: ES
@@ -161,7 +165,11 @@ class ParameterizedWaveFunction(Protocol[P, MS]):
 
     def init(self, key: PRNGKeyArray, electrons: Electrons) -> P: ...
     def get_static_input(
-        self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+        self,
+        electrons: Electrons,
+        electrons_new: Optional[Electrons] = None,
+        idx_changed: Optional[ElectronIdx] = None,
+        laplacian=True,
     ) -> StaticInput: ...
     def orbitals(self, params: P, electrons: Electrons, static: StaticInput) -> SlaterMatrices: ...
     def hf_transformation(self, hf_orbitals: HFOrbitals) -> SlaterMatrices: ...
@@ -423,6 +431,7 @@ class NewEmbeddingArgs(TypedDict):
     pair_n_envelopes: int
     low_rank_buffer: int
     n_updates: int
+    rematerialize_pairs: bool
 
 
 class MoonEmbeddingArgs(TypedDict):
@@ -578,6 +587,7 @@ class OptimizationArgs(TypedDict):
     spin_operator_args: SpinOperatorArgs
     energy_operator: Literal["dense", "sparse"]
     pp_grid_points: dict[str, int]  # number of spherical grid points for pseudopotential integration
+    pp_nonloc_batch_size: int
     cutoff_transition_steps: float
 
 

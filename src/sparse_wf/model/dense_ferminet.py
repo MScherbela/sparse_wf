@@ -143,7 +143,11 @@ class DenseFermiNet(ParameterizedWaveFunction[FermiNetParams, None], PyTreeNode)
     ferminet: FermiNetOrbitals
 
     def get_static_input(
-        self, electrons: Electrons, electrons_new: Optional[Electrons] = None, idx_changed: Optional[ElectronIdx] = None
+        self,
+        electrons: Electrons,
+        electrons_new: Optional[Electrons] = None,
+        idx_changed: Optional[ElectronIdx] = None,
+        laplacian=True,
     ):
         return None
 

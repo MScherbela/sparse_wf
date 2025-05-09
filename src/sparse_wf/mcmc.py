@@ -213,6 +213,7 @@ def mcmc_steps_low_rank(
         return 2 * logpsi, model_state
 
     logprob, model_state = jax.vmap(log_prob_fn)(electrons)
+    # logprob, model_state = batched_vmap(log_prob_fn, max_batch_size=128)(electrons)
 
     @functools.partial(jax.vmap, in_axes=(None, 0))
     def step_fn(i, carry):
@@ -235,6 +236,11 @@ def mcmc_steps_low_rank(
         proposed_logprob, proposed_model_state = update_log_prob_fn(proposed_electrons, idx_el_changed, model_state)
         log_ratio = proposal_log_ratio + proposed_logprob - log_prob
         accept = log_ratio > jnp.log(jax.random.uniform(key_accept, log_ratio.shape))
+
+        # electrons = accept * proposed_electrons + (1 - accept) * electrons
+        # log_prob = accept * proposed_logprob + (1 - accept) * log_prob
+        # model_state = jtu.tree_map(lambda x, y: accept * x + (1 - accept) * y, proposed_model_state, model_state)
+
         electrons, log_prob, model_state = jtu.tree_map(
             lambda new, old: jnp.where(accept, new, old),
             (proposed_electrons, proposed_logprob, proposed_model_state),
@@ -281,7 +287,11 @@ def make_mcmc(
     proposal_args = dict(**mcmc_args[f"{proposal.replace('-', '_')}_args"])  # type: ignore
     init_width = jnp.array(proposal_args["init_width"], dtype=jnp.float32)
 
-    get_static_fn = get_static_fn or logpsi_fn.get_static_input
+    if get_static_fn is None:
+
+        def get_static_fn(electrons, electrons_new=None, idx_changed=None):
+            # do not compute statics required for laplacian
+            return logpsi_fn.get_static_input(electrons, electrons_new, idx_changed, False)
 
     match proposal.lower():
         case "all-electron":
@@ -418,14 +428,14 @@ def assign_spins_to_atoms(R: Nuclei, Z: Charges):
     return np.array(ind_atom)
 
 
-def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int) -> Electrons:
+def init_electrons(key: PRNGKeyArray, mol: pyscf.gto.Mole, batch_size: int, stddev=1.0) -> Electrons:
     if jax.device_count() > 1:
         batch_size = batch_size - (batch_size % jax.device_count())
         local_batch_size = (batch_size // jax.device_count()) * jax.local_device_count()
     else:
         local_batch_size = batch_size
     key_up, key_dn, atom_key, subkey = jax.random.split(key, 4)
-    electrons = jax.random.normal(subkey, (local_batch_size, mol.nelectron, 3), dtype=jnp.float32)
+    electrons = jax.random.normal(subkey, (local_batch_size, mol.nelectron, 3), dtype=jnp.float32) * stddev
 
     R = np.array(mol.atom_coords(), dtype=jnp.float32)
     n_atoms = len(R)

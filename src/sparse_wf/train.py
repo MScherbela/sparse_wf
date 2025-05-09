@@ -26,6 +26,7 @@ from sparse_wf.jax_utils import (
     pmap,
     pmax,
     get_from_main_process,
+    get_peak_memory,
 )
 from sparse_wf.loggers import MultiLogger, to_log_data, save_expanded_checkpoint
 from sparse_wf.mcmc import init_electrons, make_mcmc, make_width_scheduler
@@ -90,7 +91,7 @@ def main(
         else:
             # SBATCH settings: -N {nr_of_nodes} --ntasks-per-node={gpus_per_node} --gres=gpu:{gpus_per_node}; do not use --gpus-per-task
             jax.distributed.initialize()
-    logging.info(f'Run name: {loggers.args["name"]}')
+    logging.info(f"Run name: {loggers.args['name']}")
     logging.info(f"Using {jax.device_count()} devices across {jax.process_count()} processes.")
     logging.info(f"Atomic numbers: {Z}; Effective charges: {effective_charges}; Spin configuration: ({n_up}, {n_dn})")
 
@@ -141,6 +142,7 @@ def main(
         optimization["energy_operator"],
         mol._ecp.keys(),
         optimization["pp_grid_points"],
+        optimization["pp_nonloc_batch_size"],
         optimization["cutoff_transition_steps"],
     )
 
@@ -152,7 +154,7 @@ def main(
             state = state.deserialize(f.read(), batch_size)
         if extract_checkpoint:
             output_dir = load_checkpoint.replace(".msgpk", "")
-            logging.info(f"Saveing expanded checkpoint to {output_dir}")
+            logging.info(f"Saving expanded checkpoint to {output_dir}")
             save_expanded_checkpoint(state, output_dir)
         if checkpoint_cutoff is not None:
             old_cutoff_param = state.params.embedding.cutoff_param
@@ -210,6 +212,7 @@ def main(
             t1 = time.perf_counter()
             log_data["pretrain/t_step"] = t1 - t0
             log_data["pretrain/step"] = step
+            log_data["peak_mem"] = get_peak_memory()
             loggers.log(log_data)
             if np.isnan(log_data["pretrain/loss"]):
                 raise ValueError("NaN in pretraining loss")
@@ -255,6 +258,7 @@ def main(
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0
         log_data["opt/step"] = opt_step
+        log_data["peak_mem"] = get_peak_memory()
         loggers.log(log_data)
         if isnan(log_data):
             raise ValueError("NaN")
@@ -280,5 +284,6 @@ def main(
         t1 = time.perf_counter()
         log_data["eval/t_step"] = t1 - t0
         log_data["eval/step"] = eval_step
+        log_data["peak_mem"] = get_peak_memory()
         loggers.log(log_data)
         loggers.store_checkpoint(eval_step, state, "eval")

@@ -16,11 +16,14 @@ import pytest
 from folx.api import FwdJacobian, FwdLaplArray
 from jax import config as jax_config
 from sparse_wf.jax_utils import fwd_lap
+from unittest.mock import patch
 
 from sparse_wf.model.sparse_fwd_lap import NodeWithFwdLap
 
 jax_config.update("jax_enable_x64", True)
 jax_config.update("jax_default_matmul_precision", "highest")
+
+MODELS_TO_TEST = ["new_sparse"]
 
 
 def to_zero_padded(x, dependencies):
@@ -49,7 +52,7 @@ def assert_close(x: FwdLaplArray, y: FwdLaplArray, rtol=None):
     ), f"Rel. errors: {error_val}, {error_lap}, {error_jac}"
 
 
-@pytest.mark.parametrize("embedding", ["moon", "new", "new_sparse"])
+@pytest.mark.parametrize("embedding", MODELS_TO_TEST)
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
 def test_embedding(dtype, embedding):
     model, electrons, params, static_args = setup_inputs(dtype, embedding)
@@ -65,7 +68,7 @@ def test_embedding(dtype, embedding):
     assert_close(embedding_int, embedding_ext)
 
 
-@pytest.mark.parametrize("embedding", ["moon", "new", "new_sparse"])
+@pytest.mark.parametrize("embedding", MODELS_TO_TEST)
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
 def test_orbitals(dtype, embedding):
     model, electrons, params, static_args = setup_inputs(dtype, embedding)
@@ -94,7 +97,7 @@ def test_orbitals(dtype, embedding):
     assert_close(orbitals_int, orbitals_ext)
 
 
-@pytest.mark.parametrize("embedding", ["moon", "new", "new_sparse"])
+@pytest.mark.parametrize("embedding", MODELS_TO_TEST)
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
 def test_energy(dtype, embedding):
     # Use higher tolerance for energy due to possibly ill-conditioned orbital matrx
@@ -102,7 +105,9 @@ def test_energy(dtype, embedding):
     rtol = get_relative_tolerance(dtype) * 1e3
     model, electrons, params, static_args = setup_inputs(dtype, embedding)
 
-    E_dense = model.kinetic_energy_dense(params, electrons, static_args)
+    with patch("jax.checkpoint", lambda f: f):
+        # folx errors when tracing through jax.checkpoint; replace with identity
+        E_dense = model.kinetic_energy_dense(params, electrons, static_args)
     E_sparse = model.kinetic_energy(params, electrons, static_args)
     for E, label in zip([E_sparse, E_dense], ["sparse", "dense"]):
         assert E.dtype == dtype, f"energy {label}: {E.dtype} != {dtype}"

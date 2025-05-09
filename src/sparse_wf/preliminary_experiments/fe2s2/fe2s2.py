@@ -1,4 +1,4 @@
-#%%
+# %%
 import wandb
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -19,35 +19,34 @@ energies = {
 }
 methods = ["CCSD(T) CBS", "UHF"]
 reference = pd.DataFrame(energies, index=methods)
-#%%
-dft_data = pd.read_csv('dft_data.csv', index_col=0) * 0.38088
+# %%
+dft_data = pd.read_csv("dft_data.csv", index_col=0) * 0.38088
 dft_data = dft_data.loc[["PBE0", "B3LYP"]]
 reference = pd.concat([dft_data, reference], axis=0)
-#%%
+# %%
 
 api = wandb.Api()
 ending = "_higher_lr"
 pattern = re.compile(f"{ending}(?:_from\\d{{6}})?$")
 
 runs = list(api.runs("tum_daml_nicholas/Fe2S2"))
-runs = [r for r in runs if pattern.search(r.name) and 'opt/E' in r.summary]
-runs = sorted(runs, key=lambda r: r.summary['_timestamp'])
+runs = [r for r in runs if pattern.search(r.name) and "opt/E" in r.summary]
+runs = sorted(runs, key=lambda r: r.summary["_timestamp"])
 _runs = defaultdict(list)
 for r in runs:
     state = r.name.split("_df2-svp")[0].split("2023_")[1]
     _runs[state].append(r)
 runs = dict(_runs)
-#%%
+# %%
 
 our = jax.tree.map(
-    lambda r: pd.DataFrame(r.scan_history(keys=["opt/E", "opt/step"])).set_index('opt/step').sort_index(), runs, is_leaf=lambda x: isinstance(x, wandb.apis.public.Run)
+    lambda r: pd.DataFrame(r.scan_history(keys=["opt/E", "opt/step"])).set_index("opt/step").sort_index(),
+    runs,
+    is_leaf=lambda x: isinstance(x, wandb.apis.public.Run),
 )
-#%%
-our = {
-    k: pd.concat(v)
-    for k, v in our.items()
-}
-#%%
+# %%
+our = {k: pd.concat(v) for k, v in our.items()}
+# %%
 window = 2000
 fig, axes = plt.subplots(1, len(our) - 1, figsize=(10, 3))
 axes = np.array([axes]).reshape(-1)

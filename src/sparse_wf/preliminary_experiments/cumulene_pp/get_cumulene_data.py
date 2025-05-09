@@ -15,11 +15,14 @@ for r in runs:
     geom = r.config["molecule_args"]["database_args"]["comment"]
     angle = 90 if "90" in geom else 0
     n_carbon = int(geom.split("_")[1].replace("C", "").replace("H4", ""))
+    if n_carbon > 16:
+        continue
     meta_data = dict(
         name=r.name,
         n_carbon=n_carbon,
         angle=angle,
         cutoff=r.config["model_args"]["embedding"]["new"]["cutoff"],
+        # spin_operator=r.config["optimization"]["spin_operator_args"]["operator"]
     )
     full_history = [
         h for h in r.scan_history(keys=["opt/step", "opt/E", "opt/E_std"], page_size=10_000)

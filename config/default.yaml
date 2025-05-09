@@ -36,6 +36,7 @@ model_args:
       pair_n_envelopes: 32
       low_rank_buffer: 2
       n_updates: 1
+      rematerialize_pairs: false
     moon:
       cutoff: 5.0
       cutoff_1el: 20.0
@@ -99,7 +100,8 @@ optimization:
     Ar: 6
   steps: 50_000
   burn_in: 500
-  max_batch_size: 16
+  max_batch_size: 64
+  pp_nonloc_batch_size: 256
   optimizer_args:
     lr_schedule: hyperbolic
     lr_schedule_args:
@@ -122,7 +124,7 @@ optimization:
     spring_dense_args:
       damping: 1.0e-3
       decay_factor: 0.99
-      max_batch_size: 16
+      max_batch_size: 32
       use_float64: true
     cg_args:
       damping: 1.0e-3

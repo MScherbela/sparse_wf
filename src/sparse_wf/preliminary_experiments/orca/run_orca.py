@@ -32,8 +32,8 @@ def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_cor
         assert basis_set in ["cc-pVDZ", "cc-pVTZ", "cc-pVQZ", "cc-pV5Z"]
         # Switch to F12 basis and add full cabs basis set
         command += f"-F12 aug-{basis_set}/C {basis_set}-F12-CABS"
-    if ("CCSD" in method) and spin:
-        command += " UNO"
+    # if ("CCSD" in method) and spin:
+    #     command += " UNO"
     with open(fname, "w") as f:
         f.write(f"{command}\n")
         fname = os.path.abspath(fname)
@@ -48,7 +48,7 @@ def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_cor
             f.write("  maxiter 300\n")
             f.write("  ConvForced 1\n")
             f.write("END\n")
-        if "CCSD" in method:
+        if "CCSD" in method and "CCSDT" not in method:
             f.write("%MDCI\n")
             f.write("  CIType CCSD\n")
             if "DLPNO" in method:
@@ -58,14 +58,18 @@ def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_cor
             f.write("  DIISStartIter 0")
             f.write("  MaxDIIS 25\n")
             f.write("  LShift 0.5\n")
-            f.write("  UseQROs true\n")
+            # f.write("  UseQROs true\n")
             # f.write("  PrintLevel 4\n")
+            f.write("END\n")
+        if "CCSDT" in method:
+            f.write("%AUTOCI\n")
+            f.write("  citype CCSDT\n")
             f.write("END\n")
         if ("CAS" in method) or ("NEVPT2" in method):
             # %casscf nel  4  # number of active space electrons
             f.write("%CASSCF\n")
-            f.write("  nel 6\n")
-            f.write("  norb 6\n")
+            f.write("  nel 4\n")
+            f.write("  norb 4\n")
             f.write(f"  mult {multiplicity}\n")
             if "CASCI" in method:
                 f.write("  maxiter 1\n")
@@ -75,9 +79,9 @@ def write_orca_input(R, Z, charge, spin, fname, method, basis_set, no_frozen_cor
             f.write("  switchstep DIIS\n")
             f.write("  MaxDIIS 20\n")
             f.write("  DIISThresh 1e-7\n")
-            f.write("  ShiftUp 2.0\n")
-            f.write("  ShiftDn 2.0\n")
-            f.write("  MinShift 0.6\n")
+            # f.write("  ShiftUp 2.0\n")
+            # f.write("  ShiftDn 2.0\n")
+            # f.write("  MinShift 0.6\n")
             f.write("  maxrot 0.15\n")
             f.write("END\n")
         if "MP2" in method:
@@ -177,7 +181,7 @@ def submit_to_slurm(args):
         f.write("#!/bin/bash\n")
         f.write(f"#SBATCH --job-name={job_name}\n")
         f.write(f"#SBATCH --output=orca.out\n")
-        f.write(f"#SBATCH --time=24:00:00\n")
+        f.write(f"#SBATCH --time=3-00:00:00\n")
         f.write(f"#SBATCH --ntasks={n_proc}\n")
         f.write(f"#SBATCH --mem={total_memory}G\n")
         f.write(f"#SBATCH --partition=hgx\n")

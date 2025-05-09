@@ -1,0 +1,13 @@
+method,deltaE_mean,deltaE_err,ref_type,comment
+Experiment (Grover et al),0.00438,0.0008,Experiment,2.4 kcal/mol + 0.35 kcal/mol ZPE
+Experiment (Krause et al),0.0031295,0.0004,Experiment,70 meV + 0.35 kcal/mol ZPE
+UHF/cc-pVQZ,-0.0018764723590152244,,Conventional method,
+CCSD(T)/CBS (Marshall et al),0.0043,,Conventional method,
+FermiNet VMC (Ren et al),0.0182,0.0006,Neural network WF,
+FermiNet DMC (Ren et al),0.0092,0.00045,Neural network WF,
+FermiNet VMC (Glehn et al),0.0046,0.0008,Neural network WF,
+Psiformer (Glehn et al),0.0007,0.0003,Neural network WF,with layernorm
+LapNet (Li et al),0.0026,0.0001,Neural network WF,
+
+
+

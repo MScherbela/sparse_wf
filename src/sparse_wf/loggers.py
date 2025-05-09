@@ -157,7 +157,7 @@ class MultiLogger(Logger):
                 self.smoothing_history[key] = np.ones(self.smoothing_length) * np.nan
             self.smoothing_history[key] = np.roll(self.smoothing_history[key], 1)
             self.smoothing_history[key][0] = val
-            smoothed_data[key + "_smooth"] = np.nanmean(self.smoothing_history[key][:smoothing_length])
+            smoothed_data[key + "_smooth"] = float(np.nanmean(self.smoothing_history[key][:smoothing_length]))
         data.update(smoothed_data)
         return data
 
