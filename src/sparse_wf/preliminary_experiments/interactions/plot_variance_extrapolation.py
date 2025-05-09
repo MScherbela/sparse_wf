@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 from sparse_wf.plot_utils import (
     get_outlier_mask,
     extrapolate_relative_energy,
-    MILLIHARTREE,
     COLOR_PALETTE,
     scale_lightness,
     savefig,
@@ -48,6 +47,7 @@ df = df_all[(df_all["molecule"] == molecule) & (df_all["cutoff"] == 5)].copy().r
 
 df["var"] = df["opt/E_std"] ** 2
 df = df.pivot_table(index="opt/step", columns="geom", values=["E", "var", "grad"], aggfunc="mean")
+df["grad"] = df["grad"] ** 2
 df = df.dropna()
 is_outlier = df.apply(get_outlier_mask, axis=0).any(axis=1)
 df = df[~is_outlier]
@@ -79,7 +79,7 @@ for ax, method in zip(axes.flat, ["var", "grad"]):
         ax.plot([x_final], [E_final], ls="none", marker="s", color=color_final, label=label_final)
         ax.plot([x_range[0]], [E_ext], ls="none", marker="d", color=color_ext, label=label_ext)
         label_final, label_ext = None, None
-    text_padding = 0.01 if (method == "grad") else 0.002
+    text_padding = 0.05 if (method == "grad") else 0.002
     draw_vertical_arrow(
         ax, df_final[method].max(), *E_final_values, scale_lightness(color_final, 0.5), True, text_padding
     )
@@ -89,8 +89,8 @@ for ax, method in zip(axes.flat, ["var", "grad"]):
     ax.grid(False)
     ax.legend(loc="lower right")
 axes[0].set_ylabel("energy [$E_\\text{h}$]")
-axes[0].set_xlabel("energy varaiance [$E_\\text{h}^2$]")
-axes[1].set_xlabel("preconditioned gradient norm / a.u.")
+axes[0].set_xlabel("energy variance [$E_\\text{h}^2$]")
+axes[1].set_xlabel("$\\left|\\text{preconditioned gradient}\\right|^2$ / a.u.")
 
 for ax, label in zip(axes, "ab"):
     ax.text(0.03, 0.93, f"\\textbf{{{label})}}", transform=ax.transAxes)

@@ -93,7 +93,8 @@ df_all["molecule"] = "C" + df_all["n_carbon"].astype(str) + "H4_" + df_all["angl
 df_all["n_el"] = df_all["n_carbon"] * 4 + 4
 df_smoothed.append(preprocess_data(df_all))
 
-df_all = pd.read_csv("../acene/acene.csv", header=[0, 1], index_col=0)
+df_all = pd.read_csv("../acene/acene.csv", header=[0, 1, 2], index_col=0)
+df_all = df_all["E"]
 df_all = df_all.melt(value_name="opt/E").reset_index()
 df_all = df_all[df_all["opt/E"].notnull()]
 df_all["molecule"] = df_all.Molecule + "_" + df_all.State
@@ -118,8 +119,8 @@ for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "a
     alpha, beta, const = fit_params
     def powerlaw(t, n):
         return np.exp(const) * t**(-alpha) * n**beta
-    fitted_equation = f"$\Delta E \sim t^{{-{alpha:.1f}}}\\; n_\\mathrm{{el}}^{{{beta:.1f}}}$"
-
+    fitted_equation = f"$(E - E_\infty) \sim t^{{-{alpha:.1f}}}\\; n_\\mathrm{{el}}^{{{beta:.1f}}}$"
+    # fitted_equation = f"$\Delta E \sim t^{{-{alpha:.1f}}}\\; n_\\mathrm{{el}}^{{{beta:.1f}}}$"
 
     for _, r in fit_pivot.iterrows():
         color = sm.cmap(sm.norm(r.n_el))
@@ -138,7 +139,8 @@ for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "a
     ax.set_ylabel(f"$(E - E_\infty)$ " + MILLIHARTREE)
     # legend with less spacing between lines
     ax.legend(loc="upper right", handlelength=1, labelspacing=0.3)
-    ax.text(0.02, 0.05, fitted_equation, transform=ax.transAxes, fontsize=11)
+    t=ax.text(0.02, 0.07, fitted_equation, transform=ax.transAxes, fontsize=11)
+    t.set_bbox(dict(facecolor="white", alpha=1, edgecolor="white", linewidth=0, boxstyle="square,pad=0"))
     ax.text(0, 1.02, f"\\textbf{{{ax_label})}}", transform=ax.transAxes, va="bottom", ha="left")
     print(f"Opt-step induced order beta/alpha: {beta/alpha:.2f}")
 axes[0].set_ylim([1e-4, 2e0])

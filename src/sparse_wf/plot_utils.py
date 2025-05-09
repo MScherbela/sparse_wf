@@ -69,8 +69,10 @@ def fit_with_joint_slope(x_values, E_values):
     return coeffs[:-1], coeffs[-1]
 
 
-def extrapolate_relative_energy(step, x_values, E_values, method="same_slope", min_frac_step=0.5, return_slopes=False):
-    include = step >= (min_frac_step * np.max(step))
+def extrapolate_relative_energy(
+    step, x_values, E_values, method="same_slope", min_frac_step=0.5, max_frac_step=1.0, return_slopes=False
+):
+    include = (step >= (min_frac_step * np.max(step))) & (step <= (max_frac_step * np.max(step)))
     x_values_raw = [x[include] for x in x_values]
     E_values_raw = [E[include] for E in E_values]
 

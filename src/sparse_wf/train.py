@@ -154,7 +154,7 @@ def main(
             state = state.deserialize(f.read(), batch_size)
         if extract_checkpoint:
             output_dir = load_checkpoint.replace(".msgpk", "")
-            logging.info(f"Saveing expanded checkpoint to {output_dir}")
+            logging.info(f"Saving expanded checkpoint to {output_dir}")
             save_expanded_checkpoint(state, output_dir)
         if checkpoint_cutoff is not None:
             old_cutoff_param = state.params.embedding.cutoff_param

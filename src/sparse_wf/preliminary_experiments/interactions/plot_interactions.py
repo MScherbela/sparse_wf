@@ -80,7 +80,7 @@ for method in ["LapNet", "FiRE_extrapolated_5", "FiRE_5"]:
 
 with open("s22_table.tex", "w") as f:
     f.write(
-        r"{molecule} & {\makecell[l]{FiRE, $c=5$\\raw}} & {\makecell[l]{FiRE, $c=5$\\extrapolated}} & {LapNet} & {CCSD(T)}\\"
+        r"{molecule} & {\makecell[l]{FiRE, $c=5a_0$\\raw}} & {\makecell[l]{FiRE, $c=5a_0$\\extrapolated}} & {LapNet} & {CCSD(T)}\\"
     )
     f.write("\n\\midrule\n")
     for mol, row in df.iterrows():

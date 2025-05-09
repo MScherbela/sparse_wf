@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 from sparse_wf.plot_utils import get_outlier_mask, extrapolate_relative_energy
 import re
-#%%
 
 api = wandb.Api()
 runs = api.runs("tum_daml_nicholas/interactions")
@@ -66,6 +65,7 @@ for mol in sorted(df.molecule.unique()):
             .pivot_table(index="opt/step", columns="geom", values=["opt/E", "grad", "var"], aggfunc="mean")
             .dropna()
         )
+        pivot["grad"] = pivot["grad"]**2
         if (len(pivot.columns) != 6) or (len(pivot) < n_eval_steps):
             print("Not enough data for", mol)
             continue
