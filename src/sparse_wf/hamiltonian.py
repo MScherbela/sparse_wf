@@ -7,6 +7,7 @@ import jax.numpy as jnp
 from sparse_wf.api import Charges, Electrons, LocalEnergy, Nuclei, ParameterizedWaveFunction, StaticInput
 from sparse_wf.jax_utils import vectorize
 from sparse_wf.pseudopotentials import make_pseudopotential
+from sparse_wf.tree_utils import tree_maximum
 
 P, MS = TypeVar("P"), TypeVar("MS")
 
@@ -66,11 +67,14 @@ def make_local_energy(
         key: jax.Array, params: P, electrons: Electrons, static: StaticInput
     ) -> tuple[LocalEnergy, StaticInput]:
         """Compute the local energy of the system"""
+        # Since we don't compute triplets within the ECP to save time, we need compute them once for the local energy
+        new_static_Ekin = wf.get_static_input(electrons)
         kinetic_energy = kin_fn(params, electrons, static)
         potential = potential_energy(electrons, wf.R, eff_charges)
         potential += pp_local(electrons, wf.R)
-        nl_pp, new_static = pp_nonlocal(key, wf, params, electrons, static)
+        nl_pp, new_static_pp = pp_nonlocal(key, wf, params, electrons, static)
         potential += nl_pp
+        new_static = tree_maximum(new_static_Ekin, new_static_pp)
         return kinetic_energy + potential, new_static
 
     return local_energy

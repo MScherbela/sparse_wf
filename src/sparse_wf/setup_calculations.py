@@ -178,6 +178,8 @@ def get_slurm_defaults(cluster, queue):
         defaults = dict(
             time="2-00:00:00",
             n_gpus=4,
+            nodes=1,
+            ntasks_per_node=1,
             partition="mcml-hgx-h100-92x4,mcml-hgx-a100-80x4",
             qos="mcml",
         )
