@@ -225,6 +225,72 @@ class SparseMLP(nn.Module):
         return x
 
 
+def _get_distinct_triplet_indices(distinct_pair_idx_i, distinct_pair_idx_n, n_el, n_triplets):
+    n_distinct_pairs = len(distinct_pair_idx_i)
+
+    # Build an overcomplete list of triplets of size n_pairs * n_el, by combining (i,n) x k
+    full_trip_idx_i = jnp.repeat(distinct_pair_idx_i, n_el)
+    full_trip_idx_n = jnp.repeat(distinct_pair_idx_n, n_el)
+    full_trip_idx_k = jnp.tile(np.arange(n_el), n_distinct_pairs)
+
+    # Search for the reverse pairs (k, n)
+    pair_keys = distinct_pair_idx_i * n_el + distinct_pair_idx_n
+    idx_pair_kn = jnp.searchsorted(pair_keys, full_trip_idx_k * n_el + full_trip_idx_n)
+    is_triplet = (distinct_pair_idx_i[idx_pair_kn] == full_trip_idx_k) & (
+        distinct_pair_idx_n[idx_pair_kn] == full_trip_idx_n
+    )
+    valid_trip_idx = jnp.where(is_triplet, size=n_triplets, fill_value=NO_NEIGHBOUR)[0]
+
+    # Filter the triplet indices to only include those that are valid
+    trip_idx_in = valid_trip_idx // n_el
+    trip_idx_k = full_trip_idx_k[valid_trip_idx]
+    trip_idx_kn = idx_pair_kn[valid_trip_idx]
+    trip_idx_i = full_trip_idx_i[valid_trip_idx]
+    return (trip_idx_in, trip_idx_k), (trip_idx_kn, trip_idx_i)
+
+
+def _get_triplet_indices(pair_idx_i, pair_idx_n, n_el, n_distinct_triplets):
+    n_distinct_pairs = len(pair_idx_i) - n_el
+    # Allocate output buffers
+    n_triplets_total = n_el + 2 * n_distinct_pairs + n_distinct_triplets
+    trip_idx_in = jnp.zeros(n_triplets_total, dtype=jnp.int32)
+    trip_idx_kn = jnp.zeros(n_triplets_total, dtype=jnp.int32)
+    trip_idx_k = jnp.zeros(n_triplets_total, dtype=jnp.int32)
+    trip_idx_i = jnp.zeros(n_triplets_total, dtype=jnp.int32)
+
+    # i == k == n
+    trip_idx_in = trip_idx_in.at[:n_el].set(jnp.arange(n_el))
+    trip_idx_kn = trip_idx_kn.at[:n_el].set(jnp.arange(n_el))
+    trip_idx_k = trip_idx_k.at[:n_el].set(jnp.arange(n_el))
+    trip_idx_i = trip_idx_i.at[:n_el].set(jnp.arange(n_el))
+
+    # (i != n), (k == n)
+    s = slice(n_el, n_el + n_distinct_pairs)
+    distinct_pair_idx_i, distinct_pair_idx_n = pair_idx_i[n_el:], pair_idx_n[n_el:]
+    trip_idx_in = trip_idx_in.at[s].set(np.arange(n_distinct_pairs) + n_el)
+    trip_idx_k = trip_idx_k.at[s].set(distinct_pair_idx_n)
+    trip_idx_kn = trip_idx_kn.at[s].set(distinct_pair_idx_n)
+    trip_idx_i = trip_idx_i.at[s].set(distinct_pair_idx_i)
+
+    # (k != n), (i == n)
+    s = slice(n_el + n_distinct_pairs, n_el + 2 * n_distinct_pairs)
+    trip_idx_in = trip_idx_in.at[s].set(distinct_pair_idx_n)
+    trip_idx_k = trip_idx_k.at[s].set(distinct_pair_idx_i)
+    trip_idx_kn = trip_idx_kn.at[s].set(np.arange(n_distinct_pairs) + n_el)
+    trip_idx_i = trip_idx_i.at[s].set(distinct_pair_idx_n)
+
+    # (i != n), (k != n)
+    s = slice(n_el + 2 * n_distinct_pairs, n_triplets_total)
+    (idx_in, idx_k), (idx_kn, idx_i) = _get_distinct_triplet_indices(
+        distinct_pair_idx_i, distinct_pair_idx_n, n_el, n_distinct_triplets
+    )
+    trip_idx_in = trip_idx_in.at[s].set(idx_in + n_el)
+    trip_idx_k = trip_idx_k.at[s].set(idx_k)
+    trip_idx_kn = trip_idx_kn.at[s].set(idx_kn + n_el)
+    trip_idx_i = trip_idx_i.at[s].set(idx_i)
+    return trip_idx_in, trip_idx_k, trip_idx_kn, trip_idx_i
+
+
 def sparse_slogdet_with_fwd_lap(A: NodeWithFwdLap, n_triplets: int):
     (sign, logdet), A_inv = slog_and_inverse(A.x)
     M = A.jac @ A_inv
@@ -232,11 +298,16 @@ def sparse_slogdet_with_fwd_lap(A: NodeWithFwdLap, n_triplets: int):
     # Build all triplets of indices i,k,n where i and k are both neighbours of n.
     n_el = A.x.shape[-1]
     n_pairs = len(A.idx_ctr) - n_el
-    n_triplets_total = n_el + 2 * n_pairs + n_triplets
     pair_idx_i, pair_idx_n = A.idx_ctr, A.idx_dep
-    is_triplet = pair_idx_n[:, None] == pair_idx_n[None, :]
-    trip_idx_in, trip_idx_kn = jnp.where(is_triplet, size=n_triplets_total, fill_value=NO_NEIGHBOUR)
-    trip_idx_i, trip_idx_k = pair_idx_i[trip_idx_in], pair_idx_i[trip_idx_kn]
+
+    # This is simpler, but generates a matrix of size n_pairs**2
+    # n_triplets_total = n_el + 2 * n_pairs + n_triplets
+    # is_triplet = pair_idx_n[:, None] == pair_idx_n[None, :]
+    # trip_idx_in, trip_idx_kn = jnp.where(is_triplet, size=n_triplets_total, fill_value=NO_NEIGHBOUR)
+    # trip_idx_i, trip_idx_k = pair_idx_i[trip_idx_in], pair_idx_i[trip_idx_kn]
+
+    # This is more complex, but only requires an intermediate matrix of size n_pairs * n_el
+    trip_idx_in, trip_idx_k, trip_idx_kn, trip_idx_i = _get_triplet_indices(pair_idx_i, pair_idx_n, n_el, n_triplets)
 
     jac_logdet = jnp.zeros([n_el, 3], dtype=A.x.dtype)
     jac_logdet = jac_logdet.at[A.idx_dep, :].add(get(M, (np.arange(n_pairs + n_el), slice(None), A.idx_ctr)))
