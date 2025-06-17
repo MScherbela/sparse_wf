@@ -2,7 +2,7 @@
 import jax.scipy.optimize
 import pandas as pd
 import numpy as np
-from sparse_wf.plot_utils import get_outlier_mask, savefig, MILLIHARTREE
+from sparse_wf.plot_utils import get_outlier_mask, savefig
 import matplotlib.pyplot as plt
 import scienceplots
 import os
@@ -107,9 +107,9 @@ df_smoothed.append(preprocess_data(df_all))
 #%%
 
 # fig, axes = plt.subplots(1, 2, figsize=(5.5, 3))
-fig, axes = plt.subplots(3, 1, figsize=(4, 5), height_ratios=[1, 1, 0.07])
-cax = axes[-1]
-axes = axes[:-1]
+fig, axes = plt.subplots(1, 2, figsize=(7, 3))
+# cax = axes[-1]
+# axes = axes[:-1]
 
 ls_singlet, ls_triplet, ls_fit = ":", "--", "-"
 
@@ -136,7 +136,7 @@ for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "a
     ax.set_title(molecule_class)
     ax.set_xlabel("optimization step $t$", labelpad=0)
     # if molecule_class == "cumulenes":
-    ax.set_ylabel(f"$(E - E_\infty)$ " + MILLIHARTREE)
+    ax.set_ylabel(f"$(E - E_\infty)$ " + '[$E_\\text{h}$]')
     # legend with less spacing between lines
     ax.legend(loc="upper right", handlelength=1, labelspacing=0.3)
     t=ax.text(0.02, 0.07, fitted_equation, transform=ax.transAxes, fontsize=11)
@@ -146,8 +146,10 @@ for df_smooth, molecule_class, ax_label, ax in zip(df_smoothed, ["cumulenes", "a
 axes[0].set_ylim([1e-4, 2e0])
 
 fig.tight_layout()
-plt.colorbar(sm, cax=cax, orientation="horizontal")
-cax.set_xlabel("$n_\\mathrm{el}$", labelpad=-2)
+fig.subplots_adjust(right=0.94)
+cax = fig.add_axes((0.95, 0.15, 0.02, 0.74))
+plt.colorbar(sm, cax =cax, orientation="vertical")
+cax.set_xlabel("$n_\\mathrm{el}$")
 
 # cbar = fig.colorbar(sm, ax=axes.ravel().tolist(), orientation="horizontal")
 # cbar.set_label("$n_\\mathrm{el}$", labelpad=-4)
