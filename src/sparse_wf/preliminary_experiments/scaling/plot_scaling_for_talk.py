@@ -54,7 +54,7 @@ pivot["t_sampling"] = (pivot.n_el * N_SWEEPS - 1) * pivot.t_update + pivot.t_wf_
 pivot["t_total"] = pivot.t_sampling + pivot.t_E_kin# + pivot.t_E_pot + pivot.t_Spin
 
 plt.close("all")
-fig, axes = plt.subplots(1, 4, figsize=(10, 4.5), width_ratios=[1,1,1,1], dpi=300)
+fig, axes = plt.subplots(1, 4, figsize=(9, 4.5), width_ratios=[1,1,1,1], dpi=300)
 ax_upd, ax_Ekin, ax_tot, ax_speedup = axes.flatten()
 
 models = ["Ferminet",  "Psiformer", "Lapnet", NAIVE_FIRE_NAME, "FiRE"]
@@ -76,7 +76,7 @@ for model, color, marker in zip(models, model_colors, markers):
     exponent = fit_and_plot(ax_Ekin, df_model.n_el, df_model.t_E_kin, color)
     label = f"{model}: {format_exponent(exponent)}"
     ax_Ekin.plot(df_model.n_el, df_model.t_E_kin, label=label, **kwargs_filled)
-    ax_Ekin.set_title("kinetic energy")
+    ax_Ekin.set_title("Laplacian")
 
     # Plot total time
     exponent = fit_and_plot(ax_tot, df_model.n_el, df_model.t_total, color)
@@ -89,7 +89,7 @@ for ax, ymin in [(ax_upd, 1e-3), (ax_Ekin, 3e-2), (ax_tot, 3e-1)]:
     ax.set_xscale("log")
     ax.set_xlabel("valence electrons", fontsize=12)
     if ax == ax_upd:
-        ax.set_ylabel("runtime [sec]")
+        ax.set_ylabel("runtime [sec]", labelpad=-6)
 
     lines_others = ax.get_lines()[1:6:2]
     lines_fire = ax.get_lines()[7::2]
@@ -105,8 +105,8 @@ for ax, ymin in [(ax_upd, 1e-3), (ax_Ekin, 3e-2), (ax_tot, 3e-1)]:
     ax.grid(alpha=0.2)
 # ax_Ekin.set_ylim([None, 1e4])
 
-for ax, label in zip(axes.flatten(), "abcd"):
-    ax.text(-0.12, 1.02, f"\\textbf{{{label})}}", transform=ax.transAxes, va="bottom", ha="left", fontweight="bold", fontsize=12)
+# for ax, label in zip(axes.flatten(), "abcd"):
+#     ax.text(-0.12, 1.02, f"\\textbf{{{label})}}", transform=ax.transAxes, va="bottom", ha="left", fontweight="bold", fontsize=12)
 
 # Speedup bar-chart
 df_speedup = pivot[pivot.n_el == N_EL_FOR_BREAKDOWN].set_index("model").reindex(models)
@@ -133,7 +133,7 @@ for i, model in enumerate(models):
 ax_speedup.set_title(f"total for {N_EL_FOR_BREAKDOWN} val. electrons")
 print(df_speedup.sum(axis=1))
 ax_speedup.set_xlabel(None)
-ax_speedup.legend(loc="upper right", labelspacing=0.2, frameon=False, ncol=2, columnspacing=0.8)
+ax_speedup.legend(loc="upper right", labelspacing=0.2, frameon=False, ncol=2, columnspacing=0.8, handlelength=1.5)
 ax_speedup.set_ylim([0, 80])
 ax_speedup.grid(False)
 ax_speedup.xaxis.minorticks_off()
