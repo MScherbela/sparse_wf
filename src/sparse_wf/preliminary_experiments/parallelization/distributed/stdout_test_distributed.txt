@@ -1,2 +1,0 @@
-Process 0: Global devices: [cuda(id=0), cuda(id=1)], Local devices: [cuda(id=0)]
-Process 1: Global devices: [cuda(id=0), cuda(id=1)], Local devices: [cuda(id=1)]
