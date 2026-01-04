@@ -226,10 +226,14 @@ def main(
         logging.info("Taking 1 burn-in step to get correct statics")
         mcmc_stats = trainer.sampling_step(state, statics, False, None)[-1]
         statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
-    for _ in range(optimization["burn_in"]):
+    for burnin_step in range(optimization["burn_in"]):
+        t0 = time.perf_counter()
         state, aux_data, mcmc_stats = trainer.sampling_step(state, statics, False, None)
         statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
         log_data = to_log_data(mcmc_stats, statics, aux_data)
+        t1 = time.perf_counter()
+        log_data["burnin/t_step"] = t1 - t0
+        log_data["burnin/step"] = burnin_step
         loggers.log(log_data)
 
     logging.info("Saving checkpoint after pretraining+burn-in")
