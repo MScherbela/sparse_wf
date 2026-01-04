@@ -11,6 +11,7 @@ uv sync --frozen     # create a .venv and install all dependencies
 . .venv/bin/activate # activate the virtual environment
 ```
 
+Installation may take ~1 min, because we depend on JAX with CUDA.
 We have tested the code with jax==0.4.29 and jax==0.5.3 (default version obtained via uv sync), but other versions may work as well.
 
 ## Running the via CLI
@@ -22,6 +23,9 @@ sparse-wf-run config.yaml
 
 This will merge the config options provided in config.yaml with the default options provided in config/default.yaml and optimize the wavefunction.
 The code supports multi-GPU usage either via a single process with access to all GPUs or one process per GPU. Multi-node usage may require SLURM.
+All output will be written to stdout and we additionally support logging to W&B.
+A wavefunction optimization with FiRE should only take a few minutes for very small molecules such as H2, but may take several GPU hours for larger molecules.
+To compute properties for the molelcules investigated in the paper, set 'molecule_args.database_args.hash' to the corresponding hash in data/geometries.json.
 
 ## SLURM dispatch
 
