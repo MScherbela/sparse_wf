@@ -48,6 +48,35 @@ def database(hash: str | None = None, name: str | None = None, comment: str | No
     return pyscf.gto.M(atom=atom, spin=geom.get("spin", 0), charge=geom.get("charge", 0), unit="bohr")
 
 
+def cumulene(n_carbon: int, angle: float = 0.0):
+    ANGSTROM_IN_BOHR = 1.8897161646320724
+    CC_bond = 1.34 * ANGSTROM_IN_BOHR
+    CH_bond = 1.086 * ANGSTROM_IN_BOHR
+    theta = np.deg2rad(120)
+    phi = np.deg2rad(angle)
+
+    R_carbon = np.array([CC_bond, 0, 0]) * np.arange(n_carbon)[:, None]
+
+    R_left = R_carbon[0]
+    R_right = R_carbon[-1]
+    R_hydrogen = np.ones([4, 3]) * CH_bond
+
+    R_hydrogen[0] = R_left + CH_bond * np.array([np.cos(theta), np.sin(theta) * np.cos(0), np.sin(theta) * np.sin(0)])
+    R_hydrogen[1] = R_left + CH_bond * np.array(
+        [np.cos(theta), np.sin(theta) * np.cos(0 + np.pi), np.sin(theta) * np.sin(0 + np.pi)]
+    )
+    R_hydrogen[2] = R_right - CH_bond * np.array(
+        [np.cos(theta), np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi)]
+    )
+    R_hydrogen[3] = R_right - CH_bond * np.array(
+        [np.cos(theta), np.sin(theta) * np.cos(phi + np.pi), np.sin(theta) * np.sin(phi + np.pi)]
+    )
+    R = np.vstack([R_carbon, R_hydrogen])
+    Z = ["C"] * n_carbon + ["H"] * 4
+    n_atoms = len(Z)
+    return pyscf.gto.M(atom=[(Z[i], R[i]) for i in range(n_atoms)], unit="bohr")
+
+
 def get_molecule(molecule_args: MoleculeArgs) -> pyscf.gto.Mole:
     match molecule_args["method"]:
         case "chain":
@@ -56,6 +85,8 @@ def get_molecule(molecule_args: MoleculeArgs) -> pyscf.gto.Mole:
             molecule = from_str(**molecule_args["from_str_args"])
         case "database":
             molecule = database(**molecule_args["database_args"])
+        case "cumulene":
+            molecule = cumulene(**molecule_args["cumulene_args"])
     molecule.basis = molecule_args["basis"]
     if molecule_args["pseudopotentials"]:
         molecule.ecp = {atom: "ccecp" for atom in molecule_args["pseudopotentials"]}
