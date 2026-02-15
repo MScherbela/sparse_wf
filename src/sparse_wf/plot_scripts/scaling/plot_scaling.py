@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import matplotlib.ticker as ticker
-from sparse_wf.plot_utils import COLOR_PALETTE, COLOR_FIRE, savefig
+from sparse_wf.plot_utils import COLOR_PALETTE, COLOR_FIRE
+from IPython.display import display
 
 plt.style.use(["science", "grid"])
 
@@ -172,4 +173,55 @@ ax_speedup.set_xticklabels(["Fermi-\nnet", "Psi-\nformer", "Lap-\nNet", "Naive\n
 fig.tight_layout()
 fig.subplots_adjust(wspace=0.2)
 
-savefig(fig, "scaling")
+# savefig(fig, "scaling")
+
+key_columns = ["model", "cutoff", "n_carbon"]
+
+df_full_code_fire = pd.read_csv("data/full_run_data.csv")
+df_full_code_lapnet = pd.read_csv("data/full_run_data_lapnet.csv")
+df_full_code_fire["model"] = "FiRE (c=" + df_full_code_fire.cutoff.astype(str) + ")"
+df_full_code_lapnet["cutoff"] = np.nan
+df_full_code = pd.concat([df_full_code_fire, df_full_code_lapnet], ignore_index=True)
+df_full_code = df_full_code[df_full_code["opt/t_step"].notna()]
+df_full_code = df_full_code.sort_values(["batch_size", "opt_batch_size"], ascending=False)
+df_full_code = df_full_code.drop_duplicates(subset=key_columns, keep="first")
+df_full_code = df_full_code.sort_values(key_columns)
+df_full_code["n_el"] = df_full_code.n_carbon * 4 + 4
+df_full_code["t_opt"] = df_full_code["opt/t_step"] * REFERENCE_BATCH_SIZE / df_full_code.batch_size
+
+
+for model, color in zip(
+    ["FiRE (c=3.0)", "FiRE (c=4.0)", "lapnet", "psiformer", "ferminet"],
+    ["red", "red", "saddlebrown", "green", "blue"],
+):
+    df_model = df_full_code[df_full_code.model == model]
+    if model == "FiRE":
+        df_model = df_model[df_model.cutoff == 3.0]
+    ax_tot.plot(
+        df_model.n_el,
+        df_model["t_opt"],
+        label=model + " (full code)",
+        marker="x",
+        color=color,
+    )
+ax_tot.set_ylim([3e-1, 1e4])
+fig.show()
+display(fig)
+
+# # %%
+# fig, ax = plt.subplots(figsize=(5, 4))
+# for cutoff in [3, 4]:
+#     df_filt = df_full_code[(df_full_code.model == "FiRE") & (df_full_code.cutoff == cutoff)]
+#     ax.plot(
+#         df_filt.n_el,
+#         df_filt["t_opt"],
+#         label=f"FiRE (cutoff={cutoff:.1f})",
+#         marker="o",
+#         color="red" if cutoff == 4 else "orange",
+#     )
+# ax.set_yscale("log")
+# ax.set_xscale("log")
+# ax.set_xlabel("valence electrons")
+# ax.set_ylabel("optimization step time [sec]")
+# ax.legend()
+# %%
