@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import matplotlib.ticker as ticker
 from sparse_wf.plot_utils import COLOR_PALETTE, COLOR_FIRE
+import scienceplots  # noqa: F401
 
 plt.style.use(["science", "grid"])
 
