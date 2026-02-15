@@ -36,7 +36,10 @@ all_data = []
 run_dirs = pathlib.Path(INPUT_DIR).glob("*/")
 for run_dir in run_dirs:
     hyperparams = get_hyperparams(run_dir.stem)
-    runtimes = get_runtimes(run_dir / "stdout.txt")
+    log_fname = run_dir / "stdout.txt"
+    if not log_fname.exists():
+        continue
+    runtimes = get_runtimes(log_fname)
     all_data.append(hyperparams | runtimes)
 
 df = (
