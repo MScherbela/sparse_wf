@@ -18,10 +18,9 @@ We have tested the code with jax==0.4.29 and jax==0.5.3 (default version obtaine
 To run the code, create a config.yaml file and run the code with
 
 ```bash
-sparse-wf-run config.yaml
+sparse-wf-run full_config.yaml
 ```
 
-This will merge the config options provided in config.yaml with the default options provided in config/default.yaml and optimize the wavefunction.
 The code supports multi-GPU usage either via a single process with access to all GPUs or one process per GPU. Multi-node usage may require SLURM.
 All output will be written to stdout and we additionally support logging to W&B.
 A wavefunction optimization with FiRE should only take a few minutes for very small molecules such as H2, but may take several GPU hours for larger molecules.

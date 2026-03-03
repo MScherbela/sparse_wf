@@ -11,6 +11,7 @@ from sparse_wf.plot_utils import (
     MILLIHARTREE,
     scale_lightness,
 )
+import scienceplots  # noqa: F401
 from matplotlib.lines import Line2D
 
 import matplotlib as mpl
@@ -50,8 +51,8 @@ ref_method = "CCSD(T)"
 
 methods = [
     ("LapNet", "LapNet", COLOR_PALETTE[0], "s"),
-    # ("FiRE_5", "FiRE, $c=5$", COLOR_FIRE, "o"),
-    ("FiRE_extrapolated_5", "FiRE, $c=5a_0$", COLOR_FIRE, "o"),
+    ("FiRE_5", "FiRE (c=5$a_0$)", COLOR_FIRE, "o"),
+    ("FiRE_extrapolated_5", "FiRE (c=5$a_0$)\nextrapolated", "peru", "o"),
 ]
 
 bar_width = 0.8 / len(methods)
@@ -108,11 +109,11 @@ mol_name_translation = {
 }
 mol_names = [mol_name_translation[m] for m in df.index]
 
-xlims = [-5, 5]
+xlims = [-12.5, 5]
 ax_s22.set_xlabel("$E_\\textrm{NN-VMC}$ - $E_\\textrm{CCSD(T)}$ " + MILLIHARTREE)
 ax_s22.grid(False, axis="y")
 ax_s22.yaxis.minorticks_off()
-ax_s22.legend(loc="upper right")
+ax_s22.legend(loc="lower left", handlelength=1.5, labelspacing=1)
 ax_s22.set_yticks(np.arange(len(df)))
 ax_s22.set_yticklabels(mol_names)
 ax_s22.set_xlim(xlims)
@@ -122,7 +123,7 @@ ax_s22.invert_yaxis()
 
 idx_start = 0
 for interaction, n_mol in [("H-bonds", 4), ("Dispersion", 3), ("Mixed interactions", 4)]:
-    x_pos = xlims[0] - 4
+    x_pos = xlims[0] - 6.5
     line = Line2D([x_pos, x_pos], [idx_start - 0.4, idx_start + n_mol - 1 + 0.4], color="gray", lw=1)
     line.set_clip_on(False)
     ax_s22.add_line(line)
@@ -146,8 +147,8 @@ df_agg = df_agg[df_agg["molecule"] == "10_Benzene_dimer_T-shaped"]
 df_agg["method"] = "FiRE $c=" + df_agg.cutoff.astype(str) + "a_0$"
 df_agg["ref_type"] = "FiRE"
 df_agg = df_agg.sort_values("cutoff")
-df_agg["deltaE_raw"] = df_agg["deltaE_mean"]
-df_agg["deltaE_mean"] = df_agg["deltaE_extrapolated"]
+# df_agg["deltaE_raw"] = df_agg["deltaE_mean"]
+# df_agg["deltaE_mean"] = df_agg["deltaE_extrapolated"]
 
 df_ref = pd.read_csv("benzene_references.csv")
 df_ref = df_ref[~df_ref.method.str.contains("UHF")]
@@ -185,9 +186,9 @@ with open("benzene_table.tex", "w") as f:
         method = row["method"].replace("\n", ", ")
         E, E_err = row["deltaE_mean"] * 1000, row["deltaE_err"] * 1000
         if "FiRE" in method:
-            s = format_value_with_error(row["deltaE_raw"] * 1000, E_err)
-            f.write(f"{method}, raw & {s}\\\\\n")
             s = format_value_with_error(E, E_err)
+            f.write(f"{method}, raw & {s}\\\\\n")
+            s = format_value_with_error(row["deltaE_extrapolated"] * 1000, E_err)
             f.write(f"{method}, extrapolated & {s}\\\\\n")
         elif np.isfinite(E_err):
             s = format_value_with_error(E, E_err)
@@ -253,3 +254,5 @@ fig.subplots_adjust(wspace=0.4)
 ax_s22.text(0.04, 0.97, "\\textbf{a)}", transform=fig.transFigure, va="top", ha="left")
 ax_s22.text(0.535, 0.97, "\\textbf{b)}", transform=fig.transFigure, va="top", ha="left")
 savefig(fig, "interactions", bbox_inches=None)
+
+# %%
