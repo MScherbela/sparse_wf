@@ -190,3 +190,5 @@ fig.subplots_adjust(wspace=0.2)
 # fig.savefig("figures/scaling_full_code.pdf", bbox_inches="tight")
 fig.savefig("scaling.png", bbox_inches="tight", dpi=300)
 fig.savefig("scaling.pdf", bbox_inches="tight")
+
+# %%
