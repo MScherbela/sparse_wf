@@ -220,16 +220,26 @@ def main(
         state = state.to_train_state()
         assert_identical_copies(state.params)
 
-    # Variational optimization
-    if optimization["burn_in"]:
-        logging.info("MCMC Burn-in")
-        logging.info("Taking 1 burn-in step to get correct statics")
-        mcmc_stats = trainer.sampling_step(state, statics, False, None)[-1]
-        statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
-    for _ in range(optimization["burn_in"]):
+    # TODO: This code does NOT update the statics and is therefore not correct!
+    # REVERT THIS COMMIT AFTER SCALING TESTS!
+    ################################################################################
+    # Take 1 step to get statics
+    logging.info("MCMC Burn-in")
+    logging.info("Taking 1 burn-in step to get correct statics")
+    mcmc_stats = trainer.sampling_step(state, statics, False, None)[-1]
+    statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
+    logging.info("Taking 1 opt step to get correct statics")
+    mcmc_stats = trainer.step(state, statics)[-1]
+    statics = static_schedulers(mcmc_stats.static_max, trainer.step._cache_size)
+
+    for burnin_step in range(optimization["burn_in"]):
+        t0 = time.perf_counter()
         state, aux_data, mcmc_stats = trainer.sampling_step(state, statics, False, None)
-        statics = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
+        _ = static_schedulers(mcmc_stats.static_max, trainer.sampling_step._cache_size)
         log_data = to_log_data(mcmc_stats, statics, aux_data)
+        t1 = time.perf_counter()
+        log_data["burnin/t_step"] = t1 - t0
+        log_data["burnin/step"] = burnin_step
         loggers.log(log_data)
 
     logging.info("Saving checkpoint after pretraining+burn-in")
@@ -239,7 +249,7 @@ def main(
     if optimization["steps"] >= n_steps_prev:
         logging.info("Taking 1 opt step to get correct statics")
         mcmc_stats = trainer.step(state, statics)[-1]
-        statics = static_schedulers(mcmc_stats.static_max, trainer.step._cache_size)
+        _ = static_schedulers(mcmc_stats.static_max, trainer.step._cache_size)
 
     logging.info("Starting training loop")
     for opt_step in range(n_steps_prev, optimization["steps"] + 1):
@@ -253,7 +263,7 @@ def main(
 
         t0 = time.perf_counter()
         state, _, aux_data, mcmc_stats = trainer.step(state, statics)
-        statics = static_schedulers(mcmc_stats.static_max, trainer.step._cache_size)
+        _ = static_schedulers(mcmc_stats.static_max, trainer.step._cache_size)
         log_data = to_log_data(mcmc_stats, statics, aux_data)
         t1 = time.perf_counter()
         log_data["opt/t_step"] = t1 - t0

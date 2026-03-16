@@ -675,11 +675,17 @@ class MoleculeChainArgs(TypedDict):
     n: int
 
 
+class CumuleneArgs(TypedDict):
+    n_carbon: int
+    angle: float
+
+
 class MoleculeArgs(TypedDict):
     method: str
     from_str_args: MoleculeFromStrArgs
     chain_args: MoleculeChainArgs
     database_args: MoleculeDatabaseArgs
+    cumulene_args: CumuleneArgs
     basis: str
     pseudopotentials: Sequence[str]
 
