@@ -18,6 +18,9 @@ molecule_args:
     element: "H"
     distance: 2.0
     n: 10
+  cumulene_args:
+    n_carbon: 4
+    angle: 0.0
   basis: ccecp-ccpvdz
   pseudopotentials: ["B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br", "Kr"]
 
