@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import matplotlib.ticker as ticker
 from sparse_wf.plot_utils import COLOR_PALETTE, COLOR_FIRE, savefig
+import scienceplots  # noqa
 
 plt.style.use(["science", "grid"])
 
@@ -173,3 +174,5 @@ fig.tight_layout()
 fig.subplots_adjust(wspace=0.2)
 
 savefig(fig, "scaling")
+
+# %%
