@@ -57,10 +57,11 @@ def parse_orca_output(file_path):
         "total_hours": total_hours,
         "ccsd_step_hours": np.mean(ccsd_iteration_times) / 3600,
         "num_ccsd_iterations": len(ccsd_iteration_times),
+        "output_file": str(file_path),
     }
 
 
-all_fnames = Path("/storage/scherbelam20/runs/orca/cumulene/CCSDT_runtime/").glob("*/orca.out")
+all_fnames = Path("/home/scherbelam20/runs/orca/cumulene/CCSDT_runtime/800GB_64core/").glob("*/orca.out")
 all_data = []
 for fname in all_fnames:
     all_data.append(parse_orca_output(fname))
