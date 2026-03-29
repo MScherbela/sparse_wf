@@ -7,7 +7,7 @@ import numpy as np
 
 sns.set_style("whitegrid")
 
-N_EL_MIN_FOR_FIT = 28
+N_EL_MIN_FOR_FIT = 40
 BASIS_SET = "cc-pVTZ"
 FIRE_BATCH_SIZE = 512  # 1 node with 8 GPUs for 4096 total batch size
 NUM_STEPS_BASE_CASE = 100e3
