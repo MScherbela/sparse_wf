@@ -61,10 +61,14 @@ def parse_orca_output(file_path):
     }
 
 
-all_fnames = Path("/home/scherbelam20/runs/orca/cumulene/CCSDT_runtime/800GB_64core/").glob("*/orca.out")
+# all_fnames = Path("/home/scherbelam20/runs/orca/cumulene/CCSDT_runtime/800GB_64core/").glob("*/orca.out")
+# all_fnames = Path("/home/scherbelam20/runs/orca/cumulene/CCSDT/").glob(
+#     "cumulene_C*H4_90deg_triplet_PBE0+CCSD(T)_cc-pVTZ/**/orca.out"
+# )
+all_fnames = Path("/storage/scherbelam20/runs/orca/cumulene/CCSDT_runtime/800GB_24core/").glob("**/orca.out")
 all_data = []
 for fname in all_fnames:
     all_data.append(parse_orca_output(fname))
 df = pd.DataFrame(all_data).sort_values(["num_atoms", "basis_set"])
-df.to_csv("cumulene_orca.csv", index=False)
+df.to_csv("cumulene_orca_PBE0_CCSDT.csv", index=False)
 # %%

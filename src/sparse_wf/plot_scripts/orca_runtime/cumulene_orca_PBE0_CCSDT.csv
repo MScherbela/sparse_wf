@@ -1,0 +1,7 @@
+num_atoms,basis_set,num_basis_functions,success,total_hours,ccsd_step_hours,num_ccsd_iterations,output_file
+10,cc-pVTZ,272,True,0.27741388888888885,0.014936752136752138,13,/storage/scherbelam20/runs/orca/cumulene/CCSDT_runtime/800GB_24core/cumulene_C6H4_90deg_triplet_CCSD(T)_cc-pVTZ/orca.out
+12,cc-pVTZ,344,True,0.9906086111111111,0.04315296296296297,15,/storage/scherbelam20/runs/orca/cumulene/CCSDT_runtime/800GB_24core/cumulene_C8H4_90deg_triplet_CCSD(T)_cc-pVTZ/orca.out
+14,cc-pVTZ,416,True,3.0304444444444445,0.11078807189542485,17,/storage/scherbelam20/runs/orca/cumulene/CCSDT_runtime/800GB_24core/cumulene_C10H4_90deg_triplet_CCSD(T)_cc-pVTZ/orca.out
+16,cc-pVTZ,488,True,8.57475,0.30203672839506174,18,/storage/scherbelam20/runs/orca/cumulene/CCSDT_runtime/800GB_24core/cumulene_C12H4_90deg_triplet_CCSD(T)_cc-pVTZ/orca.out
+18,cc-pVTZ,560,True,20.570540555555556,0.669398538011696,19,/storage/scherbelam20/runs/orca/cumulene/CCSDT_runtime/800GB_24core/cumulene_C14H4_90deg_triplet_CCSD(T)_cc-pVTZ/orca.out
+20,cc-pVTZ,632,True,49.60803,1.6399055555555553,19,/storage/scherbelam20/runs/orca/cumulene/CCSDT_runtime/800GB_24core/cumulene_C16H4_90deg_triplet_CCSD(T)_cc-pVTZ/orca.out
