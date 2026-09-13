@@ -192,3 +192,5 @@ fig.savefig("scaling.png", bbox_inches="tight", dpi=300)
 fig.savefig("scaling.pdf", bbox_inches="tight")
 
 # %%
+df_source = pivot[["model", "n_el", "t_E_kin", "t_update", "t_total"]].copy()
+df_source.to_csv("data/source_data_fig2.csv", index=False)
