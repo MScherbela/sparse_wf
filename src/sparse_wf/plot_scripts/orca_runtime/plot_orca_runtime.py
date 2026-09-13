@@ -7,7 +7,7 @@ import numpy as np
 
 sns.set_style("whitegrid")
 
-N_EL_MIN_FOR_FIT = 20
+N_EL_MIN_FOR_FIT = 30
 BASIS_SET = "cc-pVTZ"
 FIRE_BATCH_SIZE = 512  # 1 node with 8 GPUs for 4096 total batch size
 NUM_STEPS_BASE_CASE = 100e3
@@ -21,7 +21,7 @@ def fit_and_plot(ax, x, y, color, ls="-", n_fit_min=N_EL_MIN_FOR_FIT, n_plot_fit
     fit_coeffs = np.polyfit(np.log(x_fit), np.log(y_fit), 1)
     exponent = fit_coeffs[0]
     # x_fit = np.array([min(x_fit), 500])
-    for x_fit, ls in zip(np.array([[min(x_fit), max(x_fit)], [max(x_fit), n_plot_fit_max]]), ['-', '--']):
+    for x_fit, ls in zip(np.array([[min(x_fit), max(x_fit)], [max(x_fit), n_plot_fit_max]]), ["-", "--"]):
         y_fitted = np.exp(np.polyval(fit_coeffs, np.log(x_fit)))
         ax.plot(x_fit, y_fitted, color=color, lw=2, ls=ls)
     return exponent
@@ -35,6 +35,7 @@ def format_exponent(exp):
 df_ccsdt = pd.read_csv("cumulene_orca_PBE0_CCSDT.csv")
 df_ccsdt = df_ccsdt.sort_values(["num_atoms", "num_basis_functions"])
 df_ccsdt["num_valence_electrons"] = (df_ccsdt.num_atoms - 4) * 4 + 4
+df_ccsdt = df_ccsdt[df_ccsdt.num_atoms > (6 + 4)]
 
 
 # FiRE
