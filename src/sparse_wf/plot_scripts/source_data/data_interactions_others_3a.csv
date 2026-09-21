@@ -1,0 +1,12 @@
+system,E_LapNet_Ha,E_CCSD(T)_Ha
+01_Water_dimer,0.00725,0.00795
+02_Formic_acid_dimer,0.0264,0.02988
+03_Formamide_dimer,0.0226,0.0256
+04_Uracil_dimer_h-bonded,0.037,0.03289
+05_Methane_dimer,0.0003,0.00084
+06_Ethene_dimer,0.0016,0.00235
+07_Uracil_dimer_stack,0.0117,0.01563
+08_Ethene-ethyne_complex,0.0013,0.00238
+09_Benzene-water_complex,0.0029,0.00522
+10_Benzene_dimer_T-shaped,0.0026,0.00433
+11_Phenol_dimer,0.008,0.01131

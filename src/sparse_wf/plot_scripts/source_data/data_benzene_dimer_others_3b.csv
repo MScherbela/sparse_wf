@@ -1,0 +1,9 @@
+method,binding_energy_Ha,uncertainty_Ha,comment
+Experiment (Grover et al),0.00438,0.0008,2.4 kcal/mol + 0.35 kcal/mol ZPE
+Experiment (Krause et al),0.0031295,0.0004,70 meV + 0.35 kcal/mol ZPE
+CCSD(T)/CBS (Marshall et al),0.0043,,
+FermiNet VMC (Ren et al),0.0182,0.0006,
+FermiNet DMC (Ren et al),0.0092,0.00045,
+FermiNet VMC (Glehn et al),0.0046,0.0008,
+Psiformer (Glehn et al),0.0007,0.0003,with layernorm
+LapNet (Li et al),0.0026,0.0001,
