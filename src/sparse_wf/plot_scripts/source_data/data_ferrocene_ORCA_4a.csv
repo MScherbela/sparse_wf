@@ -1,0 +1,29 @@
+method,basis,charge,E_Ha,comment
+UHF,cc-pVDZ,charged,-2105.549473354233,
+UHF,cc-pVDZ,neutral,-2105.743746707625,
+UHF,cc-pVTZ,charged,-2105.660843461716,
+UHF,cc-pVTZ,neutral,-2105.854885324274,
+UHF,cc-pVQZ,charged,-2105.689508876663,
+UHF,cc-pVQZ,neutral,-2105.883794447182,
+UHF,CBS34,charged,-2105.689631327454,HF energy extrapolated from UHF/cc-pVTZ and UHF/cc-pVQZ
+UHF,CBS34,neutral,-2105.883917939027,HF energy extrapolated from UHF/cc-pVTZ and UHF/cc-pVQZ
+PBE0 D3BJ,def2-SVP,charged,-2108.78665915629,
+PBE0 D3BJ,def2-SVP,neutral,-2109.030129796025,
+PBE0 D3BJ,def2-TZVP,charged,-2109.520543071035,
+PBE0 D3BJ,def2-TZVP,neutral,-2109.763136949113,
+PBE0 D3BJ,CBS23,charged,-2109.913088363853,"UHF/CBS34 + correlation term E(PBE0 D3BJ)-E(UHF) extrapolated from zeta=2,3"
+PBE0 D3BJ,CBS23,neutral,-2110.155549935768,"UHF/CBS34 + correlation term E(PBE0 D3BJ)-E(UHF) extrapolated from zeta=2,3"
+DLPNO-CCSD(T),def2-SVP,charged,-2106.938091185194,
+DLPNO-CCSD(T),def2-SVP,neutral,-2107.177215035591,
+DLPNO-CCSD(T),def2-TZVP,charged,-2108.146007549168,
+DLPNO-CCSD(T),def2-TZVP,neutral,-2108.391528008978,
+DLPNO-CCSD(T),CBS2,charged,-2107.078249158415,"UHF/CBS34 + DLPNO-CCSD(T)/def2-SVP correlation term (E(DLPNO)-E(UHF cc-pVDZ)), no correlation extrapolation"
+DLPNO-CCSD(T),CBS2,neutral,-2107.317386266993,"UHF/CBS34 + DLPNO-CCSD(T)/def2-SVP correlation term (E(DLPNO)-E(UHF cc-pVDZ)), no correlation extrapolation"
+DLPNO-CCSD(T),CBS23,charged,-2108.815547218774,"UHF/CBS34 + correlation term E(DLPNO-CCSD(T))-E(UHF) extrapolated from zeta=2,3"
+DLPNO-CCSD(T),CBS23,neutral,-2109.065185467304,"UHF/CBS34 + correlation term E(DLPNO-CCSD(T))-E(UHF) extrapolated from zeta=2,3"
+CCSD(T),cc-pVDZ,charged,-2107.757763711017,
+CCSD(T),cc-pVDZ,neutral,-2108.003014002804,
+CCSD(T),CBS2,charged,-2107.897921684238,"UHF/CBS34 + CCSD(T)/cc-pVDZ correlation term (E(CCSD(T))-E(UHF cc-pVDZ)), no correlation extrapolation"
+CCSD(T),CBS2,neutral,-2108.1431852342057,"UHF/CBS34 + CCSD(T)/cc-pVDZ correlation term (E(CCSD(T))-E(UHF cc-pVDZ)), no correlation extrapolation"
+CCSD(T),FPA,charged,-2109.6352197445967,"DLPNO-CCSD(T)/CBS23 + CCSD(T)/CBS2 - DLPNO-CCSD(T)/CBS2"
+CCSD(T),FPA,neutral,-2109.890984434517,"DLPNO-CCSD(T)/CBS23 + CCSD(T)/CBS2 - DLPNO-CCSD(T)/CBS2"
